@@ -1,0 +1,10 @@
+{
+  "provider": "stub",
+  "model": null,
+  "adapter_version": "p4-preflight-v0",
+  "request_id": "req-example-001",
+  "attempt_id": "attempt-example-001",
+  "billing_state": "not_called",
+  "elapsed_ms": 0,
+  "error_code": null
+}

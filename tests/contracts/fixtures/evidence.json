@@ -1,0 +1,9 @@
+{
+  "source_id": "source-example-001",
+  "source_type": "regulator",
+  "title": "테스트를 위한 가상 규제 출처",
+  "url_or_doi": "https://example.org/not-an-actual-source",
+  "retrieved_at": "2026-10-24T00:00:00+09:00",
+  "claim_ids": [],
+  "verification_status": "unverified"
+}

@@ -1,0 +1,11 @@
+{
+  "mock": false,
+  "brand_name": "테스트브랜드",
+  "product_name": "보습 크림",
+  "audience": "성인 스킨케어 관심층(가설)",
+  "direction": "제품의 일상적 사용 경험 중심",
+  "research_performed": false,
+  "evidence": [],
+  "risk_flags": ["제품 효능 주장 미검증"],
+  "disclaimer": "구조화된 계약 테스트 Fixture이며 실조사 결과 아님"
+}

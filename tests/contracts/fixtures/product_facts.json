@@ -1,0 +1,7 @@
+{
+  "brand_name": "테스트브랜드",
+  "product_name": "보습 크림",
+  "claims": ["보습에 도움이 된다고 사용자가 입력"],
+  "attributes": ["크림 제형"],
+  "claim_source": "user_supplied_unverified"
+}

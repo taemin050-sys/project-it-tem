@@ -1,0 +1,10 @@
+{
+  "job_id": "7ee5fe3baee04ac9931a94c700d513ff",
+  "copy_revision": 1,
+  "copy_text": "일상에 스며드는 스킨케어 루틴",
+  "prompt_en": "Studio cosmetics still life. Preserve original packaging and label. Leave a headline-safe area. No generated Korean overlay.",
+  "product_asset_ids": ["6cbcafa29bcd47189971ea048dc01229"],
+  "reference_asset_ids": [],
+  "safe_zone": {"coordinate_system": "final_canvas_normalized", "left": 0.08, "top": 0.06, "right": 0.92, "bottom": 0.30},
+  "negative_constraints": ["Never modify package lettering", "Do not invent medical claims"]
+}
