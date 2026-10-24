@@ -4,6 +4,7 @@ from fastapi import FastAPI
 
 from .job_api import router as jobs_router
 from .job_store import JobStore
+from .mock_workflow import router as mock_router
 
 def create_app(storage_root: Path | None = None) -> FastAPI:
     """Construct a testable app with an isolated, persistent local job store."""
@@ -15,6 +16,7 @@ def create_app(storage_root: Path | None = None) -> FastAPI:
     root = storage_root or Path(__file__).resolve().parents[2] / ".runtime" / "jobs"
     application.state.job_store = JobStore(root)
     application.include_router(jobs_router)
+    application.include_router(mock_router)
 
     @application.get("/health", tags=["System"])
     def health_check():
