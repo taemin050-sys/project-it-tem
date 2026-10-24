@@ -136,3 +136,109 @@ class JobStore:
 
 def hash_bytes(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
+
+# Internal mock-only artifact names; no client-controlled filenames or paths.
+MOCK_ARTIFACTS = {
+    "plan": ("plan.json", "application/json"),
+    "copy": ("copy.json", "application/json"),
+    "image": ("image_candidate.png", "image/png"),
+    "final": ("final_mock.png", "image/png"),
+    "caption": ("caption.txt", "text/plain; charset=utf-8"),
+}
+
+
+def transition_job(
+    store: JobStore,
+    job_id: str,
+    *,
+    expected_status: str,
+    next_status: str,
+    updates: dict[str, Any] | None = None,
+    artifact_kind: str | None = None,
+    artifact_bytes: bytes | None = None,
+    additional_artifacts: dict[str, bytes] | None = None,
+) -> dict[str, Any]:
+    """Single-worker state change; artifacts and ledger are published together.
+
+    State preconditions reject duplicate/out-of-order requests (409). Artifact
+    files are only visible in the ledger after their bytes are fsynced. On
+    ledger failure, newly created artifact files are removed.
+    """
+    if (artifact_kind is None) != (artifact_bytes is None):
+        raise ValueError("Artifact name and data must be supplied together")
+    contents = dict(additional_artifacts or {})
+    if artifact_kind is not None:
+        if artifact_kind in contents:
+            raise ValueError("Duplicate artifact kind")
+        contents[artifact_kind] = artifact_bytes
+    if any(kind not in MOCK_ARTIFACTS for kind in contents):
+        raise ValueError("Unsupported mock artifact")
+
+    with store._lock:
+        current = store.get_job(job_id)
+        if current["status"] != expected_status:
+            raise HTTPException(
+                status_code=409,
+                detail={"error": "INVALID_WORKFLOW_STATE", "current_status": current["status"],
+                        "expected_status": expected_status},
+            )
+
+        next_job = dict(current)
+        next_job["status"] = next_status
+        next_job.update(updates or {})
+        job_dir = store._job_dir(job_id)
+        registered = dict(current.get("artifacts", {}))
+        for kind, data in contents.items():
+            filename, media_type = MOCK_ARTIFACTS[kind]
+            target = job_dir / filename
+            if kind in registered or target.exists() or target.is_symlink():
+                raise HTTPException(status_code=409, detail="Artifact already exists")
+            registered[kind] = {
+                "kind": kind,
+                "content_type": media_type,
+                "size_bytes": len(data),
+                "download_url": f"/api/v1/jobs/{job_id}/artifacts/{kind}",
+            }
+        if contents:
+            next_job["artifacts"] = registered
+
+        pending: list[Path] = []
+        published: list[Path] = []
+        temp_ledger = job_dir / f"job.{uuid4().hex}.tmp"
+        try:
+            for kind, data in contents.items():
+                filename, _ = MOCK_ARTIFACTS[kind]
+                target = job_dir / filename
+                temp = job_dir / f"artifact.{uuid4().hex}.tmp"
+                pending.append(temp)
+                with temp.open("xb") as stream:
+                    stream.write(data)
+                    stream.flush()
+                    os.fsync(stream.fileno())
+                os.replace(temp, target)
+                pending.remove(temp)
+                published.append(target)
+            with temp_ledger.open("x", encoding="utf-8") as stream:
+                json.dump(next_job, stream, ensure_ascii=False, indent=2)
+                stream.flush()
+                os.fsync(stream.fileno())
+            os.replace(temp_ledger, job_dir / "job.json")
+        except BaseException:
+            temp_ledger.unlink(missing_ok=True)
+            for path in pending + published:
+                path.unlink(missing_ok=True)
+            raise
+        return next_job
+
+
+def get_mock_artifact(store: JobStore, job_id: str, kind: str) -> tuple[Path, str]:
+    if kind not in MOCK_ARTIFACTS:
+        raise HTTPException(status_code=404, detail="Artifact not found")
+    job = store.get_job(job_id)
+    if kind not in job.get("artifacts", {}):
+        raise HTTPException(status_code=404, detail="Artifact not found")
+    filename, media_type = MOCK_ARTIFACTS[kind]
+    path = store._job_dir(job_id) / filename
+    if not path.is_file() or path.is_symlink():
+        raise HTTPException(status_code=404, detail="Artifact not found")
+    return path, media_type
