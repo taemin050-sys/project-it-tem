@@ -5,6 +5,8 @@ from fastapi import FastAPI
 from .job_api import router as jobs_router
 from .job_store import JobStore
 from .mock_workflow import router as mock_router
+from .text_workflow import router as text_router
+from .text_adapter import provider_ready
 
 def create_app(storage_root: Path | None = None) -> FastAPI:
     """Construct a testable app with an isolated, persistent local job store."""
@@ -17,6 +19,17 @@ def create_app(storage_root: Path | None = None) -> FastAPI:
     application.state.job_store = JobStore(root)
     application.include_router(jobs_router)
     application.include_router(mock_router)
+    application.include_router(text_router)
+
+    @application.get("/api/v1/capabilities", tags=["System"])
+    def capabilities():
+        return {
+            "mode": "prototype",
+            "api_contract": "PROVISIONAL",
+            "text_provider_ready": provider_ready(),
+            "image_provider_ready": False,
+            "mock_workflow_available": True,
+        }
 
     @application.get("/health", tags=["System"])
     def health_check():

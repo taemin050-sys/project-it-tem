@@ -1,0 +1,2 @@
+# Optional P4A backend text adapter (opt-in; team-controlled API model and budget).
+openai>=2,<4
