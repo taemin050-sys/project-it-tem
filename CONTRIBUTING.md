@@ -1,5 +1,7 @@
 # GitHub 프로젝트 구조 및 협업 규칙
 
+> **2026-10-26 팀 연동 계약 우선:** API/DTO/상태, 텍스트 v0.5 스키마, 파트별 소유는 [docs/interface_spec.md](docs/interface_spec.md)와 [docs/contracts/README.md](docs/contracts/README.md)를 먼저 참조합니다. 본 문서의 기존 디렉터리·브랜치 예시는 과거 계획을 포함하므로 회의 계약과 충돌하면 새 계약이 우선합니다.
+
 **프로젝트:** 생성형 AI 기반 소상공인 광고 콘텐츠 제작 서비스  
 **프로젝트 기간:** 2026.10.15 ~ 2026.11.13  
 **팀 구성:** 5명  
@@ -11,7 +13,7 @@
 
 ```text
 .
-├── app/                    # Streamlit 서비스 UI
+├── frontend/               # React + Vite + TypeScript (계획 디렉터리, FE PR에서 확정)
 ├── configs/                # 모델 및 실험 설정
 ├── data/                   # 로컬 데이터 (Git 업로드 금지)
 ├── docs/                   # 기획서, 회의록, 설계 및 인터페이스 문서
@@ -39,14 +41,14 @@
 
 | 디렉터리 | 용도 | 담당 |
 |---|---|---|
-| `app/` | Streamlit UI 및 사용자 입력·출력 화면 | 권혁상 |
+| `frontend/` (계획) | React + Vite + TypeScript UI | 권혁상 |
 | `configs/` | 모델 및 서비스 설정 | 관련 담당자 |
 | `data/` | 로컬 실험 데이터 및 이미지 | 관련 담당자 |
 | `docs/` | 기획서, 회의록, 기술 설계, 인터페이스 | 팀 공통 |
 | `notebooks/` | 모델 및 실험 노트북 | 관련 담당자 |
 | `results/` | 모델 비교 및 평가 결과 | 관련 담당자 |
-| `src/image_generation/` | 이미지 생성 및 제품 보존 | 김다혜, 박지수 |
-| `src/text_generation/` | 광고 기획 및 카피 생성 | 김다혜, 박지수 |
+| `src/image_generation/` | 이미지 생성·합성 및 제품 보존 | 박지수 |
+| `src/text_generation/` | VLM·Research·기획·카피·규제 검수 | 김다혜 |
 | `src/evaluation/` | 모델 성능 및 서비스 평가 | 이태민 |
 | `src/serving/` | API 및 모델 서빙 | 이형기 |
 | `scripts/` | 실행 및 테스트 스크립트 | 관련 담당자 |
@@ -130,10 +132,10 @@ main                         # 최종 안정 버전
 
 | 담당자 | 브랜치 예시 | 담당 파트 |
 |---|---|---|
-| 김다혜·박지수 | `feat/image-generation` | 이미지 생성 모델 |
-| 김다혜·박지수 | `feat/text-generation` | 텍스트 생성 모델 |
+| 박지수 | `feat/image-generation` | 이미지 생성·합성 모델 |
+| 김다혜 | `feat/text-generation` | VLM·리서치·기획·카피·검수 |
 | 이형기 | `feat/model-serving` | FastAPI 및 모델 서빙 |
-| 권혁상 | `feat/streamlit-ui` | Streamlit UI |
+| 권혁상 | `feat/react-ui` (예시) | React + Vite + TypeScript UI |
 | 이태민 | `feat/evaluation` | 모델 및 서비스 평가 |
 
 위 브랜치는 예시이며, 실제로는 작업이나 실험 단위로 생성합니다. 동일한 기능을 여러 명이 실험할 경우 각자 별도 브랜치를 생성합니다.

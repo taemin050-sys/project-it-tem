@@ -1,0 +1,30 @@
+{
+  "research": {
+    "product_summary": "사용자가 입력한 크림 소개. 독립 확인 전.",
+    "functional_notes": "기능성 여부를 사용자 입력만으로 검증할 수 없음.",
+    "market_insights": [
+      {
+        "text": "산뜻한 이미지 구성이 적합할 수 있음",
+        "source": "AI 추론"
+      }
+    ],
+    "similar_products": [],
+    "ad_direction": "깔끔한 제품 이미지와 사용감 표현 중심",
+    "display_summary": [
+      {
+        "text": "제품 설명은 사용자 입력에 근거",
+        "source": "사용자 입력"
+      },
+      {
+        "text": "광고 방향은 AI 제안",
+        "source": "AI 추론"
+      },
+      {
+        "text": "외부 검색이 수행되지 않았음",
+        "source": "AI 추론"
+      }
+    ]
+  },
+  "citations": [],
+  "research_performed": false
+}

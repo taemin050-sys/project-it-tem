@@ -1,0 +1,17 @@
+{
+  "is_cosmetic": true,
+  "product_type": "스킨케어",
+  "container_type": "자",
+  "colors": [
+    "흰색",
+    "연분홍"
+  ],
+  "label_text": [
+    "RAUM"
+  ],
+  "mood": [
+    "미니멀",
+    "청량"
+  ],
+  "is_transparent": false
+}
