@@ -4,8 +4,8 @@
     {
       "field": "headline",
       "text": "피부 재생",
-      "start": 0,
-      "end": 5,
+      "start": 4,
+      "end": 9,
       "category": "의약품 오인",
       "risk_level": "위반 의심",
       "reason": "의약품 효능으로 오인할 여지가 있는 표현",

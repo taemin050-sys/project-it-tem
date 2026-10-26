@@ -4,6 +4,7 @@ Not a replacement for text team's real Pydantic schemas.py v0.5 or FastAPI contr
 """
 import json
 from pathlib import Path
+from validation import ContractViolation, validate_compliance
 
 ROOT = Path(__file__).resolve().parent
 DOCROOT = ROOT.parent
@@ -43,14 +44,30 @@ assert {"headline", "subline", "cta"} <= c["ad_copy"].keys()
 im = read("image_prompt_output", ["concept", "prompt", "mood"])
 assert im["concept"] == c["plan"]["concept"] and im["mood"] == c["plan"]["mood"]
 assert "negative_prompt" not in im
-for name, expected in [("compliance_report_pass", True), ("compliance_report_block", False)]:
-    item = read(name, ["passed", "issues", "revised_fields", "checklist", "notice"])
-    assert item["passed"] is expected
-    assert item["passed"] == (not any(v["risk_level"] == "위반 의심" for v in item["issues"]))
-    for issue in item["issues"]:
-        assert issue["start"] >= 0 and issue["end"] > issue["start"]
-        assert issue["start"] <= len(issue["text"]) and issue["end"] <= len(issue["text"])
-        assert issue["text"][issue["start"]:issue["end"]] == issue["text"]
+# Validate exact issue offsets against the FULL source copy field, not issue.text.
+# The 'blocked' report belongs to a distinct deliberately risky Copy Fixture.
+for report_name, copy_name, expected in [
+    ("compliance_report_pass", "ad_copy_output", True),
+    ("compliance_report_block", "copy_for_block", False),
+]:
+    report = read(report_name, ["passed", "issues", "revised_fields",
+                                "checklist", "notice"])
+    source = read(copy_name, ["plan", "ad_copy", "caption", "hashtags"])
+    outcome = validate_compliance(source, report, product_name=p["product_name"])
+    if outcome is not expected:
+        raise ContractViolation(f"unexpected compliance result: {report_name}")
+# One invalid offset must FAIL. This smoke guard prevents reintroducing the
+# formerly incorrect self-slicing issue.text[start:end] validation.
+invalid = json.loads(json.dumps(read("compliance_report_block", ["issues", "passed"])))
+invalid["issues"][0]["start"] = 0
+invalid["issues"][0]["end"] = len(invalid["issues"][0]["text"])
+try:
+    validate_compliance(read("copy_for_block", ["ad_copy", "caption", "hashtags"]),
+                        invalid, product_name=p["product_name"])
+except ContractViolation:
+    pass
+else:
+    raise ContractViolation("bad offset was accepted")
 print("STATIC TEAM PACK SMOKE: PASS (10 docs+entrypoints, 7 synthetic fixtures)")
 
 
