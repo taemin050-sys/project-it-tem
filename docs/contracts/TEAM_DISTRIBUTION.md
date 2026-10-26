@@ -1,28 +1,34 @@
-# 팀 배포 안내문 / 10·26 결정 반영 v0.2
+# IT-TEM 통합 계약 v0.2 — 팀 공지·배포 패키지
 
-## 전 팀원에게 보낼 공지 (계약 PR 리뷰·병합 기준)
+> **사용 시점:** PR #4 영향 담당 리뷰 및 `dev` 병합 후, **동일한 확정 Git SHA**로만 배포한다. 병합 전 공유하는 경우 **`PR REVIEW`**라고 표시한다.
 
-IT-TEM 10/26 PM 참석 파트 연동 회의 결정에 따라 연동 계약 v0.2를 정리했습니다. **모든 팀원은 같은 커밋의 docs/contracts/README.md를 시작점으로 사용해 주세요.** 이전 10/26 이전 interface_spec v0.1과 M1~M5 기술 보고서는 작업 이력/검증 기준이며, 새 회의의 역할·데이터 필드 결정과 충돌하면 v0.2를 따릅니다.
+## 1. 전 팀원 공통 공지 (붙여넣기용)
 
-먼저 공통으로 docs/interface_spec.md / docs/contracts/DECISION_REGISTER.md / docs/contracts/SCHEMA_MAPPING.md / docs/contracts/IMPLEMENTATION_PLAN.md를 확인한 뒤, 본인 패키지만 추가로 읽고 개발을 진행합니다.
+IT-TEM 10/26 PM 참석 연동 회의에서 결정한 내용을 `docs/interface_spec.md v0.2`에 통합했습니다. **전원은 공통 [배포 인덱스](README.md)에서 계약 → 결정 레지스터 → 스키마 매핑 → 실행 로드맵을 순서대로 읽어 주세요.** 이후 **자신의 파트별 가이드 하나**를 참고해 구현합니다. 채팅으로 개별 계약 문구를 복제·수정하지 않고, Git 커밋의 문서를 단일 기준으로 사용합니다.
 
-- 권혁상 / React: docs/contracts/partners/FRONTEND.md
-- 김다혜 / VLM·Research·Planning·Copy·Compliance: docs/contracts/partners/TEXT_AI.md
-- 박지수 / Image+Composition: docs/contracts/partners/IMAGE_COMPOSER.md
-- 이형기 / FastAPI·상태·비용·자산·통합: docs/contracts/partners/SERVING.md
-- 이태민 / PM·QA·병합: docs/contracts/partners/PM_QA.md
+| 파트 | 담당 | 역할별 문서 |
+|---|---|---|
+| React | 권혁상 | [FRONTEND.md](partners/FRONTEND.md) |
+| Text AI · VLM/Research/Copy/Compliance | 김다혜 | [TEXT_AI.md](partners/TEXT_AI.md) |
+| Image AI · Composition | 박지수 | [IMAGE_COMPOSER.md](partners/IMAGE_COMPOSER.md) |
+| FastAPI/Serving/Infra | 이형기 | [SERVING.md](partners/SERVING.md) |
+| PM/QA | 이태민 | [PM_QA.md](partners/PM_QA.md) |
 
-**핵심 변경:** 텍스트 schemas.py v0.5 데이터 계약을 서빙이 수용, VLM 화장품 분석, 조사 요약, ComplianceReport 기반 위반 의심 승인 차단, 한국어 이미지 Prompt+mood, 이미지팀 합성 책임, 베이스라인 실험 포함 총 $10, 순차 연산/중복 호출 구분.
+**중요 변경:** 김다혜 `schemas.py v0.5` 우선, 서빙에서 DTO 호환; 제품 사진 VLM 분석, 조사 요약·검색 사실/AI 추론 구분, Compliance 위반 의심 시 카피 승인 차단, 한국어 이미지 프롬프트·무드, 박지수 이미지·합성 책임, **총 $10** 베이스라인 실험 예산.
 
-**아직 실험/후속 결정:** 카피 필드 활용·각 필드 글자 수·합성 방법, 동일제품/비화장품 UX, 수정 재승인 루프, 추가 HTTP 경로 이름, 최종 모델/상용 노출 정책. 미정 내용을 임의 확정하지 않습니다.
+**미결정:** 카피 최종 길이/표시·합성 방법, 비화장품/동일 제품 처리 정책, 거절 후 재수정, 신규 HTTP endpoint 명세·오류. 구현 완료나 무조건적인 서비스 가능 상태를 의미하지 않습니다.
 
-**중요:** 10/26 현재 dev에는 P1(/health)만 합쳐졌고, 기존 13개 API는 f979331 feature 브랜치에 있습니다. 실제 서빙 endpoint/TS 타입이 v0.2에 자동으로 반영됐다고 생각하지 말아 주세요. 확정 계약에 맞춰 단계별 PR·Contract/Mock/Live/React Browser E2E를 검증합니다.
+**현재 코드 구분:** `dev=d5d07aa`에는 기본 `/health`만, 13개 레거시 API와 118개 테스트는 누적 `f979331` 기능 브랜치에만 있습니다. 모델 연결 전에 반드시 코드/계약/Fixture/브라우저 검증을 진행합니다.
 
-발견된 차이나 변경 요청은 C-ID, 영향을 받는 필드/API, 예상 영향 범위, 담당자, PR 링크를 함께 남겨 주세요. 추가 회의 자체를 선행 조건으로 삼지 않고, 변경사항은 버전과 PR 리뷰로 반영합니다.
+## 2. 전송 담당자 체크리스트
 
-## 배포 시 운영자 체크
-- [ ] 문서 PR 영향 담당 리뷰·dev 병합 확인
-- [ ] docs/contracts/README.md 고정 GitHub URL과 commit SHA 전달
-- [ ] 각 담당자에게 공통 4종 + 자신에게 해당하는 1종 전송
-- [ ] schemas.py v0.5 실제 source commit·wrapper signature 수령
-- [ ] P2→Stage3 feature 중복 병합 방지·비용 기본 OFF 확인
+- [ ] 문서 PR #4 리뷰, PM 및 영향 담당 변경 사항 확인, `dev` 병합 여부 기록
+- [ ] **병합 커밋 SHA·계약 버전·docs/contracts/README.md** 링크를 전체 팀에게 전달
+- [ ] 각 담당자에게 **같은 SHA의** 해당 `partners/` 가이드 안내
+- [ ] 텍스트팀 `schemas.py v0.5` 실제 코드 path/commit/schema+Fixture·이미지 Wrapper signature 수합
+- [ ] 변경 요청은 C-ID·필드·영향·테스트·PR로 정리, 별도 비공식 SSOT 생성 금지
+- [ ] 신규 유료 호출 플래그 기본 OFF, 키 비공개, VM 무승인 중지/재시작 금지
+
+## 3. 회신 요청 (간단)
+
+각 담당자는 **① 본인 스키마/Wrapper 코드 링크 및 commit SHA, ② 서버에 필요한 입력/출력, ③ Contract 테스트 1개 이상, ④ 막힌 사항 및 영향 C-ID**를 GitHub PR 코멘트 또는 Issue로 남겨 주세요. 별도 회의를 전제로 작업을 보류할 필요는 없습니다.

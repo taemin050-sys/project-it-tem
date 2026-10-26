@@ -52,3 +52,25 @@ for name, expected in [("compliance_report_pass", True), ("compliance_report_blo
         assert issue["start"] <= len(issue["text"]) and issue["end"] <= len(issue["text"])
         assert issue["text"][issue["start"]:issue["end"]] == issue["text"]
 print("STATIC TEAM PACK SMOKE: PASS (10 docs+entrypoints, 7 synthetic fixtures)")
+
+
+# DOC_MARKDOWN_STRUCTURE: all relative links and fenced Mermaid/code blocks.
+import re
+all_docs = [ROOT.parent / "interface_spec.md", *sorted(ROOT.rglob("*.md"))]
+for doc in all_docs:
+    body = doc.read_text(encoding="utf-8")
+    assert body.count(chr(96) * 3) % 2 == 0, f"unclosed markdown fence: {doc}"
+    assert body.startswith("# "), f"missing H1: {doc}"
+    for target in re.findall(r"\]\(([^)]+)\)", body):
+        if target.startswith(("https://", "http://", "mailto:", "#")):
+            continue
+        path = doc.parent / target.split("#", 1)[0]
+        assert path.exists(), f"broken link: {doc} -> {target}"
+contract = (ROOT.parent / "interface_spec.md").read_text(encoding="utf-8")
+for section in ("## 1.", "## 2.", "## 3.", "## 4.", "## 5.", "## 6.", "## 7.", "## 8.", "## 9."):
+    assert section in contract, f"missing interface section {section}"
+for token in ("13개", "ProductInput", "ProductAnalysis", "ResearchResult",
+              "AdCopyOutput", "ComplianceReport", "ImagePromptOutput",
+              "GenerationReceipt", "409", "1080", "1350"):
+    assert token in contract, f"missing required reference: {token}"
+print(f"DOC MARKDOWN STRUCTURE: PASS ({len(all_docs)} docs, relative links, fences, v0.1 coverage)")
