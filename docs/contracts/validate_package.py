@@ -68,7 +68,7 @@ except ContractViolation:
     pass
 else:
     raise ContractViolation("bad offset was accepted")
-print("STATIC TEAM PACK SMOKE: PASS (10 docs+entrypoints, 7 synthetic fixtures)")
+print("STATIC TEAM PACK SMOKE: PASS (required files + 8 synthetic fixtures; no Live/API)")
 
 
 # DOC_MARKDOWN_STRUCTURE: all relative links and fenced Mermaid/code blocks.

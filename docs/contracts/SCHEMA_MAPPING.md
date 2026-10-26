@@ -119,4 +119,18 @@ sequenceDiagram
 - [ ] 승인 revision/hash 무효화, Job/Asset ownership, 비용 ledger 중복 제한
 - [ ] FastAPI 구현 `/openapi.json` → TS 타입과 신규 HTTP Fixture 일치 + 기존 13 API 회귀
 
-**현재 첨부한 샘플 JSON은 합성 데이터이며 정식 Pydantic 검증·Live 검증 이전이다.** 이 문서는 필드를 *서빙 안에서* 새로 정의하도록 허가하지 않는다.
+**회의 공유 스냅샷 기반으로 예시 JSON을 Pydantic 검증할 수 있으나, 김다혜 공식 git 경로/commit 검증은 아직 BLOCKED_BY_SOURCE다.** 이 문서는 필드를 *서빙 안에서* 새로 정의하도록 허가하지 않는다.
+
+
+## 7. 원본 검증·서빙 Mapping 의사결정
+
+| 단계 | 수행 가능/차단 | 재현 근거 |
+|---|---|---|
+| 회의 공유 v0.5 텍스트 스냅샷 | 합성 Fixture 구조 검사 가능 (**Snapshot PASS는 Owner PASS가 아님**) | `docs/contracts/check_owner_schema.py`에 source path/파일 hash를 명시해 재현 |
+| 실제 김다혜 소유 repository의 `schemas.py` | **BLOCKED_BY_SOURCE** — 팀 저장소 현재 branch에 존재하지 않음 | Owner의 repo URL, checkout commit SHA, import path, `sha256` 필요 |
+| `ProductFacts` ↔ `ProductInput` | **lossless 변환 구현 전**. brand nullable·ad_purpose·photo_verified 등 레거시가 표현 불가능 | 필드별 preservation sidecar + round-trip 실패/성공 테스트를 서빙 PR에서 제공 |
+| `CopyResult.text` ↔ `AdCopyOutput` | **lossless 자동 변환 불가**. headline/subline/CTA/caption/hashtags를 단일 문자열에 넣으면 구조 소실 | 신규 Job artifact에 v0.5 원형 저장, 레거시는 독립 유지 |
+| `VisualBrief.prompt_en` ↔ `ImagePromptOutput.prompt` | 한국어 prompt + mood 지원은 레거시 내부 모델과 불일치 | 별도 adapter DTO/Fixture로 새 목적 필드 정의, 이미지팀 확인 |
+| `ComplianceReport` 승인·`ResearchResult` citation | 레거시 공개 HTTP에 필드/연결 없음 | 예제 값은 유지하되 OpenAPI/TS 증거 없는 Live 완료 표기 금지 |
+
+**Owner source → Pydantic → Mapper lossless round-trip → JSON Schema → 구현 OpenAPI → TS → Fixture → Contract Test**의 순서로 증빙을 쌓는다. 원본 경로·SHA가 없는 지금은 **Pydantic 소유자 검증·Mapper·HTTP/TS 동기화 완료를 선언할 수 없다**.

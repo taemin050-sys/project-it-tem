@@ -4,28 +4,31 @@
 > **리뷰 상태:** 계약 PR #4 (머지 전 회의 반영안) · **코드 기준:** `dev=d5d07aa` / 기능 브랜치 `f979331`
 > **원칙:** 의미·정책의 공식 SSOT는 `../interface_spec.md`. 이 폴더는 이해·실행·검증용 가이드로, 동일 계약을 다시 정의하지 않는다.
 
-## 1. 먼저 읽는 공통 기준 (순서 고정)
+## 1. 필독 범위 — 전원에게 4문서 강제하지 않음
 
-| 순서 | 파일 | 반드시 확인할 내용 |
+| 대상 | **최소 필독** | 필요할 때만 참조 |
 |---|---|---|
-| ① | **[통합 계약 v0.2](../interface_spec.md)** | 제품·프로세스, 13개 현행 API, 상태, v0.5 필드, 이미지·비용·승인·인수 규칙 |
-| ② | **[결정 레지스터](DECISION_REGISTER.md)** | 10/26 확정·실험·고도화, C-01~12 변경 영향 |
-| ③ | **[스키마 매핑](SCHEMA_MAPPING.md)** | 텍스트 v0.5 → 기존 Serving DTO/HTTP의 실제 차이 |
-| ④ | **[구현·병합 로드맵](IMPLEMENTATION_PLAN.md)** | `dev` vs 누적 feature, 순차 PR·단계별 완료 게이트 |
+| **전 팀원** | **이 README**, [interface_spec.md 1장(흐름·책임)](../interface_spec.md), 자기 [파트별 가이드](#2-담당자에게-배포할-자료) | [C-01~12 결정표](DECISION_REGISTER.md) |
+| **React** | 위 + [계약 2장(HTTP 상태·예제)](../interface_spec.md) | 목표 신규 Wire는 현재 BLOCKED |
+| **텍스트·서빙** | 위 + [SCHEMA_MAPPING](SCHEMA_MAPPING.md) + [계약 2.4~2.7장](../interface_spec.md) | Source·검수 sidecar |
+| **이미지·합성** | 위 + [계약 6장](../interface_spec.md) | [Wire 후보 JSON](examples/wire_proposals.json) |
+| **PM·서빙 통합** | 위 + [IMPLEMENTATION_PLAN](IMPLEMENTATION_PLAN.md) 및 [감사 추적표](DOCUMENT_AUDIT.md) | Branch/QA/예산 증거 |
+
+**신규 기술 Freeze 상태:** 10/27 현재 새 HTTP **FROZEN_WIRE 0건**, 제안 7건 **BLOCKED_WIRE**. 10/26 회의 정책(APPROVED_POLICY)은 동결된 엔드포인트나 구현을 뜻하지 않는다. 실제 사용 가능한 예제는 원격 `dev`가 아닌 `f979331`의 **레거시 13 API**라는 제한을 확인한다.
 
 ```mermaid
 flowchart LR
-    A["공통 계약 SSOT"] --> B["결정·보류"]
-    A --> C["스키마 매핑"]
-    B --> D["역할별 패키지"]
-    C --> D
-    D --> E["각 파트 Fake 테스트·구현"]
-    E --> F["FastAPI 통합/Mock/Live/Browser 검증"]
+    A["README + interface_spec 1장"] --> B["내 역할 가이드"]
+    B --> C{"목표 Wire 동결?"}
+    C -->|"아니요"| D["Owner v0.5/Fake Wrapper"]
+    C -->|"예 + 실제 OpenAPI"| E["FastAPI + React 타입"]
+    D --> F["Contract / 승인 / QA 검증"]
+    E --> F
 ```
 
 ## 2. 담당자에게 배포할 자료
 
-**전 팀원:** 위 공통 4개 + [팀 공지문](TEAM_DISTRIBUTION.md).
+**전 팀원:** README + 통합 계약의 관련 절 + 자기 담당 가이드. [팀 공지문](TEAM_DISTRIBUTION.md)은 배포 담당자가 사용한다.
 **개별:** 공통 문서를 중복 복제한 첨부파일이 아니라 **같은 Git 커밋의 링크**와 아래 자기 파트 파일 1개를 전달한다.
 
 | 담당 | 추가 1개 문서 | 바로 수행할 핵심 작업 | 검증 증거 |
@@ -43,7 +46,7 @@ flowchart LR
 | P1 health | `dev` (`d5d07aa`) | 현재 `dev`에 실제 존재 |
 | HTTP 13개·9개 상태·118개 회귀 | `feat/p4-contract-handoff` (`f979331`) | feature 구현, `dev` 미병합 |
 | 텍스트 `schemas.py v0.5` | 회의에서 공유된 정의 | **실제 팀원 저장소 원본 path/commit 검증 후 정식 동결** |
-| [샘플 Fixture](fixtures/README.md) 7개 | 본 PR | 합성 예제, Live도 HTTP wire도 아니며 Pydantic 검증 전 |
+| [샘플 Fixture](fixtures/README.md) 8개 | 본 PR | 합성 예제, **회의 스키마 스냅샷 Pydantic 검증과 실제 Owner 원본 검증은 별개** |
 | [TS 업로드 샘플](examples/frontend_legacy_upload.ts) | 본 PR | 구 feature HTTP 예제, 현 `dev` API가 아님 |
 | 모델·React Live 통합 | 미검증 | 테스트 결과 PASS로 표시 금지 |
 

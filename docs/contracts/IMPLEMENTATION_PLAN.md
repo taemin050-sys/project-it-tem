@@ -74,3 +74,18 @@ flowchart TD
 | **Ad/Design QA** | 규제 경고·대체카피·라벨/로고 사람 검토 | 미검증 |
 
 **데모 수용은 위 항목을 독립 판정한다.** 하나의 PASS로 다른 미검증 영역을 대신할 수 없다.
+
+
+## 독립 감사 후 통합 선행 게이트 (R0~R6)
+
+| 게이트 | 현행 산출물 / 결과 | 다음 Owner 조건 |
+|---|---|---|
+| R0 원격 재조회 | PR #4 유지, `dev=d5d07aa`, `f979331` feature | 통합 전 원격 SHA 재조회 |
+| R1 위치 검증 | [소스 필드 검증기](validation.py) 및 `tests/test_contract_review_validation.py` | 서빙 Approval Endpoint 실제 테스트는 **후속 구현 PR** |
+| R2 Wire 계약 | [7개 비동결 후보](examples/wire_proposals.json), [VLM false/unknown](examples/vlm_outcomes_proposed.json) | 텍스트·이미지 실제 wrapper signature + React/서빙+PM 명시 승인 |
+| R3 스키마/TS | `check_owner_schema.py` (해시 명시 검증), 현행 OpenAPI와 TypeScript 분리 | 텍스트 원본 repo/SHA, Image wrapper, TS 프로젝트 실제 빌드 |
+| R4 비용/업로드/출처·접근 | [SSOT 7.3~7.5](../interface_spec.md) 정책/기술 위험 분리 | hard cap/계정 목록/보안 접속 방식 승인 + 별도 런타임 PR |
+| R5 문서 계약 재감사 | [DOCUMENT_AUDIT.md](DOCUMENT_AUDIT.md): P0 7/P1 10 상태·테스트 | 독립 감사 재검토, PM 승인 전 병합 금지 |
+| R6 실제 서빙 통합 | **미착수** (PR #4는 docs+contract tests) | P2→Stage3 순차 dev 인수, 실제 13 API/118 회귀 및 새 검증 구분 |
+
+**개발 허가 경계:** Owner는 v0.5 내부 DTO·Fake Wrapper 개발 가능. **신규 HTTP 라우터와 React SDK의 확정 타입은 FROZEN_WIRE + 실제 OpenAPI/TypeScript 증거가 있어야** 동결·통합한다. 미동결 필드는 Mock/Fake label로 분명히 표시. GCP VM 관리·유료 호출은 별도 PM 승인 유지.

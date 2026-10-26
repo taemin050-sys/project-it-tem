@@ -1,0 +1,236 @@
+{
+  "schema_state": "BLOCKED_WIRE",
+  "version": "v0.2-review",
+  "source": "draft interoperability example; NOT deployed OpenAPI",
+  "actions": [
+    {
+      "id": "UP-EXT",
+      "method": "POST",
+      "route_proposal": "/api/v1/jobs",
+      "owner": "Serving+React+PM",
+      "reason": "multipart form ProductInput encoding and upload hard caps unsigned",
+      "request": {
+        "multipart_fields": {
+          "product_images": [
+            "photo_a.jpg",
+            "photo_b.jpg"
+          ],
+          "reference_images": [],
+          "product_input_json": "{\"product_name\":\"라움 데일리 크림\",\"features\":\"부드러운 사용감\",\"ad_purpose\":\"신제품 소개\",\"is_functional\":false,\"photo_verified\":true,\"product_image_count\":2,\"reference_image_count\":0,\"brand_name\":null,\"product_category\":null}"
+        }
+      },
+      "response": {
+        "job_id": "11111111111111111111111111111111",
+        "status": "INPUTS_VALIDATED"
+      },
+      "error_proposal": {
+        "detail": "PRODUCT_INPUT_ASSET_COUNT_MISMATCH"
+      },
+      "allowed": "Fake/mock until endpoint implementation"
+    },
+    {
+      "id": "VLM",
+      "method": "POST",
+      "route_proposal": "/api/v1/jobs/{job_id}/ai/analyze",
+      "owner": "Text+Serving+React+PM",
+      "reason": "route, input storage, false/unknown handling unapproved",
+      "request": {
+        "input_asset_ids": [
+          "22222222222222222222222222222222",
+          "33333333333333333333333333333333"
+        ]
+      },
+      "response": {
+        "job_id": "11111111111111111111111111111111",
+        "status": "INPUTS_VALIDATED",
+        "stage_progress": {
+          "operation": "vlm",
+          "state": "succeeded"
+        },
+        "product_analysis": {
+          "is_cosmetic": true,
+          "product_type": "스킨케어",
+          "container_type": "자",
+          "colors": [
+            "흰색"
+          ],
+          "label_text": [
+            "RAUM"
+          ],
+          "mood": [
+            "미니멀"
+          ],
+          "is_transparent": false
+        }
+      },
+      "error_proposal": {
+        "detail": {
+          "error": "VLM_INDETERMINATE",
+          "stage_progress": {
+            "operation": "vlm",
+            "state": "blocked"
+          }
+        }
+      },
+      "allowed": "text Fake ProductAnalysis; no next paid stage on false or unknown"
+    },
+    {
+      "id": "RESEARCH",
+      "method": "POST",
+      "route_proposal": "/api/v1/jobs/{job_id}/ai/research",
+      "owner": "Text+Serving+React",
+      "reason": "research is within text wrapper; might stay internal, no agreed public route",
+      "request": {
+        "revision": "research-r01"
+      },
+      "response": {
+        "job_id": "11111111111111111111111111111111",
+        "status": "INPUTS_VALIDATED",
+        "stage_progress": {
+          "operation": "research",
+          "state": "succeeded"
+        },
+        "research_result": {
+          "research": {
+            "product_summary": "제품 정보는 사용자 입력",
+            "functional_notes": "기능성 주장 근거 확인 필요",
+            "market_insights": [],
+            "similar_products": [],
+            "ad_direction": "간결한 이미지",
+            "display_summary": [
+              {
+                "text": "시장 가설은 AI 추론",
+                "source": "AI 추론"
+              }
+            ]
+          },
+          "citations": [],
+          "research_performed": false
+        }
+      },
+      "error_proposal": {
+        "detail": "RESEARCH_NOT_READY"
+      },
+      "allowed": "internal Fake only"
+    },
+    {
+      "id": "COPY_COMPLIANCE",
+      "method": "POST",
+      "route_proposal": "/api/v1/jobs/{job_id}/ai/copy-review",
+      "owner": "Text+Serving+React",
+      "reason": "copy/citation/approval readiness HTTP shape not frozen",
+      "request": {
+        "plan_revision": "plan-r01"
+      },
+      "response": {
+        "job_id": "11111111111111111111111111111111",
+        "status": "COPY_REVIEW_REQUIRED",
+        "copy_revision": "copy-r01",
+        "copy_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "compliance_report_revision": "review-r01",
+        "compliance_report": {
+          "passed": true,
+          "issues": [],
+          "revised_fields": {},
+          "checklist": [],
+          "notice": "게시 전 최종 확인 책임은 사용자에게 있습니다."
+        }
+      },
+      "error_proposal": {
+        "detail": "COMPLIANCE_REPORT_MISSING"
+      },
+      "allowed": "owner v0.5 DTO Fake, not current HTTP"
+    },
+    {
+      "id": "COPY_APPROVAL_V2",
+      "method": "POST",
+      "route_proposal": "/api/v1/jobs/{job_id}/approvals/copy",
+      "owner": "Serving+React+Text+PM",
+      "reason": "revision/hash/actor/auth requirements not frozen, legacy accepts boolean only",
+      "request": {
+        "approved": true,
+        "copy_revision": "copy-r01",
+        "copy_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "compliance_report_revision": "review-r01"
+      },
+      "response": {
+        "job_id": "11111111111111111111111111111111",
+        "status": "COPY_APPROVED"
+      },
+      "error_proposal": {
+        "detail": {
+          "error": "COPY_REVIEW_STALE",
+          "current_status": "COPY_REVIEW_REQUIRED",
+          "expected_status": "COPY_REVIEW_REQUIRED"
+        }
+      },
+      "allowed": "existing boolean approval Mock only; no live approval v2"
+    },
+    {
+      "id": "IMAGE",
+      "method": "POST",
+      "route_proposal": "/api/v1/jobs/{job_id}/ai/image",
+      "owner": "Image+Serving+PM",
+      "reason": "wrapper signature/candidate bytes/error and HTTP not approved",
+      "request": {
+        "copy_revision": "copy-r01",
+        "copy_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "image_prompt_revision": "prompt-r01",
+        "product_asset_ids": [
+          "22222222222222222222222222222222",
+          "33333333333333333333333333333333"
+        ]
+      },
+      "response": {
+        "job_id": "11111111111111111111111111111111",
+        "status": "IMAGE_REVIEW_REQUIRED",
+        "image_candidate": {
+          "asset_id": "44444444444444444444444444444444",
+          "content_type": "image/png",
+          "width": 1080,
+          "height": 1350,
+          "sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          "preservation_review": "pending"
+        }
+      },
+      "error_proposal": {
+        "detail": "COPY_APPROVAL_REQUIRED"
+      },
+      "allowed": "internal Fake ImageGenerator only"
+    },
+    {
+      "id": "COMPOSITION",
+      "method": "POST",
+      "route_proposal": "/api/v1/jobs/{job_id}/compose",
+      "owner": "Image+Serving+React",
+      "reason": "image approval revision/sha and composer signature absent",
+      "request": {
+        "approved_image_asset_id": "44444444444444444444444444444444",
+        "approved_image_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "copy_revision": "copy-r01"
+      },
+      "response": {
+        "job_id": "11111111111111111111111111111111",
+        "status": "COMPLETED",
+        "artifacts": {
+          "final": {
+            "kind": "final",
+            "content_type": "image/png",
+            "size_bytes": 4096,
+            "download_url": "/api/v1/jobs/11111111111111111111111111111111/artifacts/final"
+          },
+          "caption": {
+            "kind": "caption",
+            "content_type": "text/plain",
+            "size_bytes": 128,
+            "download_url": "/api/v1/jobs/11111111111111111111111111111111/artifacts/caption"
+          }
+        }
+      },
+      "error_proposal": {
+        "detail": "IMAGE_APPROVAL_REQUIRED"
+      },
+      "allowed": "legacy /mock/compose only"
+    }
+  ]
+}

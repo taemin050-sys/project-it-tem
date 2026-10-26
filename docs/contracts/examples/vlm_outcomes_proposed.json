@@ -1,0 +1,70 @@
+{
+  "status": "BLOCKED_WIRE",
+  "source": "PROPOSAL_ONLY",
+  "note": "Text owner v0.5 ProductAnalysis.is_cosmetic is Boolean; unknown/error are adapter failures with no ProductAnalysis",
+  "cases": [
+    {
+      "id": "TRUE",
+      "job_status": "INPUTS_VALIDATED",
+      "stage_progress_proposal": {
+        "operation": "vlm",
+        "state": "succeeded"
+      },
+      "product_analysis": {
+        "is_cosmetic": true,
+        "product_type": "스킨케어",
+        "container_type": "자",
+        "colors": [],
+        "label_text": [],
+        "mood": [],
+        "is_transparent": false
+      },
+      "next_paid_stage_allowed": true,
+      "ui_proposal": "제품 확인 후 다음 단계 진행"
+    },
+    {
+      "id": "FALSE",
+      "job_status": "INPUTS_VALIDATED",
+      "stage_progress_proposal": {
+        "operation": "vlm",
+        "state": "blocked"
+      },
+      "product_analysis": {
+        "is_cosmetic": false,
+        "product_type": "기타",
+        "container_type": "기타",
+        "colors": [],
+        "label_text": [],
+        "mood": [],
+        "is_transparent": false
+      },
+      "next_paid_stage_allowed": false,
+      "ui_proposal": "화장품 제품 사진을 다시 업로드해 주세요",
+      "error_proposal": "NON_COSMETIC_PRODUCT"
+    },
+    {
+      "id": "UNKNOWN",
+      "job_status": "INPUTS_VALIDATED",
+      "stage_progress_proposal": {
+        "operation": "vlm",
+        "state": "blocked"
+      },
+      "product_analysis": null,
+      "next_paid_stage_allowed": false,
+      "ui_proposal": "사진 판별에 실패했습니다. 후속 작업을 실행하지 않았습니다",
+      "error_proposal": "VLM_INDETERMINATE"
+    },
+    {
+      "id": "TIMEOUT",
+      "job_status": "INPUTS_VALIDATED",
+      "stage_progress_proposal": {
+        "operation": "vlm",
+        "state": "unknown"
+      },
+      "product_analysis": null,
+      "next_paid_stage_allowed": false,
+      "ui_proposal": "호출 결과·청구 상태 확인 후 다시 시도하세요",
+      "error_proposal": "VLM_TIMEOUT_BILLING_UNKNOWN"
+    }
+  ]
+}

@@ -71,3 +71,5 @@ sequenceDiagram
 - [ ] 모델 내 텍스트 합성 vs 별도 레이어 비교 결과. 합성 정책은 실험 후 결정 로그로 등록.
 
 `ImageResult` 바이트 무결성 검사와 제품 원형 보존 판단은 **별개의 통과 조건**이다. 이미지 Wrapper 자체는 JobStore 상태를 바꾸거나 승인 없는 생성 호출을 허용하지 않는다.
+
+**개정 감사 P0 Wire:** [통합 계약 제2.4~2.7장](../../interface_spec.md)의 신규 7개 후보는 모두 **BLOCKED_WIRE**이며, [기계 판독 예시](../examples/wire_proposals.json)는 실제 FastAPI 경로가 아니다. 출처·승인·실행 오해 없이 담당 Wrapper Fake 테스트만 가능하다.

@@ -103,3 +103,5 @@ sequenceDiagram
 | Live/Brower | 모델별 제한 호출·실제 React 업로드/다운로드 | Live 실패를 Mock PASS로 표시하지 않음 |
 
 **환경 경계:** GCP VM `team2-vm` 무승인 중지·재부팅 금지. 인증/HTTPS/CORS 확정 전 8000 public 금지. 서버 키/민감 사진 Git 미포함. 기존 단일 worker JobStore/SQLite를 다중 worker 안전 서비스로 광고하지 않는다.
+
+**개정 감사 P0 Wire:** [통합 계약 제2.4~2.7장](../../interface_spec.md)의 신규 7개 후보는 모두 **BLOCKED_WIRE**이며, [기계 판독 예시](../examples/wire_proposals.json)는 실제 FastAPI 경로가 아니다. 출처·승인·실행 오해 없이 담당 Wrapper Fake 테스트만 가능하다.

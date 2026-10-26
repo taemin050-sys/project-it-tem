@@ -58,3 +58,19 @@ Backward compatibility / Migration: ...
 ```
 
 추가 회의를 개발 선행조건으로 만들지 않는다. 이미 **D**인 사항은 각 담당이 병렬 구현하며, **E/H**는 실험 증빙·버전 변경 없이 확정했다고 말하지 않는다.
+
+
+## 5. 별도 계약 Freeze 레지스터 (PR #4 재감사 기준)
+
+| 계층 | 상태 | 결정 근거 / 승인 필요 |
+|---|---|---|
+| 기존 Feature 13 HTTP API·9 Status | **LEGACY_IMPLEMENTED_UNMERGED** | `f979331` 실제 구현·테스트; `dev`에는 P1만 |
+| 10/26 화장품·파트 책임·VLM·2단계 광고 검수·$10 정책 | **APPROVED_POLICY** | PM 참석 회의 결론. HTTP method/body/error를 보증하지 않음 |
+| 신규 7개 Target Wire 제안 | **BLOCKED_WIRE**, FROZEN 0개 | [SSOT 2.5](../interface_spec.md) + [합성 예제](examples/wire_proposals.json). 영향 담당 source/signature·PM 승인 필요 |
+| VLM false/unknown/error의 최소 fail-closed | **정책 방향 보존 / HTTP·UX BLOCKED_BY_DECISION** | `ProductAnalysis.is_cosmetic`는 Boolean; unknown은 유효한 출력 객체가 아님 |
+| 카피 승인 revision/hash/검수 일치 | **APPROVED_POLICY / FOLLOW_UP IMPLEMENTATION** | 현재 서버 Boolean 승인, Actor 인증 없음 |
+| Cost Guard 중복방지·팀 $10 | **APPROVED_POLICY / FOLLOW_UP IMPLEMENTATION** | SQLite 예약만으로 외부 계정 실청구 합산 안 됨 |
+| Copy 길이/표현·이미지 합성 선택 | **EXPERIMENT** | PM·이미지 실측 후 freeze |
+| 같은 제품·편집 재승인·최종 비화장품 UX | **DEFER** | 임의 MVP 상태 추가 금지 |
+
+**동결 기록 최소 필드:** `change_id, component, status, approver, approved_at, owner_source_commit, wire_example_fixture_sha, openapi_sha, ts_type_check, related_pr`. 이번 PR에는 **신규 FROZEN_WIRE 항목이 없다**.

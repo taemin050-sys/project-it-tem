@@ -107,7 +107,7 @@ main                         # 최종 안정 버전
       ├── feat/image-generation
       ├── feat/text-generation
       ├── feat/model-serving
-      ├── feat/streamlit-ui
+      ├── feat/react-ui
       ├── feat/evaluation
       ├── experiment/sdxl-baseline
       ├── fix/image-upload-error
@@ -142,7 +142,7 @@ main                         # 최종 안정 버전
 
 ### 브랜치 운영 원칙
 
-1. GitHub의 기본 브랜치는 `dev`로 설정합니다.
+1. **현재 GitHub 원격 기본 브랜치는 `main`입니다.** 팀 PR 통합 대상은 `dev`이며 기본 브랜치를 `dev`로 변경하려면 PM 결정과 저장소 설정 변경이 필요합니다. (기존 문서의 dev 기본 브랜치 문구는 과거 계획)
 2. `main`은 최종 안정화된 코드만 관리합니다.
 3. `main`과 `dev`에 직접 Push하지 않습니다.
 4. 모든 작업 브랜치는 최신 `dev`에서 생성합니다.

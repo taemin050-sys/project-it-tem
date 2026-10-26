@@ -38,13 +38,13 @@ flowchart TD
 | 하이라이트 | LLMIssue의 위험 `text`를 실제 `field` 문자열에서 찾아 `start/end` 조립 | 위치 불일치·수정 전 문자열 참조 금지 |
 | 고지 | `notice`의 최종 사용자 확인 책임 문구 보존 | 법규 준수 인증으로 표시 금지 |
 
-### ComplianceReport 예시 (합성 데이터)
+### ComplianceReport 예시 (합성 데이터, 원본 headline="오늘의 피부 재생 크림")
 
 ```json
 {
   "passed": false,
   "issues": [{
-    "field": "headline", "text": "피부 재생", "start": 0, "end": 5,
+    "field": "headline", "text": "피부 재생", "start": 4, "end": 9,
     "category": "의약품 오인", "risk_level": "위반 의심",
     "reason": "의약품 효능 오인 우려", "suggestion": "피부 결 정돈",
     "basis": null, "detected_by": "rule", "auto_fixed": false
@@ -74,3 +74,7 @@ flowchart TD
 - [ ] Fake Wrapper 사용 시 **모델 호출 0**·Live 성공과 분리 보고.
 
 **비용:** 실험 포함 전체 팀 $10 제한, API Key는 서버 비밀관리, 무단 실결제 호출 금지. 텍스트 내용/프롬프트/LLM 평가 책임은 본 파트, JobStore·HTTP·승인·재시도 차단은 서빙 책임이다.
+
+**원본 인계:** `docs/contracts/check_owner_schema.py --source <공식 schemas.py> --expected-sha256 <해시>`로 실제 Owner schema+Fixture를 검증해야 한다. 코드 스냅샷 검증만으로 공식 SHA를 추정해서는 안 된다.
+
+**개정 감사 P0 Wire:** [통합 계약 제2.4~2.7장](../../interface_spec.md)의 신규 7개 후보는 모두 **BLOCKED_WIRE**이며, [기계 판독 예시](../examples/wire_proposals.json)는 실제 FastAPI 경로가 아니다. 출처·승인·실행 오해 없이 담당 Wrapper Fake 테스트만 가능하다.

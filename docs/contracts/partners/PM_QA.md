@@ -62,3 +62,5 @@ flowchart TD
 - [ ] `dev` 코드 미구현 API를 현재 서비스 사용 가능하다고 보고하지 않음.
 
 **의견 요청은 GitHub PR의 구체적 줄/코멘트 또는 결정 레지스터 ID로 접수**해 비동기적으로 수렴한다. 추가 전체회의를 원칙적 개발 선행조건으로 삼지 않는다.
+
+**개정 감사 P0 Wire:** [통합 계약 제2.4~2.7장](../../interface_spec.md)의 신규 7개 후보는 모두 **BLOCKED_WIRE**이며, [기계 판독 예시](../examples/wire_proposals.json)는 실제 FastAPI 경로가 아니다. 출처·승인·실행 오해 없이 담당 Wrapper Fake 테스트만 가능하다.

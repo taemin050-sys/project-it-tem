@@ -66,3 +66,5 @@ flowchart LR
 - [ ] Mock/Live·research_performed·compliance_passed·product_review를 **별도 상태**로 표시.
 
 **완료 증빙:** TS build PASS, 브라우저 E2E 영상 또는 로그, 409 처리, compliance false 승인 불가, PNG 1080×1350 + caption, UI에서 AI 추론/실검색 구분. 새 경로 미구현 시 `NOT_TESTED`로 표시한다.
+
+**개정 감사 P0 Wire:** [통합 계약 제2.4~2.7장](../../interface_spec.md)의 신규 7개 후보는 모두 **BLOCKED_WIRE**이며, [기계 판독 예시](../examples/wire_proposals.json)는 실제 FastAPI 경로가 아니다. 출처·승인·실행 오해 없이 담당 Wrapper Fake 테스트만 가능하다.

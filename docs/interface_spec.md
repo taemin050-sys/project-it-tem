@@ -88,9 +88,9 @@ flowchart TD
 | GET | `/jobs/{job_id}/assets/{asset_id}` | 업로드 이미지 바이너리 | LEGACY-IMPLEMENTED |
 | POST | `/jobs/{job_id}/mock/plan` | `{"brand_name":"...","product_name":"..."}` → `PLAN_READY` | LEGACY-IMPLEMENTED |
 | POST | `/jobs/{job_id}/mock/copy` | 본문 없음 → `COPY_REVIEW_REQUIRED` | LEGACY-IMPLEMENTED |
-| POST | `/jobs/{job_id}/approvals/copy` | `{"approved":true\|false}` → 승인/거절 | LEGACY-IMPLEMENTED |
+| POST | `/jobs/{job_id}/approvals/copy` | `{"approved":true} 또는 {"approved":false}` → 승인/거절 | LEGACY-IMPLEMENTED |
 | POST | `/jobs/{job_id}/mock/image` | 본문 없음 → `IMAGE_REVIEW_REQUIRED` | LEGACY-IMPLEMENTED |
-| POST | `/jobs/{job_id}/approvals/image` | `{"approved":true\|false}` → 승인/거절 | LEGACY-IMPLEMENTED |
+| POST | `/jobs/{job_id}/approvals/image` | `{"approved":true} 또는 {"approved":false}` → 승인/거절 | LEGACY-IMPLEMENTED |
 | POST | `/jobs/{job_id}/mock/compose` | 본문 없음 → `COMPLETED` | LEGACY-IMPLEMENTED |
 | GET | `/jobs/{job_id}/artifacts/{kind}` | `plan`,`copy`,`image`,`final`,`caption` 바이너리 다운로드 | LEGACY-IMPLEMENTED |
 | GET | `/capabilities` | 사용 가능 모드·provider 준비정보 | LEGACY-IMPLEMENTED |
@@ -148,6 +148,72 @@ const job = await response.json(); // 직접 Job 응답, data wrapper 아님
 
 ---
 
+### 2.4 계약 상태 및 Freeze 게이트 — 공통 해석
+
+| 표시 | 뜻 | 독립 개발 가능 범위 | 신규 공개 HTTP 호출 |
+|---|---|---|---|
+| **APPROVED_POLICY** | 10/26 회의의 제품·책임·예산·검수 정책 합의 | 입력·출력 의미, Fake Wrapper 개발 | **자동 승인 아님** |
+| **LEGACY_IMPLEMENTED_UNMERGED** | `f979331`에 구현된 기존 13개 경로·9상태 | 해당 브랜치 HTTP Mock 테스트 | `dev` 병합 전 접근 가정 금지 |
+| **FROZEN_WIRE** | 경로·method·본문·응답·오류·상태·owner를 PM/영향 파트가 승인하고 OpenAPI·Fixtures 동기화 | 구현·React SDK·정식 통합 테스트 | 해당 버전이 실제 `dev`에 반영된 뒤만 |
+| **BLOCKED_WIRE** | 중요한 입력·반환·서명·승인 증거가 없어 공개 API 동결 불가 | owner의 **내부 Fake/DTO 단위 개발만** | **신규 URL 사용 금지** |
+| **EXPERIMENT** | 합성 방식·카피 길이·모델 입력 제약 | 격리 실험, 비용 승인 필요 | 결과를 정식 계약에 자동 반영 금지 |
+| **DEFER** | 동일 제품 검증·거절 후 재승인 등 | 후속 버전 | MVP 필수 요구로 승격 금지 |
+
+**2026-10-27 기준 신규 FROZEN_WIRE는 0개.** PR #4의 **정책 승인**은 API·타입 **기술 동결**을 대신하지 않는다. 각 FROZEN_WIRE에는 결정 ID, 승인자·시각, owner code SHA, 계약 Fixture, OpenAPI와 TS 검사 증거가 반드시 필요하다. 아직 미제공된 텍스트팀 공식 소스·이미지 Wrapper가 있다는 가정으로 계약을 동결하지 않는다.
+
+### 2.5 신규 동작 후보 — HTTP Wire 결정표
+
+아래 경로는 **실제 구현 경로가 아니라 논의용 경로명 PROPOSAL**이다. 구조화한 정상·실패 요청/응답 예제 7종은 [`examples/wire_proposals.json`](contracts/examples/wire_proposals.json)에서 조회한다. JSON 전체를 파싱할 수 있지만, **현재 FastAPI OpenAPI나 React SDK의 타입이 아니다**.
+
+| ID·단계 | 제안 method 및 `/api/v1` 이하 경로 | 입력 → 출력 후보 | 상태·오류 후보 | 결정 Owner / 필요한 증거 | 현재 허용 |
+|---|---|---|---|---|---|
+| UP-EXT · 사용자 입력 | **POST `/jobs` (기존 경로 확장)** | multipart `product_images`, `reference_images`, `product_input_json` → Job | `INPUTS_VALIDATED`; mismatch `422` 제안 | React+서빙+PM; `ProductInput` 필수·용량정책·실제 upload wire | 기존 업로드 Mock만, 확장 BLOCKED |
+| VLM | POST `/jobs/{job_id}/ai/analyze` | 서버 Asset bytes·IDs → `ProductAnalysis` | 기존 상태 유지+별도 stage progress 제안; false/unknown fail-closed | 김다혜+서빙+PM; Wrapper signature·is_cosmetic 결과·오류/리트라이 | 내부 Fake |
+| RESEARCH | POST `/jobs/{job_id}/ai/research` | `ProductInput`+`ProductAnalysis` → `ResearchResult` | 검색 실패 시 `research_performed=false`; `PLAN_READY` 도달 시점 미정 | 김다혜+서빙; 검색을 한 wrapper 내부 호출로 묶을지/HTTP 분리할지 | 내부 Fake |
+| COPY-COMPLIANCE | POST `/jobs/{job_id}/ai/copy-review` | 연구/기획 입력 → `AdCopyOutput`+`ComplianceReport`+sidecar | `COPY_REVIEW_REQUIRED`; 검수 누락/stale 차단 | 김다혜+서빙+React; 모델 source/실제 copy/check API 반환 서명 | 내부 Fake |
+| COPY-APPROVAL-V2 | POST `/jobs/{job_id}/approvals/copy` (기존 경로 확장) | `approved,copy_revision,copy_sha256,compliance_report_revision` → Job | 검수 실패·불일치 `409` **제안**, 서버 차단 필수 | 서빙+React+PM; 승인자 인증·immutable snapshot·오류 body | 레거시 boolean Mock만 |
+| IMAGE | POST `/jobs/{job_id}/ai/image` | 정확한 승인 카피 hash+Prompt·Asset bytes → 후보 Asset·Receipt | `IMAGE_REVIEW_REQUIRED`; missing approval 409 제안 | 박지수+서빙+PM; Wrapper signature·실제 입출력·가격/보존 QA | 내부 Fake |
+| COMPOSITION | POST `/jobs/{job_id}/compose` | 승인 Image hash + Copy revision → 최종 PNG·caption | `COMPLETED`; no approval 409 제안 | 박지수+서빙+React; Composition signature·MIME·Artifact·한글 QA | 레거시 `/mock/compose`만 |
+
+**승인 주의:** 위의 `409/422` 및 error detail은 **기존 409 규칙을 기반으로 한 설계 제안**이며 신규 HTTP Wire로 동결된 값이 아니다. 각 Owner가 method/path, Pydantic request/response, 오류 detail, 호출 후 Job 상태 및 Mock Fixture를 검토해 PM이 명시적으로 승인할 때만 FROZEN으로 승격한다. 신규 stage_progress도 **현재 9개 Job status에 존재하지 않는다**.
+
+**공통 비공개 어댑터 호출 계약(회의에서 정해진 부분만):** 서빙은 저장된 Job의 자산·승인·비용을 확인하고 **검증된 이미지 bytes + 텍스트 owner v0.5 DTO**를 전달한다. 텍스트는 v0.5 모델, 인용 출처, 위험 판정과 메타데이터를 반환한다. 이미지팀은 생성 이미지 바이트/MIME/크기/해시 및 합성 PNG를 반환한다. 내부 함수 **실제 이름/signature는 소스 수령 전 BLOCKED**.
+
+### 2.6 신규 작업의 실패·VLM·중간 진행 상태: 최소 안전 조건
+
+| 사례 | 원본 v0.5·레거시 범위 | 적용할 fail-closed 정책 | 현재 구현 / 확정 대기 |
+|---|---|---|---|
+| VLM `is_cosmetic=true` | 유효한 `ProductAnalysis` | 해당 Asset/Job에 결과 기록 후 다음 단계를 시도 가능 | **신규 미구현** |
+| VLM `is_cosmetic=false` | 유효한 Boolean false, 스키마 설명은 **재업로드 안내** | **Research/Copy/Image 유료 호출 차단**. 화면에 재업로드 안내. 사용자가 같은 Job에서 교체하는지는 보류 | **차단 동작 구현·정확한 오류/UX는 PM·React 확인 필요** |
+| VLM 불확실/빈 결과 | v0.5는 Boolean, **unknown 값 없음** | 가짜 `is_cosmetic=null`로 통과시키지 않고 **ProductAnalysis 미생성 + 다음 단계 차단** | stage_progress 및 오류 Wire BLOCKED |
+| VLM timeout·provider error | v0.5 출력 자체 없음 | Job/실행 영수증의 error 또는 billing unknown 보존. 승인 없는 자동 재시도 금지 | 실패 후 상태·HTTP body BLOCKED |
+| 검색 실패·인용 없음 | `ResearchResult.research_performed=false` | SourceType AI 추론으로 표시, 인용 URL 추측 금지 | Text Wrapper/Job 저장 미구현 |
+| Compliance 누락·timeout | `ComplianceReport` 없음 | 카피 승인 불가, 이후 Image/Composition 유료 호출 0회 | BE 게이트 미구현 |
+| `ComplianceReport.passed=false` | `issues`에 위반 의심 포함 | 서버와 React 승인 차단. 추천 대체문구만으로 자동 통과 금지 | BE 게이트 미구현 |
+| 수정본/revision stale | 텍스트 v0.5 모델에는 revision 필드 없음 | 새 Copy revision+hash 생성 후 반드시 **새 검수**; 과거 report/approval 폐기 | 서버 sidecar·gate 미구현 |
+
+**중간 작업 진행 표시:** 지금 확정된 Job.status는 **기존 9개**다. VLM·검색·검수 진행은 **제안된 `stage_progress:{operation,state}`의 별도 메타데이터**로 기록하고, 승인 없는 `JobStatus` 추가를 금지한다. 업로드만 완료된 Job은 `INPUTS_VALIDATED`를 유지할 수 있지만, **중간 단계 실패와 상태 안정성·재시작 복구·HTTP 응답 포맷은 Owner 확인 전 BLOCKED_WIRE**다. 화면은 서버가 반환한 진행 정보가 없으면 추가 진행 상태를 추정해 표시하지 않는다.
+
+### 2.7 현재 레거시 승인 HTTP — 실행 가능한 정상/거절 JSON
+
+**기존 POST `/api/v1/jobs/{job_id}/approvals/copy` (feature 기준, 신규 revision gate는 없음)**
+
+승인:
+```json
+{"approved": true}
+```
+
+거절:
+```json
+{"approved": false}
+```
+
+기존 거절 후 Job status는 `COPY_REJECTED`(terminal). 이미지 승인에도 동일 Boolean 요청을 사용하고 거절 시 `IMAGE_REJECTED`. 승인 전 이미지 요청은 **409**. 현재 응답의 `detail`은 문자열일 수도, status 포함 객체일 수도 있으므로 새 error_code 래퍼를 현재 구현으로 소개하지 않는다.
+
+**목표 V2 승인 JSON**은 [wire_proposals.json](contracts/examples/wire_proposals.json) 내 `COPY_APPROVAL_V2`를 참조. `copy_revision/copy_sha256/compliance_report_revision`은 **현재 레거시 API가 받지 않는 필드**이므로 그대로 호출하지 않는다.
+
+---
+
 ## 3. Job 상태·승인 계약
 
 ### 3.1 기존 9개 상태 (feature에 구현)
@@ -180,6 +246,47 @@ stateDiagram-v2
 **규제 게이트:** 텍스트 `ComplianceReport.passed=false`(위반 의심 하나라도 존재)면 카피 승인과 그 이후 모델 호출을 **서버에서도 차단**한다. `passed=true`여도 광고 법규의 최종 적법성 증명은 아니다. 위험 위치는 필드별 `start/end` 반열린 구간 `[start,end)`으로 검증하며, 자동 수정된 문구라면 수정본과 검수/승인 대상의 **동일성**을 재확인한다.
 
 **예시 (금지되는 흐름):** 승인되지 않은 카피를 Image Wrapper에 넘기거나 이미지가 승인되지 않았는데 Composition을 호출하면 **정상적인 거부 테스트 PASS**가 되어야 한다. 기존 JobStore에는 revision/hash/승인자 기록이 없으므로 이 규칙은 **미구현**이다.
+
+---
+
+### 3.2 Compliance·승인 Sidecar — 정책 확정 / HTTP 구현 전
+
+기존 `ReviewRequest.approved: bool` 및 `copy_approved` Boolean에는 검수보고서·승인 revision·hash·승인자 정보를 담을 수 없다. 이를 `schemas.py v0.5` 안에 억지로 추가하지 말고 **서빙 소유의 별도 불변 Sidecar**로 연계한다.
+
+| Sidecar 필드 (제안) | 생성·검증 주체 | 안전 불변조건 |
+|---|---|---|
+| `job_id`, `copy_revision` | 서빙 저장소 | 같은 Job의 검토 중인 정확한 카피 후보 식별 |
+| `copy_sha256` | 서빙·SHA-256 | `AdCopyOutput`의 UTF-8 canonical JSON(정렬된 키, `ensure_ascii=False`, 불필요 공백 없음) digest, 64-hex |
+| `compliance_report_revision`, `reviewed_copy_sha256` | 서빙/텍스트 | **해당 report가 검사한 바로 그 copy hash**와 일치 |
+| `compliance_report.passed` | 텍스트 검수 | 누락/잘못된 타입/위반 의심/stale은 모두 승인 불가 |
+| `actor_id`, `approval_at` | 인증된 서버 세션 / 서빙 | 레거시 **인증 기능 미구현**, 현재 정보로 신뢰 가능한 actor를 꾸며 저장할 수 없음 |
+| `approved_image_asset_id`, `approved_image_sha256` | 서빙 저장소 | 최종 Composition에 승인된 정확한 이미지 bytes만 사용 |
+
+**결정된 안전 정책:** 승인 요청 때 (1) Job 상태, (2) copy revision, (3) 실제 canonical hash, (4) report의 동일 revision 및 대상 hash, (5) `passed=true`, (6) actor 인증·권한, (7) 중복 승인 방지를 서버에서 모두 검사한 뒤 원자적 승인기록을 영속화한다. 어떤 값이 없거나 stale이면 거부. 대체문구 `revised_fields`를 반영했을 때는 **새 revision/hash + 새 ComplianceReport**가 필요하고 기존 report는 재사용 금지. `passed=true`는 법적 적합성 보장이 아니다.
+
+**구현 경계:** 실제 JobStore·approve_copy는 이 검사를 수행하지 않는다. `docs/contracts/validation.py`는 합성 Fixture에 적용하는 *참고 계약 검증 로직*이며 **서버 접근 통제/승인 게이트가 아니다**. 코드 구현 PR에서 데이터 저장/잠금/서버 HTTP 409 body·인증된 actor·재시작 복원 검증이 필수다. OAuth·로그인이 없는 상태에서 UUID를 소유권 증명이라고 간주하지 않는다.
+
+```mermaid
+sequenceDiagram
+    participant U as React
+    participant S as Serving
+    participant J as JobStore
+    participant T as Text Compliance
+    participant I as Image Provider
+    T-->>S: AdCopyOutput + ComplianceReport
+    S->>J: store copy revision/hash + reviewed hash
+    U->>S: approve exact revision/hash (proposed)
+    S->>J: atomically validate job, review, actor, stale status
+    alt missing/rejected/stale/unauthenticated
+      S-->>U: fail closed (wire error pending)
+      S--xI: 0 paid calls
+    else pass and owner verified
+      S->>J: persist approved immutable revision
+      S->>I: approved copy + verified image bytes
+    end
+```
+
+**Position contract (검증기·React 공통 제안):** `start` 포함 / `end` 제외 `[start,end)`를 **전체 원본 필드 값의 Python Unicode 코드포인트** 기준으로 검사. React JS 문자열 인덱스는 **UTF-16 code units**이므로 이모지·보조평면 문자를 하이라이트할 때 인덱스를 변환해야 한다. `hashtags`는 **배열 원소들을 공백 한 칸으로 join한 결과 문자열**에 대한 offset으로 검증하는 기술적 후보이나, 텍스트·React Owner가 확정 전에는 UI Wire 해석이 **BLOCKED_WIRE**이다. `user_text`도 원문 출처가 없으면 실패하며 암묵적으로 `features`로 대체하지 않는다. 반복된 위험 문구는 선택한 **실제 위치**만 해당한다.
 
 ---
 
@@ -341,6 +448,55 @@ flowchart TD
 - 예약 추정액은 청구 확정액이 아니다. 타임아웃·429·응답 유실 시 `billing_state=unknown`으로 기록하고 **자동 재과금 호출 금지**. Job 조회·수동 청구 대조 후 복구한다.
 - 유료 플래그만 ON하는 것으로 Live 호출을 승인하지 않는다. API Key는 **서버 비밀관리 또는 Git 미추적 `.env`**, React 번들·Git·PR·로그에 평문 노출 금지.
 - GCP 개발 VM `team2-vm`/`us-east1-b` (L4)은 승인 없이 중지/재부팅하지 않으며, 인증·CORS·HTTPS·프록시 확정 전 개발 포트 `8000` 외부 공개 금지. 로컬 JobStore/SQLite는 **단일 worker** 안전 범위만 검증됐다.
+
+---
+
+### 7.3 비용을 세 층으로 분리한 계약 — 합의된 $10 정책, 미완의 실행 보호
+
+| 계층 | 현재 사실·책임 | 무조건 필요한 보호 | 상태/승인 |
+|---|---|---|---|
+| **① API 실행·예약 원장** | `p4_cost_guard.py`는 단일 SQLite, `UNIQUE(job_id,phase)`·사전 비용 예약, 현재 `/ai/*`에 미연결 | 실제 요청 전 Job/승인 검사 + `logical_operation`별 별도 키 + 입력 fingerprint + 요청 전 atomic reserve | **INTERNAL-READY, 실제 Live 경로 미연결** |
+| **② Provider 실제 청구 정산** | SQLite 예약은 원화/달러 실청구액이 아님 | provider request_id/usage/청구 시점·통화, timeout/429/응답 유실 `unknown` reconcile | **FOLLOW_UP / 기존 미구현** |
+| **③ 팀 전체 $10 합산** | 텍스트·이미지 담당자의 로컬 개발 계정/다른 API 프로젝트 호출을 단일 VM DB가 조회할 수 없음 | PM이 승인한 모든 계정·모델·프로젝트의 **실청구/예약/unknown을 한 공유 팀 장부로 합산**, 잔액/한도 승인 | **APPROVED_POLICY, 아직 기술적 자동 집행 아님** |
+
+**팀 공통 장부의 최소 필드:** `timestamp_utc, owner, provider, account_or_project_alias, model, logical_operation, job_id_or_experiment_id, provider_request_id, attempt_id, reserved_usd, billed_usd_or_null, billing_state, reconciled_at, pm_approval_ref`. API 키·원문 프롬프트·민감 사진은 장부에 적지 않는다. 다른 담당자의 지출 실측/미확인 내역이 비어 있다면 잔액을 **안전하다고 추정하지 않는다**.
+
+**참고 멱등성 후보 (아직 코드 미구현):**
+```text
+logical_request_id = SHA256(
+  job_id + logical_suboperation + input_revision + model_id + normalized_parameter_hash
+)
+EXAMPLES:
+  product analysis  → (job, "vlm", input r01)
+  web retrieval     → (job, "research.search", input r01)
+  plan generation   → (job, "planning.generate", research r01)
+  copy draft        → (job, "copy.generate", plan r01)
+  compliance review → (job, "compliance.check", copy r01)
+  image creation    → (job, "image.generate", approved copy r01)
+  composition       → (job, "compose.final", approved image r01)
+```
+
+**중복 억제의 구체적 의미:** 동일 `logical_request_id` 재요청은 신규 과금 호출 0회; 완료·저장한 결과가 있으면 기존 Job/Artifact만 반환. 이전 호출의 청구 여부가 `unknown`이면 무조건 자동 재시도하지 말고 담당자·PM 확인까지 차단한다. 서로 다른 순차 `logical_suboperation`은 동일 Job에서도 각각 최초 1회 호출 가능. 입력 또는 수정 revision이 바뀌면 새 작업이지만 **이전에 차단/과금/승인된 요청을 무단 재실행한다는 뜻이 아님**.
+
+**팀 예산 정책:** 베이스라인·실험 전체 **$10**에 대한 PM 조정된 장부가 없거나 총액·미확인액이 안전 범위를 넘어서는 경우 **실유료 호출 OFF**로 유지. 미화 달러 환율/해당 제공자 청구 단위·세금 처리 등은 담당자 확인 대상. 실제 과금액과 예약 상한을 둘 다 기록하되, 예약 차액을 실제 환불·재사용 가능 금액으로 단정하지 않는다. 실제 보호 계층 연결·팀원 외부 청구 합산 전에는 `LIVE COST SAFETY=NOT VERIFIED`.
+
+### 7.4 이미지 업로드 전처리와 저장·접근 책임 — P1 정책 충돌 정리
+
+| 쟁점 | 레거시 실제 값 | 제안 실행 설계 / 소유자·차단 조건 |
+|---|---|---|
+| 사용자 UX | 파일당 10MiB/전체 60MiB/40MP 초과 거절 | 일반 사진 자동 축소·압축은 회의 결정. **브라우저 preflight**로 처리하되 무제한 서버 수신으로 해석 금지; React·서빙에 실측 인수 테스트 필요 |
+| 물리적 안전 상한 | `job_api.py`의 MIME/디코드·크기 검사 | 서버 raw request bytes, decode pixel count, image decompression 폭탄·애니메이션·악성 MIME hard cap 필요. 숫자는 담당 PM·서빙 **BLOCKED_BY_DECISION** |
+| 이미지 전처리 | 자동 리사이즈 별도 계층 없음 | EXIF Orientation 적용, sRGB 변환/ICC 관리, 알파(투명도)·색상/기하학 보존, 보안상 무해한 포맷 정규화의 책임·회귀 필요 |
+| 원본/전처리 Asset | 서버가 받은 파일 하나를 원본 asset로 저장 | `original_uploaded` vs `normalized_for_vlm` vs `normalized_for_image`의 역할·hash/치수·선행 asset 관계를 기록하는 후보. 서버에 전송되지 않은 클라이언트 원본은 **서버가 실제 원본 hash를 검증했다고 표시하지 않음** |
+| 접근 권한/보존 | `job_id`와 asset_id는 임의 ID일 뿐 사용자 인증 수단 아님 | 현재 계정·권한 검증·보존/삭제 정책 미구현. **익명 공개 URL을 곧 소유권 검증으로 해석 금지**. 인증·HTTPS/CORS·다운로드 보호/retention을 PM이 승인한 제한된 데모 범위에서만 구현 |
+
+실제 GCP 개발 VM·로컬 테스트는 사용자가 허용한 범위에서만 수행하고, 승인 없이 VM stop/reboot 또는 인터넷에 포트 8000 공개를 금지한다.
+
+### 7.5 Research 출처 단위·중간 진행·설정 적용 경계
+
+- **개별 주장 근거:** 텍스트 v0.5 `ResearchResult.citations[]`는 전체 URL 목록이고 `Insight`에는 `source`만 있다. 검색 결과를 개별 주장에 자동 귀속할 수 없다. 원본 모델을 바꾸지 않고 서빙에서 **선택적 provenance sidecar** `insight_id → citation_id → retrieved_at → verification_status`를 설계하되, **source response가 실제 매칭 근거를 제공하지 않으면 unverified**. 검색 출처 URL 존재와 실제 효능/광고 문구 검증은 별개.
+- **UI 상태:** 현재 9개의 `JobStatus`를 유지. VLM/검색/검수의 단계별 로딩·에러 표시를 위한 `stage_progress`는 신규 제안 필드로만 표시하고, 서버 영속화·HTTP Wire 승인 전 React가 특정 진행상태나 새 JobStatus를 가정하지 않는다.
+- **호출 설정:** 회의 초깃값 timeout 300초 / output 1200 token / SDK 자동 retry 0은 **정책 합의**이며 현재 `f979331` 텍스트 코드의 설정과 정확히 일치한다고 단정하지 않는다. 특히 `Research`의 검색 시간과 Structured Output JSON 절단, 이미지 제공자의 자체 timeout/자동 재시도, 서비스 프록시 timeout은 별도 검증 필요. 최초 테스트는 각 단계에서 실동작 timeout/usage·절단 실패를 기록한다.
 
 ---
 
