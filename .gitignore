@@ -1,0 +1,24 @@
+# Python
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+
+# Secrets
+.env
+.env.*
+!.env.example
+
+# Local runtime and uploaded data
+.runtime/
+data/
+
+# Model weights
+*.safetensors
+*.ckpt
+*.pt
+*.pth
+
+# Frontend
+node_modules/
+dist/
