@@ -87,6 +87,18 @@ def validate_compliance(
             raise ContractViolation("INVALID_OFFSET")
         if actual[start:end] != issue["text"]:
             raise ContractViolation("OFFSET_TEXT_MISMATCH")
+        if field == "hashtags":
+            # v0.5 supplies field+start/end but no hashtag index. Our proposed
+            # join representation must never highlight across two list items.
+            cursor = 0
+            within_one_item = False
+            for tag in copy_output["hashtags"]:
+                if cursor <= start < end <= cursor + len(tag):
+                    within_one_item = True
+                    break
+                cursor += len(tag) + 1
+            if not within_one_item:
+                raise ContractViolation("HASHTAG_CROSS_ITEM")
         if issue.get("risk_level") not in {"정상", "근거 확인 필요", "위반 의심"}:
             raise ContractViolation("INVALID_RISK_LEVEL")
         suspected |= issue["risk_level"] == "위반 의심"

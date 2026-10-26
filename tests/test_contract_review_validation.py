@@ -106,6 +106,17 @@ def test_hashtag_offsets_provisional_space_join():
         check(c, r)
 
 
+def test_hashtag_issue_cannot_cross_array_items():
+    c = unsafe_copy()
+    c["hashtags"] = ["#피부", "#재생"]
+    r = bad_report()
+    full = " ".join(c["hashtags"])
+    start, end = 2, len(full)
+    r["issues"][0].update(field="hashtags", text=full[start:end], start=start, end=end)
+    with pytest.raises(ContractViolation, match="HASHTAG_CROSS_ITEM"):
+        check(c, r)
+
+
 def test_missing_user_text_source_must_fail():
     r = bad_report()
     r["issues"][0]["field"] = "user_text"

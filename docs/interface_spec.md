@@ -496,7 +496,7 @@ EXAMPLES:
 
 - **개별 주장 근거:** 텍스트 v0.5 `ResearchResult.citations[]`는 전체 URL 목록이고 `Insight`에는 `source`만 있다. 검색 결과를 개별 주장에 자동 귀속할 수 없다. 원본 모델을 바꾸지 않고 서빙에서 **선택적 provenance sidecar** `insight_id → citation_id → retrieved_at → verification_status`를 설계하되, **source response가 실제 매칭 근거를 제공하지 않으면 unverified**. 검색 출처 URL 존재와 실제 효능/광고 문구 검증은 별개.
 - **UI 상태:** 현재 9개의 `JobStatus`를 유지. VLM/검색/검수의 단계별 로딩·에러 표시를 위한 `stage_progress`는 신규 제안 필드로만 표시하고, 서버 영속화·HTTP Wire 승인 전 React가 특정 진행상태나 새 JobStatus를 가정하지 않는다.
-- **호출 설정:** 회의 초깃값 timeout 300초 / output 1200 token / SDK 자동 retry 0은 **정책 합의**이며 현재 `f979331` 텍스트 코드의 설정과 정확히 일치한다고 단정하지 않는다. 특히 `Research`의 검색 시간과 Structured Output JSON 절단, 이미지 제공자의 자체 timeout/자동 재시도, 서비스 프록시 timeout은 별도 검증 필요. 최초 테스트는 각 단계에서 실동작 timeout/usage·절단 실패를 기록한다.
+- **호출 설정:** 회의 초깃값 timeout 300초 / output 1200 token / SDK 자동 retry 0은 **정책 합의**다. 실제 `f979331/src/serving/text_adapter.py`의 OpenAI client는 **timeout=30.0초, max_output_tokens=600, max_retries=0**으로 확인되어 **300/1200은 아직 코드 미반영**이다. 특히 `Research`의 검색 시간과 Structured Output JSON 절단, 이미지 제공자의 자체 timeout/자동 재시도, 서비스 프록시 timeout은 별도 검증 필요. 최초 테스트는 각 단계에서 실동작 timeout/usage·절단 실패를 기록한다.
 
 ---
 

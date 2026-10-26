@@ -50,3 +50,14 @@ def test_known_legacy_approval_is_valid_json_without_union():
     assert yes == {"approved": True} and no == {"approved": False}
     with pytest.raises(json.JSONDecodeError):
         json.loads('{"approved":true|false}')
+
+
+def test_multipart_product_input_json_payload_parses():
+    action = next(item for item in source("wire_proposals.json")["actions"]
+                  if item["id"] == "UP-EXT")
+    payload = json.loads(action["request"]["multipart_fields"]["product_input_json"])
+    assert payload["product_image_count"] == len(
+        action["request"]["multipart_fields"]["product_images"])
+    assert payload["reference_image_count"] == len(
+        action["request"]["multipart_fields"]["reference_images"])
+    assert isinstance(payload["photo_verified"], bool)

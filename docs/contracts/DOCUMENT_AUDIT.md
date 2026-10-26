@@ -34,7 +34,7 @@
 | **P1-03** | 누락·stale 검수/자동 수정 재검토 규칙 미정 | `interface_spec.md §3.2`, `validation.py`, pytest missing/stale/auto-fix | **RESOLVED (정책+Fixture 검사)**. 실제 서버 구현 **FOLLOW_UP** |
 | **P1-04** | legacy Job ID가 인증된 owner 증명처럼 기술 | `interface_spec.md §3.2, §7.4` — 현재 계정/actor 검증 미구현 | **RESOLVED (문서 경계)**, 인증/권한·retention 실제 구현 **FOLLOW_UP** |
 | **P1-05** | 9 JobStatus와 VLM/검색/검수 진행상태 혼동 | `interface_spec.md §2.6, §7.5` — stage_progress 제안·기존 상태 불변 | **FOLLOW_UP** 새 진행상태 persistence/HTTP/React 합의 |
-| **P1-06** | 300s/1200 tokens/retry0 적용 범위 검증 없음 | `interface_spec.md §7.5` 실측·절단/timeout 검증 분리 | **FOLLOW_UP** 각 실제 제공자 Wrapper 및 프록시 측정 |
+| **P1-06** | 300s/1200 tokens/retry0 적용 범위 검증 없음 | `interface_spec.md §7.5` 실측·절단/timeout 검증 분리 | **FOLLOW_UP** legacy `text_adapter.py`는 실제 **30s/600 tokens/retries 0**; 회의 300s/1200 미반영. 각 실제 제공자 Wrapper 및 프록시 측정 |
 | **P1-07** | CONTRIBUTING 옛 Streamlit/기본 dev 표현 | `CONTRIBUTING.md` 실제 기본 main, 팀 통합 dev, `feat/react-ui` | **RESOLVED** remote default 검증 |
 | **P1-08** | `{"approved":true|false}` invalid JSON | `interface_spec.md §2.7` true/false 개별 완전 JSON + `tests/test_contract_wire_proposals.py` | **RESOLVED** JSONDecodeError 부정 테스트 |
 | **P1-09** | legacy DTO와 v0.5 nullable/structured copy/prompt 차이 | `SCHEMA_MAPPING.md §§2,5,7` 보존 책임 및 검증 차단 | **BLOCKED_BY_SOURCE / FOLLOW_UP** Owner SHA + 실제 mapper round-trip/TS 구현 필요 |
@@ -58,3 +58,18 @@
 - 독립 감사자는 PR #4 최신 SHA의 `interface_spec.md §2.4~2.7, §3.2, §7.3~7.5`, 신규 Python 계약 검사·부정 테스트·Owner 실제 소스 차단 및 C-ID를 검토한다.
 - **권고:** 문서의 상태 표현·검증기 오류가 해소되어도, 실제 신규 HTTP Freeze(0건) 및 텍스트 Owner/이미지 Wrapper가 없는 상황에서는 **'완전 통합 가능한 계약'로 병합 승인하지 않는다**. 정책·문서 SSOT만 범위 제한 승인할지는 PM+영향 담당 리뷰가 필요하다.
 - **별도 후속 PR:** 텍스트/이미지 Owner 소스·서명 수령 → 각 Wire Freeze → 실제 HTTP·Approval·CostGuard·Mapper·인증/보안 구현·OpenAPI/TS/브라우저 검증. 기존 dev/main 직접 변경 금지.
+
+
+## 6. 최종 재현 실행 증거 (실행일 2026-10-27, Mac Studio)
+
+| 검증 | 관찰 결과 | 제한 |
+|---|---|---|
+| `python3 docs/contracts/validate_package.py` | **PASS**: 필수 파일·합성 Fixture 8개 + Markdown 상대 링크/코드펜스/필수 절 | Owner 공식/Live 아님 |
+| `pytest -q tests/test_contract_review_validation.py tests/test_contract_wire_proposals.py tests/test_serving_health.py` | **28 passed**: offset·반복·emoji·hashtags 교차·revision/hash·VLM/Wire 제안 포함 | 실제 FastAPI 승인·신규 endpoint 아님 |
+| `python docs/contracts/check_owner_schema.py --source /tmp/ittem_meeting_schemas_v05.py --expected-sha256 d3baa625480e0e767437ea41f56dc485409e55f60b808ddd92fec4261c310e7a` | **8 Fixture Pydantic PASS** (회의 원문 코드 스냅샷) | **김다혜 Owner 공식 SHA가 아님**, official Owner validation **BLOCKED_BY_SOURCE** |
+| 별도 `f979331` 독립 스냅샷 `python -m pytest -q` | **118 passed** (Mac 한글 폰트 지정) | 기존 legacy 구현, 새 Wire/React/Live 제외 |
+| `python -m scripts.export_p4_contracts` + `python -m scripts.audit_p4_handoff` | 8 schema files + manifest, **13/13 legacy routes, PASS_FOR_TEAM_REVIEW** | 새 VLM/Image/Composer endpoint OpenAPI에 **없음** |
+| `gh api POST /markdown` GFM 렌더 구조 | **9개 대영역 h2, 22개 표, 12개 code block** | Mermaid 실제 SVG/접근성 시각 검토 별도 |
+| `git diff --check` | PASS | 순수 문서·계약 테스트 변경 |
+
+**위 실증은 PR #4의 신규 API/Mapper/TS/Live E2E를 PASS로 승격하지 않는다.** 각각의 Runtime 구현과 Owner source 확보는 별도 게이트다.
