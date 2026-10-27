@@ -105,3 +105,19 @@ sequenceDiagram
 **환경 경계:** GCP VM `team2-vm` 무승인 중지·재부팅 금지. 인증/HTTPS/CORS 확정 전 8000 public 금지. 서버 키/민감 사진 Git 미포함. 기존 단일 worker JobStore/SQLite를 다중 worker 안전 서비스로 광고하지 않는다.
 
 **개정 감사 P0 Wire:** [통합 계약 제2.4~2.7장](../../interface_spec.md)의 신규 7개 후보는 모두 **BLOCKED_WIRE**이며, [기계 판독 예시](../examples/wire_proposals.json)는 실제 FastAPI 경로가 아니다. 출처·승인·실행 오해 없이 담당 Wrapper Fake 테스트만 가능하다.
+
+
+## 6. P0-04 — 서버 소유 검수 기록과 원자적 카피 승인 (후속 PR 필수)
+
+세부 필드·지문 생성 범위는 **[SSOT §3.2](../../interface_spec.md)**를 따른다. `canonical_copy_hash(AdCopyOutput)`와 `review_input_sha256(실제 검수 맥락)`는 다르다.
+
+| 서버 단계 | 소유 위치·필수 구현 | 인수 부정 테스트 |
+|---|---|---|
+| 검수 입력 스냅샷/Job 판본 기록 | `job_store.py`에 copy revision·불변 입력·기준 Job version을 영속화 | 같은 revision 다른 카피, 검수 중 context/제품 주장 변경 |
+| 신뢰 가능한 검수 실행·결과 수신 | 실제 텍스트 Owner Wrapper 호출 결과만 backend가 correlation ID로 수령·검증; **HTTP 사용자가 기록 생성 불가** | 재사용된 report, 조작 report hash, 검수 수행되지 않은 record ID |
+| 검수 결과 영속·무결성 | 서버 저장소의 `review_record_id`·report/input hash·rule/model/schema version + audit metadata | T-03 새 hash+옛 report, T-04 제품명 변경, 원본 user_text 변경 |
+| Copy 승인 원자 처리 | `job_api.py`/현재 승인 라우터 + JobStore의 **상태/권한/job version/review hash/passed 비교·승인 기록 저장을 하나의 트랜잭션**으로 묶음 | 다른 Job record, stale/missing/failed review, 경합·중복 승인, TOCTOU |
+| 실패/재시작 복구 | 승인·보고서 저장/검수 job 중간 단계 crash 복구와 receipt 불확실 상태 추적 | 프로세스 재시작 후 이전 승인/검수 복원, 결함 시 호출 0 |
+| HTTP/FE 계약 | PM+React+서빙 합의 후 정확한 409/error body 및 TS 타입/Fixture 생성 | 승인 전 이미지 호출 0, 정상/실패 OpenAPI, Browser E2E |
+
+**실행 구분:** `ReferenceReviewLedger`의 단일 프로세스 `RLock`/메모리 저장은 **원자성 참조 예제**일 뿐, legacy JobStore 파일 쓰기/멀티 worker/인증 안전성을 입증하지 않는다. 기존 서버 `ReviewRequest.approved: bool`는 그대로이며 본 PR에는 실제 운영용 검수 기록 저장 또는 승인 게이트를 추가하지 않았다. **Owner 공식 스키마와 입력 scope, 실 저장소 트랜잭션 설계 및 PM Wire 승인 전 Live 경로에 연결 금지.**

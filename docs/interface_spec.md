@@ -249,42 +249,56 @@ stateDiagram-v2
 
 ---
 
-### 3.2 Compliance·승인 Sidecar — 정책 확정 / HTTP 구현 전
+### 3.2 Compliance 검수 입력·서버 소유 승인 기록 — P0-04 재감사 보완
 
-기존 `ReviewRequest.approved: bool` 및 `copy_approved` Boolean에는 검수보고서·승인 revision·hash·승인자 정보를 담을 수 없다. 이를 `schemas.py v0.5` 안에 억지로 추가하지 말고 **서빙 소유의 별도 불변 Sidecar**로 연계한다.
+**신뢰 경계:** 기존 `AdCopyOutput`의 식별용 `copy_sha256 = canonical_copy_hash(copy_output)`는 의미를 바꾸지 않는다. **Copy 객체의 해시 일치만으로 검수 맥락까지 동일하다고 증명할 수 없다.** `schemas.py v0.5`의 `ComplianceReport`에 임의 필드를 주입하지 않고, 서빙이 신뢰할 수 있는 검수 실행 때 생성·영속화한 **ReviewRecord Sidecar**를 별도로 사용한다.
 
-| Sidecar 필드 (제안) | 생성·검증 주체 | 안전 불변조건 |
+| 서버 소유 기록 | 정확한 의미 | 무결성 규칙 |
 |---|---|---|
-| `job_id`, `copy_revision` | 서빙 저장소 | 같은 Job의 검토 중인 정확한 카피 후보 식별 |
-| `copy_sha256` | 서빙·SHA-256 | `AdCopyOutput`의 UTF-8 canonical JSON(정렬된 키, `ensure_ascii=False`, 불필요 공백 없음) digest, 64-hex |
-| `compliance_report_revision`, `reviewed_copy_sha256` | 서빙/텍스트 | **해당 report가 검사한 바로 그 copy hash**와 일치 |
-| `compliance_report.passed` | 텍스트 검수 | 누락/잘못된 타입/위반 의심/stale은 모두 승인 불가 |
-| `actor_id`, `approval_at` | 인증된 서버 세션 / 서빙 | 레거시 **인증 기능 미구현**, 현재 정보로 신뢰 가능한 actor를 꾸며 저장할 수 없음 |
-| `approved_image_asset_id`, `approved_image_sha256` | 서빙 저장소 | 최종 Composition에 승인된 정확한 이미지 bytes만 사용 |
+| `job_id`, `copy_revision` | 검수 대상 Job과 카피 판본 | 다른 Job 기록 재사용·동일 revision의 다른 카피 저장 차단 |
+| `copy_sha256` | **AdCopyOutput 전체 객체만** 대상으로 하는 종전 SHA-256 | 클라이언트가 전달하는 값은 기대값에 불과함 |
+| `review_input_sha256` | **검수 시작 시 고정된** 카피+실제 사용된 제품/사용자 맥락+review 버전 digest | 승인 시 **서버 현재 저장 상태**와 비교; 호출자가 새 digest를 다시 제출해도 무관 |
+| `review_record_id`, `source_review_token` | 서빙이 시작→완료한 특정 검수 실행을 연결한 서버 내부 식별자 | 응답/브라우저의 임의 ID는 검수 실행 출처 증명이 아님 |
+| `report_json`, `report_sha256` | 서빙이 검증 결과를 수령해 저장한 **그 당시 ComplianceReport**의 정확한 내용·digest | 결과 누락·조작·보고서 식별자 불일치 시 차단 |
+| `model_version`, `rules_version`, `source_schema_version` | 실제 검수 입력과 실행 정책을 재현하는 메타데이터 | 버전 변경 시 사용된 검수 기록과 대상의 관계를 확인 |
+| `actor_id`, `approved_at`, `job_version` | **실제 서버 구현 시** 인증된 승인자·원자 전이 이력 | 레거시 서버에 아직 저장되지 않음 |
 
-**결정된 안전 정책:** 승인 요청 때 (1) Job 상태, (2) copy revision, (3) 실제 canonical hash, (4) report의 동일 revision 및 대상 hash, (5) `passed=true`, (6) actor 인증·권한, (7) 중복 승인 방지를 서버에서 모두 검사한 뒤 원자적 승인기록을 영속화한다. 어떤 값이 없거나 stale이면 거부. 대체문구 `revised_fields`를 반영했을 때는 **새 revision/hash + 새 ComplianceReport**가 필요하고 기존 report는 재사용 금지. `passed=true`는 법적 적합성 보장이 아니다.
+**검수 입력의 정확한 범위(참조 v0, NOT FROZEN):** `job_id`, `copy_revision`, `AdCopyOutput` 전체, `review_context.product_name`, `review_context.user_text` (검수에 제공하지 않았다면 명시적 `null`), 검수에 **실제로 제공된** `product_facts`/광고 주장, 그 밖에 실제 검수에 제공된 `additional_review_inputs`, `source_schema_version`, 검수 `model_version`·`rules_version`. **검수에 사용되지 않은 ProductInput 필드를 무조건 해싱하지 않으며, 실제 Owner의 검수 함수 호출 입력 범위가 확인될 때까지 이 profile은 BLOCKED_BY_SOURCE**이다. 반대로 검수에 실제 사용한 입력을 `additional_review_inputs` 등에서 빠뜨렸다면 이 참조 설계만으로 Live 무결성 승격 불가.
 
-**구현 경계:** 실제 JobStore·approve_copy는 이 검사를 수행하지 않는다. `docs/contracts/validation.py`는 합성 Fixture에 적용하는 *참고 계약 검증 로직*이며 **서버 접근 통제/승인 게이트가 아니다**. 코드 구현 PR에서 데이터 저장/잠금/서버 HTTP 409 body·인증된 actor·재시작 복원 검증이 필수다. OAuth·로그인이 없는 상태에서 UUID를 소유권 증명이라고 간주하지 않는다.
+**직렬화 계약(v0 참조 알고리즘):** `copy_sha256`는 기존 `canonical_copy_hash` 그대로다. `review_input_sha256`는 `profile="it-tem-compliance-review-input-v0-proposed"`, `job_id`, `copy_revision`, `copy_output`, `review_context`, `model_version`, `rules_version`을 포함한다. UTF-8 JSON, 키 정렬, 공백 없는 구분자, `ensure_ascii=False`, Unicode 정규화하지 않음, `NaN/Infinity` 불가. v0 참조 검사에서 값은 `null/bool/string/list/object` 또는 JS 안전 정수 범위의 정수만 허용하고 float·잘못된 Unicode surrogate를 거부한다. **Python↔TypeScript golden-vector 교차 구현은 아직 NOT RUN**이고, Owner 확정/버전 동결 전 해시 상호운용성을 보증하지 않는다.
+
+**서버만 할 수 있는 실행 순서 (새 HTTP Wire가 아님):**
+
+1. 서버가 현재 Job의 카피 판본과 정확한 검수 입력을 **불변 스냅샷으로 저장**하고 검수 실행을 시작한다. 검수 시작 토큰은 **인증이 아니라 내부 correlation ID**이다.
+2. 서버가 자신이 실행한 신뢰 가능한 규칙/LLM 결과만 받아서 **그 실행이 검토한 스냅샷과의 연결을 확인**하고, `ComplianceReport` 구조·실제 위험 위치·`passed` 일관성을 검사한다. 검수 중 Job 입력이 바뀌면 결과를 그 Job 최신본에 붙이지 않고 폐기한다.
+3. 검수가 정상 완료된 뒤 서빙이 `review_record_id`, `copy_sha256`, `review_input_sha256`, `report_sha256`, 검수 원문/모델·규칙 버전을 **서버 신뢰 저장소**에 기록한다. 사용자의 HTTP 승인 요청에서 제출된 보고서/해시로 이 기록을 생성하지 않는다.
+4. 사용자가 승인하면 인증/Job 소유권·상태·expected revision/hash를 확인한 후 **서버에 기록된 최신 카피·context**와 검수 기록의 revision/입력 fingerprint/보고서 hash 및 `passed=true`를 원자적으로 재검증하고 승인 사실을 저장한다. 누락, 변경, 다른 Job, 검수 실패, 중복 승인/경합은 fail-closed.
+5. `revised_fields` 적용, 제품명·user_text·제품 주장·검수 입력/판본 변경 → **검수 기록 무효화**, 새로운 입력 fingerprint와 **새 검수 실행·보고서** 필요. 복사해 둔 옛 보고서에 새 해시를 제출하는 방식은 무효.
 
 ```mermaid
 sequenceDiagram
-    participant U as React
-    participant S as Serving
-    participant J as JobStore
-    participant T as Text Compliance
-    participant I as Image Provider
-    T-->>S: AdCopyOutput + ComplianceReport
-    S->>J: store copy revision/hash + reviewed hash
-    U->>S: approve exact revision/hash (proposed)
-    S->>J: atomically validate job, review, actor, stale status
-    alt missing/rejected/stale/unauthenticated
-      S-->>U: fail closed (wire error pending)
-      S--xI: 0 paid calls
-    else pass and owner verified
-      S->>J: persist approved immutable revision
-      S->>I: approved copy + verified image bytes
+    participant U as React/User
+    participant S as Trusted Serving
+    participant J as Server ReviewLedger
+    participant T as Text Reviewer
+    participant I as Image Adapter
+    S->>J: stage copy + exact review context / revision
+    S->>J: begin_review → pinned snapshot + internal token
+    S->>T: review pinned snapshot
+    T-->>S: ComplianceReport + trusted completion
+    S->>J: complete_review(token, report) / verify unchanged input
+    J-->>S: stored review_record_id + input/report hashes
+    U->>S: approve(expected revision, copy hash, record ID)
+    S->>J: atomic check current Job + server-stored review + actor
+    alt missing / modified / stale / rejected / duplicate
+      J-->>U: reject; zero subsequent paid image calls
+    else approved exact review
+      J-->>S: persist immutable approval
+      S->>I: approved content only
     end
 ```
+
+**현행 구현 한계:** `docs/contracts/validation.py`의 `ReferenceReviewLedger`는 **프로세스 메모리의 참조용 저장소**로 검수 시작/완료/승인 일관성을 흉내 내고, 내부 완료 실행 인덱스로 외부에서 임의로 삽입한 검수기록을 거부하며, `approval_allowed()`는 이제 **서버 소유 Ledger와 검수 기록 ID를 필수 요구**한다. **실제 FastAPI `JobStore`·`approvals/copy`에 연결되지 않았으며**, 다중 프로세스 동기화·인증된 actor·DB 트랜잭션·재시작 복원·실제 검수 공급자의 진위 확인을 제공하지 않는다. 실제 구현 PR에서는 DB의 `job version + review record` 동시 비교·승인 원자 저장, 권한 검증과 실패 HTTP body(아직 BLOCKED_WIRE)를 별도로 검증해야 한다.
 
 **Position contract (검증기·React 공통 제안):** `start` 포함 / `end` 제외 `[start,end)`를 **전체 원본 필드 값의 Python Unicode 코드포인트** 기준으로 검사. React JS 문자열 인덱스는 **UTF-16 code units**이므로 이모지·보조평면 문자를 하이라이트할 때 인덱스를 변환해야 한다. `hashtags`는 **배열 원소들을 공백 한 칸으로 join한 결과 문자열**에 대한 offset으로 검증하는 기술적 후보이나, 텍스트·React Owner가 확정 전에는 UI Wire 해석이 **BLOCKED_WIRE**이다. `user_text`도 원문 출처가 없으면 실패하며 암묵적으로 `features`로 대체하지 않는다. 반복된 위험 문구는 선택한 **실제 위치**만 해당한다.
 

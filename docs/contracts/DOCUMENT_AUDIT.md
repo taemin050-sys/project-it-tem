@@ -20,7 +20,7 @@
 | **P0-01** | 신규 VLM·Research·Copy/Compliance·승인·Image·Composition HTTP Wire 미동결 | `interface_spec.md §2.4~2.7`, `examples/wire_proposals.json` / `tests/test_contract_wire_proposals.py` | **BLOCKED_BY_SOURCE/DECISION**. 7개 proposal의 method/path/body/error/status/owner 정의·JSON 검증; **FROZEN 0건**. Owner signature와 PM 승인 필요 |
 | **P0-02** | 텍스트 Owner 원본 없고 합성 Fixture를 실제 계약이라고 오인 | `SCHEMA_MAPPING.md §7`, `check_owner_schema.py` SHA 확인 / 8개 Fixture 검사 | **BLOCKED_BY_SOURCE**. 회의 스냅샷 Pydantic PASS와 Owner SHA 검증 분리. Owner 공식 repo/commit, signature 및 lossless mapper/TS 결과 필요 |
 | **P0-03** | 잘못된 `issue.text` 자기 슬라이싱 | `validation.py`, `validate_package.py`, `fixtures/copy_for_block.json`, `tests/test_contract_review_validation.py` | **RESOLVED (계약 검사)**. 전체 원본 copy field의 `[start:end)` 검증/잘못된 offset FAIL; 실제 FastAPI 승인 차단은 별도 |
-| **P0-04** | 검수·승인 revision/hash·검수 stale·Actor 불일치 | `interface_spec.md §3.2`, `validation.py.approval_allowed` 및 pytest | **FOLLOW_UP (runtime BLOCKED)**. 승인 정확성 계약 검사 PASS; JobStore 영속 게이트/인증·HTTP error는 서빙 PR+PM 결정 필요 |
+| **P0-04** | 검수↔카피/제품 맥락 신뢰 결속 누락(T-03/T-04 수정 전 True 직접 재현) | `validation.py` `ReferenceReviewLedger` + `tests/test_contract_review_binding.py` T-01~T-16 및 `interface_spec.md §3.2` | **RESOLVED (REFERENCE CONTRACT)**: 옛 report+새 hash, 제품명 변경 차단. **FOLLOW_UP (RUNTIME NOT IMPLEMENTED)**: 실제 JobStore/인증/원자 전이 |
 | **P0-05** | CostGuard가 팀 $10/동일 단계 순차 호출 보장 못함 | `interface_spec.md §7.3`, `IMPLEMENTATION_PLAN.md` | **FOLLOW_UP**. 서버 예약·실청구·다른 계정 팀 원장 3층 분리. `/ai/*` 미연결, 런타임 보호 PASS 금지 |
 | **P0-06** | VLM false/unknown/error 후속 동작 미정 | `interface_spec.md §2.6`, `examples/vlm_outcomes_proposed.json` / proposal tests | **BLOCKED_BY_DECISION**. 모든 false/unknown/error에서 후속 과금 0 안전 제안; 실제 HTTP 상태/UX·재업로드 방식 Owner·PM 승인 필요 |
 | **P0-07** | 정책 합의·Wire Freeze·구현 완료 혼동 | `interface_spec.md §2.4`, `DECISION_REGISTER.md §5`, `README.md` | **RESOLVED (표기·배포 경계)**. APPROVED_POLICY / LEGACY_IMPLEMENTED_UNMERGED / FROZEN_WIRE(현재0) / BLOCKED_WIRE / EXPERIMENT / DEFER 명시 |
@@ -31,7 +31,7 @@
 |---|---|---|---|
 | **P1-01** | 대형 사진 UX와 서버 hard cap / EXIF·원본 hash 불명확 | `interface_spec.md §7.4` — 클라이언트 preflight·서버 hard cap·EXIF·ICC/투명/asset variant 분리 | **BLOCKED_BY_DECISION** hard cap 수치·전처리 실험 및 서빙 구현 |
 | **P1-02** | 개별 insight ↔ citation 연결 증거 없음 | `interface_spec.md §7.5`, `SCHEMA_MAPPING.md` — optional provenance sidecar | **FOLLOW_UP** Owner 근거 ID·인용 metadata 필요. 임의 사실 승격 금지 |
-| **P1-03** | 누락·stale 검수/자동 수정 재검토 규칙 미정 | `interface_spec.md §3.2`, `validation.py`, pytest missing/stale/auto-fix | **RESOLVED (정책+Fixture 검사)**. 실제 서버 구현 **FOLLOW_UP** |
+| **P1-03** | 누락·stale 검수/자동 수정 재검토 규칙 | `interface_spec.md §3.2`, T-08/T-11/T-12 부정·정상 테스트 | **RESOLVED (참조 계약)**. 실제 서버 적용은 FOLLOW_UP |
 | **P1-04** | legacy Job ID가 인증된 owner 증명처럼 기술 | `interface_spec.md §3.2, §7.4` — 현재 계정/actor 검증 미구현 | **RESOLVED (문서 경계)**, 인증/권한·retention 실제 구현 **FOLLOW_UP** |
 | **P1-05** | 9 JobStatus와 VLM/검색/검수 진행상태 혼동 | `interface_spec.md §2.6, §7.5` — stage_progress 제안·기존 상태 불변 | **FOLLOW_UP** 새 진행상태 persistence/HTTP/React 합의 |
 | **P1-06** | 300s/1200 tokens/retry0 적용 범위 검증 없음 | `interface_spec.md §7.5` 실측·절단/timeout 검증 분리 | **FOLLOW_UP** legacy `text_adapter.py`는 실제 **30s/600 tokens/retries 0**; 회의 300s/1200 미반영. 각 실제 제공자 Wrapper 및 프록시 측정 |
@@ -73,3 +73,29 @@
 | `git diff --check` | PASS | 순수 문서·계약 테스트 변경 |
 
 **위 실증은 PR #4의 신규 API/Mapper/TS/Live E2E를 PASS로 승격하지 않는다.** 각각의 Runtime 구현과 Owner source 확보는 별도 게이트다.
+
+## 7. 2차 재감사 P0-04 추가 반례 및 수정 (2026-10-27)
+
+**출처:** 지정 핸드오프 폴더의 `08_PR4_REAUDIT_DECISION_20261027.md`를 확인했다. 전체 의견서 `IT_TEM_PR4_Independent_Reaudit_20261027.md`는 지정 폴더에 없었으므로 내용을 직접 검증했다고 주장하지 않는다.
+
+| 반례 | 수정 전 직접 재현 | 수정 후 참조 승인 | 검증 이름 |
+|---|---|---|---|
+| **T-03** 카피 변경 + 최신 client hash + 과거 pass report | **True** | **차단 — STALE_REVIEW_COPY** | `test_t03_stale_report_with_new_copy_hash_remains_rejected` |
+| **T-04** 제품명 변경 + 기존 copy hash | **True** | **차단 — STALE_REVIEW_CONTEXT** | `test_t04_product_name_changes_while_copy_hash_unchanged_fails` |
+| T-01/T-12 | 정상 승인 경로 유지 필요 | **PASS** (서버 발행 정상 기록/새 revision 검수) | `test_t01...`, `test_t12...` |
+| T-02/T-05~07 | 이전에는 맥락/변경 결속 부족 | **차단** (카피·사용자 원문·제품 주장·revision) | `test_t02...`, `test_t05...`~`test_t07...` |
+| T-08~11/T-13~15 | 누락/불일치·검수 실패·위조 기록 경계 | **차단** (보고서/기록 부재·실패·수정·보고서 hash·다른 Job·판본 충돌) | `test_t08...`~`test_t15...` |
+| T-16 | 운영 원자 승인 미구현 | **참조 메모리 RLock** 중복 요청 중 한 건만 성공, 검수 진행 중 입력 변경 결과 거부 | `test_t16_concurrent_double_approval_only_one_commits_in_memory`, `test_t16_review_finishing_after_context_race_rejected` |
+
+**참조 계약 설계:** `canonical_copy_hash()`는 기존 AdCopyOutput 전용 SHA-256을 유지한다. 새 `review_input_sha256`는 서버가 검수에 보낸 전체 카피·Job·revision·제품명·user_text·제품 주장/추가 실제 입력·source/model/rules 버전을 묶는다. 검수 시작에 고정한 immutable 스냅샷과 내부 완료 결과가 만나는 시점에만 서버 소유 `StoredReview`를 만든다. 승인 요청자가 제출한 해시끼리 일치하는지만 검사하는 경로는 제거했다.
+
+**신뢰/실행 경계:** `ReferenceReviewLedger`는 인증·서명·영속성 없는 단일 프로세스 **참조 구현**이다. `begin_review`의 토큰도 공급자 진위 인증이 아닌 backend 내부 상관관계 ID이다. 실제 JobStore/인증/권한·DB 트랜잭션·동시 worker·재시작 복원·HTTP 409 및 TS 타입은 **FOLLOW_UP**이며 검수 Owner의 실제 입력 범위는 **BLOCKED_BY_SOURCE**이다. 신규 공개 HTTP Wire 7개는 **BLOCKED_WIRE / FROZEN 0** 유지.
+
+**최종 테스트 재현:**
+```bash
+python3 docs/contracts/validate_package.py
+python -m pytest -q tests/test_contract_review_binding.py tests/test_contract_review_validation.py tests/test_contract_wire_proposals.py tests/test_serving_health.py
+git diff --check
+```
+
+**검증 의미:** 기존 계약 28개 + 신규 23개 = **51 PASS**는 참조 계약 수준만 증명한다. 기존 `f979331` 118 회귀는 별도 고정 스냅샷 검증이며 새 runtime 승인 게이트를 보증하지 않는다. 판정: **REFERENCE CONTRACT PASS / RUNTIME NOT IMPLEMENTED**. 독립 재감사 및 PM 병합 보류 유지.

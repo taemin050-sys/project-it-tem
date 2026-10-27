@@ -134,3 +134,18 @@ sequenceDiagram
 | `ComplianceReport` 승인·`ResearchResult` citation | 레거시 공개 HTTP에 필드/연결 없음 | 예제 값은 유지하되 OpenAPI/TS 증거 없는 Live 완료 표기 금지 |
 
 **Owner source → Pydantic → Mapper lossless round-trip → JSON Schema → 구현 OpenAPI → TS → Fixture → Contract Test**의 순서로 증빙을 쌓는다. 원본 경로·SHA가 없는 지금은 **Pydantic 소유자 검증·Mapper·HTTP/TS 동기화 완료를 선언할 수 없다**.
+
+
+## 8. P0-04 검수 대상 스냅샷 ↔ 서버 소유 ReviewRecord (재감사 보완)
+
+`AdCopyOutput`는 카피 내용만, `ComplianceReport`는 검수 결과만 표현한다. 두 Owner 모델에 서버 승인 메타데이터를 **억지로 추가하지 않는다**. [SSOT §3.2](../interface_spec.md)를 기준으로 서빙 Sidecar의 `review_input_sha256`가 **검수 당시 전체 관련 입력**을 담고, `copy_sha256`는 기존 AdCopyOutput 무결성만 유지한다.
+
+| Owner 입력 / 검수 대상 | 현재 참조 기록 | 반드시 보존할 경계 |
+|---|---|---|
+| `AdCopyOutput` 전체 | `copy_output`, `copy_revision`, `copy_sha256` | 카피 구조 무손실, 동일 revision 다른 내용 거부 |
+| `product_name` / 실제 `user_text` | `review_context.product_name`, `review_context.user_text` | 제품명·사용자 원문 변경 시 재검수; 검수에 전달되지 않았다면 user_text는 명시적 null |
+| 검수에 실제 제공한 제품 사실/주장 | `review_context.product_facts` | **실제 제공된 것만** 보존; 원본 ProductInput/검색/사진 해석 중 추가 검수 입력은 Owner 확인 |
+| 추가 검수 입력·Owner 스키마 버전 | `additional_review_inputs`, `source_schema_version` | 암묵적 필드 누락 금지; **공식 Owner source/SHA 미확인 = BLOCKED_BY_SOURCE** |
+| 검수 결과 | 서버가 `begin_review`→`complete_review`에서 받은 `ComplianceReport` 원본 + report hash | 호출자가 제출한 report/해시를 신뢰하면 안 됨 |
+
+`tests/test_contract_review_binding.py`의 T-01~T-16은 서버 **메모리 참조 구현**에서 입력·보고서 결속을 확인한다. 실제 Owner signature·검수 입력 scope, 실 JobStore transaction, TS golden vectors/OpenAPI는 아직 **미검증**이다.
