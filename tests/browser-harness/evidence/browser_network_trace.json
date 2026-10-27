@@ -1,0 +1,118 @@
+{
+  "mode": "MOCK",
+  "job_id": "ed461411beb54e3982b9c30aa091b2cb",
+  "rejected_job_id": "18cfcc8a75f44ebab6eba0e93314d7ed",
+  "frontend": "http://127.0.0.1:4173",
+  "trace": [
+    {
+      "method": "POST",
+      "url": "/api/v1/jobs",
+      "status": 201,
+      "contentType": "application/json"
+    },
+    {
+      "method": "POST",
+      "url": "/api/v1/jobs/ed461411beb54e3982b9c30aa091b2cb/mock/image",
+      "status": 409,
+      "contentType": "application/json"
+    },
+    {
+      "method": "GET",
+      "url": "/api/v1/jobs/ed461411beb54e3982b9c30aa091b2cb",
+      "status": 200,
+      "contentType": "application/json"
+    },
+    {
+      "method": "POST",
+      "url": "/api/v1/jobs/ed461411beb54e3982b9c30aa091b2cb/mock/plan",
+      "status": 200,
+      "contentType": "application/json"
+    },
+    {
+      "method": "POST",
+      "url": "/api/v1/jobs/ed461411beb54e3982b9c30aa091b2cb/mock/copy",
+      "status": 200,
+      "contentType": "application/json"
+    },
+    {
+      "method": "POST",
+      "url": "/api/v1/jobs/ed461411beb54e3982b9c30aa091b2cb/approvals/copy",
+      "status": 200,
+      "contentType": "application/json"
+    },
+    {
+      "method": "POST",
+      "url": "/api/v1/jobs/ed461411beb54e3982b9c30aa091b2cb/mock/image",
+      "status": 200,
+      "contentType": "application/json"
+    },
+    {
+      "method": "POST",
+      "url": "/api/v1/jobs/ed461411beb54e3982b9c30aa091b2cb/approvals/image",
+      "status": 200,
+      "contentType": "application/json"
+    },
+    {
+      "method": "POST",
+      "url": "/api/v1/jobs/ed461411beb54e3982b9c30aa091b2cb/mock/compose",
+      "status": 200,
+      "contentType": "application/json"
+    },
+    {
+      "method": "GET",
+      "url": "/api/v1/jobs/ed461411beb54e3982b9c30aa091b2cb/artifacts/final",
+      "status": 200,
+      "contentType": "image/png"
+    },
+    {
+      "method": "GET",
+      "url": "/api/v1/jobs/ed461411beb54e3982b9c30aa091b2cb/artifacts/caption",
+      "status": 200,
+      "contentType": "text/plain; charset=utf-8"
+    },
+    {
+      "method": "GET",
+      "url": "/api/v1/jobs/ed461411beb54e3982b9c30aa091b2cb",
+      "status": 200,
+      "contentType": "application/json"
+    },
+    {
+      "method": "GET",
+      "url": "/api/v1/jobs/ed461411beb54e3982b9c30aa091b2cb",
+      "status": 200,
+      "contentType": "application/json"
+    },
+    {
+      "method": "POST",
+      "url": "/api/v1/jobs",
+      "status": 201,
+      "contentType": "application/json"
+    },
+    {
+      "method": "POST",
+      "url": "/api/v1/jobs/18cfcc8a75f44ebab6eba0e93314d7ed/mock/plan",
+      "status": 200,
+      "contentType": "application/json"
+    },
+    {
+      "method": "POST",
+      "url": "/api/v1/jobs/18cfcc8a75f44ebab6eba0e93314d7ed/mock/copy",
+      "status": 200,
+      "contentType": "application/json"
+    },
+    {
+      "method": "POST",
+      "url": "/api/v1/jobs/18cfcc8a75f44ebab6eba0e93314d7ed/approvals/copy",
+      "status": 200,
+      "contentType": "application/json"
+    },
+    {
+      "method": "POST",
+      "url": "/api/v1/jobs/18cfcc8a75f44ebab6eba0e93314d7ed/mock/image",
+      "status": 409,
+      "contentType": "application/json"
+    }
+  ],
+  "consoleErrors": [],
+  "summary": "B0 React harness only; frontend Owner real application NOT VERIFIED"
+}
