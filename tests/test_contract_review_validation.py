@@ -6,7 +6,7 @@ from pathlib import Path
 import pytest
 
 from docs.contracts.validation import (
-    ContractViolation, approval_allowed, canonical_copy_hash,
+    ContractViolation, ReferenceReviewLedger, approval_allowed, canonical_copy_hash,
     validate_compliance,
 )
 
@@ -124,53 +124,84 @@ def test_missing_user_text_source_must_fail():
         check(unsafe_copy(), r)
 
 
+def _trusted_context():
+    # Reference-only review scope; owner must confirm actual inputs before Live.
+    return {
+        "product_name": "라움 데일리 크림",
+        "user_text": "매일 쓰는 부드러운 화장품",
+        "product_facts": {"features": "부드러운 사용감", "ad_purpose": "소개"},
+        "source_schema_version": "meeting-v0.5-unverified",
+        "additional_review_inputs": {},
+    }
+
+
+def _reviewed_ledger(c=None, r=None):
+    c = c if c is not None else load("ad_copy_output")
+    r = r if r is not None else good_report()
+    store = ReferenceReviewLedger()
+    store.stage_job(job_id="job01", copy_revision="copy-r01", copy_output=c,
+                    review_context=_trusted_context())
+    token, _ = store.begin_review(
+        "job01", model_version="fake-no-provider", rules_version="fake-rule01",
+    )
+    record_id = store.complete_review(token, r)
+    return store, record_id, c
+
+
+def _approve(store, record_id, c, *, revision="copy-r01", job="job01"):
+    return approval_allowed(
+        store, job_id=job, review_record_id=record_id,
+        requested_copy_revision=revision, requested_copy_sha256=canonical_copy_hash(c),
+    )
+
+
 def test_revision_and_digest_check():
-    c = load("ad_copy_output")
-    r = good_report()
-    sha = canonical_copy_hash(c)
-    kwargs = {"product_name": "라움 데일리 크림", "copy_revision": "copy-r01",
-              "reviewed_revision": "copy-r01", "reviewed_copy_sha256": sha}
-    assert approval_allowed(c, r, **kwargs)
-    changed = copy.deepcopy(c)
+    store, rec, c = _reviewed_ledger()
+    assert _approve(store, rec, c)
+    other, old_record, original = _reviewed_ledger()
+    changed = copy.deepcopy(original)
     changed["ad_copy"]["headline"] += "!"
-    with pytest.raises(ContractViolation, match="STALE_REVIEW_HASH"):
-        approval_allowed(changed, r, **kwargs)
-    with pytest.raises(ContractViolation, match="STALE_REVIEW_REVISION"):
-        approval_allowed(c, r, **{**kwargs, "reviewed_revision": "copy-r00"})
+    with pytest.raises(ContractViolation, match="CONFLICTING_COPY_REVISION"):
+        other.stage_job(job_id="job01", copy_revision="copy-r01", copy_output=changed,
+                        review_context=_trusted_context())
+    other.stage_job(job_id="job01", copy_revision="copy-r02", copy_output=changed,
+                    review_context=_trusted_context())
+    with pytest.raises(ContractViolation, match="STALE_REVIEW_COPY"):
+        _approve(other, old_record, changed, revision="copy-r02")
 
 
 def test_report_missing_or_review_missing_fails_closed():
     c = load("ad_copy_output")
-    kw = {"product_name": "라움 데일리 크림", "copy_revision": "copy-r01",
-          "reviewed_revision": "copy-r01",
-          "reviewed_copy_sha256": canonical_copy_hash(c)}
+    store = ReferenceReviewLedger()
+    store.stage_job(job_id="job01", copy_revision="copy-r01", copy_output=c,
+                    review_context=_trusted_context())
+    with pytest.raises(ContractViolation, match="MISSING_TRUSTED_REVIEW_RECORD"):
+        _approve(store, "untrusted-client-id", c)
+    token, _ = store.begin_review(
+        "job01", model_version="fake-no-provider", rules_version="fake-rule01",
+    )
     with pytest.raises(ContractViolation, match="MISSING_COMPLIANCE"):
-        approval_allowed(c, None, **kw)
-    with pytest.raises(ContractViolation, match="MISSING_REVIEW_SIDECAR"):
-        approval_allowed(c, good_report(), **{**kw, "reviewed_copy_sha256": None})
+        store.complete_review(token, None)
+    with pytest.raises(ContractViolation, match="UNTRUSTED_REVIEW_STORE"):
+        approval_allowed(None, job_id="job01", review_record_id="fake",
+                         requested_copy_revision="copy-r01",
+                         requested_copy_sha256=canonical_copy_hash(c))
 
 
 def test_violating_copy_approval_denied():
-    c = unsafe_copy()
+    store, rec, c = _reviewed_ledger(unsafe_copy(), bad_report())
     with pytest.raises(ContractViolation, match="COMPLIANCE_BLOCKED"):
-        approval_allowed(c, bad_report(), product_name="라움 데일리 크림",
-                         copy_revision="copy-r01", reviewed_revision="copy-r01",
-                         reviewed_copy_sha256=canonical_copy_hash(c))
+        _approve(store, rec, c)
 
 
 def test_auto_revised_copy_needs_fresh_review():
-    c = unsafe_copy()
-    old_sha = canonical_copy_hash(c)
-    fixed = copy.deepcopy(c)
+    store, rec, old_copy = _reviewed_ledger(unsafe_copy(), bad_report())
+    fixed = copy.deepcopy(old_copy)
     fixed["ad_copy"]["headline"] = bad_report()["revised_fields"]["headline"]
-    with pytest.raises(ContractViolation, match="STALE_REVIEW_HASH"):
-        approval_allowed(fixed, bad_report(), product_name="라움 데일리 크림",
-                         copy_revision="copy-r02", reviewed_revision="copy-r02",
-                         reviewed_copy_sha256=old_sha)
-    with pytest.raises(ContractViolation, match="COMPLIANCE_BLOCKED"):
-        approval_allowed(c, bad_report(), product_name="라움 데일리 크림",
-                         copy_revision="copy-r01", reviewed_revision="copy-r01",
-                         reviewed_copy_sha256=old_sha)
+    store.stage_job(job_id="job01", copy_revision="copy-r02", copy_output=fixed,
+                    review_context=_trusted_context())
+    with pytest.raises(ContractViolation, match="STALE_REVIEW_COPY"):
+        _approve(store, rec, fixed, revision="copy-r02")
 
 
 def test_passed_flag_conflict_rejected():
