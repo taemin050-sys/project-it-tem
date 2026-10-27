@@ -1,7 +1,8 @@
 {
   "mode": "MOCK",
-  "job_id": "ed461411beb54e3982b9c30aa091b2cb",
-  "rejected_job_id": "18cfcc8a75f44ebab6eba0e93314d7ed",
+  "job_id": "cd948243b3c94e98a5f5f588890f2dee",
+  "rejected_job_id": "9953524258ed4b57baea583fab39d45f",
+  "conflict_job_id": "c47f354ba1584b9fb1110ffe802e6457",
   "frontend": "http://127.0.0.1:4173",
   "trace": [
     {
@@ -12,73 +13,91 @@
     },
     {
       "method": "POST",
-      "url": "/api/v1/jobs/ed461411beb54e3982b9c30aa091b2cb/mock/image",
+      "url": "/api/v1/jobs/cd948243b3c94e98a5f5f588890f2dee/mock/image",
       "status": 409,
       "contentType": "application/json"
     },
     {
       "method": "GET",
-      "url": "/api/v1/jobs/ed461411beb54e3982b9c30aa091b2cb",
+      "url": "/api/v1/jobs/cd948243b3c94e98a5f5f588890f2dee",
       "status": 200,
       "contentType": "application/json"
     },
     {
       "method": "POST",
-      "url": "/api/v1/jobs/ed461411beb54e3982b9c30aa091b2cb/mock/plan",
+      "url": "/api/v1/jobs/cd948243b3c94e98a5f5f588890f2dee/mock/plan",
       "status": 200,
       "contentType": "application/json"
     },
     {
       "method": "POST",
-      "url": "/api/v1/jobs/ed461411beb54e3982b9c30aa091b2cb/mock/copy",
+      "url": "/api/v1/jobs/cd948243b3c94e98a5f5f588890f2dee/mock/copy",
       "status": 200,
       "contentType": "application/json"
     },
     {
       "method": "POST",
-      "url": "/api/v1/jobs/ed461411beb54e3982b9c30aa091b2cb/approvals/copy",
+      "url": "/api/v1/jobs/cd948243b3c94e98a5f5f588890f2dee/approvals/copy",
       "status": 200,
       "contentType": "application/json"
     },
     {
       "method": "POST",
-      "url": "/api/v1/jobs/ed461411beb54e3982b9c30aa091b2cb/mock/image",
+      "url": "/api/v1/jobs/cd948243b3c94e98a5f5f588890f2dee/mock/image",
       "status": 200,
       "contentType": "application/json"
     },
     {
       "method": "POST",
-      "url": "/api/v1/jobs/ed461411beb54e3982b9c30aa091b2cb/approvals/image",
+      "url": "/api/v1/jobs/cd948243b3c94e98a5f5f588890f2dee/approvals/image",
       "status": 200,
       "contentType": "application/json"
     },
     {
       "method": "POST",
-      "url": "/api/v1/jobs/ed461411beb54e3982b9c30aa091b2cb/mock/compose",
+      "url": "/api/v1/jobs/cd948243b3c94e98a5f5f588890f2dee/mock/compose",
       "status": 200,
       "contentType": "application/json"
     },
     {
       "method": "GET",
-      "url": "/api/v1/jobs/ed461411beb54e3982b9c30aa091b2cb/artifacts/final",
+      "url": "/api/v1/jobs/cd948243b3c94e98a5f5f588890f2dee/artifacts/final",
       "status": 200,
       "contentType": "image/png"
     },
     {
       "method": "GET",
-      "url": "/api/v1/jobs/ed461411beb54e3982b9c30aa091b2cb/artifacts/caption",
+      "url": "/api/v1/jobs/cd948243b3c94e98a5f5f588890f2dee/artifacts/caption",
       "status": 200,
       "contentType": "text/plain; charset=utf-8"
     },
     {
       "method": "GET",
-      "url": "/api/v1/jobs/ed461411beb54e3982b9c30aa091b2cb",
+      "url": "/api/v1/jobs/cd948243b3c94e98a5f5f588890f2dee/artifacts/final",
+      "status": 200,
+      "contentType": "image/png"
+    },
+    {
+      "method": "GET",
+      "url": "/api/v1/jobs/cd948243b3c94e98a5f5f588890f2dee/artifacts/caption",
+      "status": 200,
+      "contentType": "text/plain; charset=utf-8"
+    },
+    {
+      "method": "GET",
+      "url": "/api/v1/jobs/cd948243b3c94e98a5f5f588890f2dee/artifacts/caption",
+      "status": 404,
+      "contentType": "application/json"
+    },
+    {
+      "method": "GET",
+      "url": "/api/v1/jobs/cd948243b3c94e98a5f5f588890f2dee",
       "status": 200,
       "contentType": "application/json"
     },
     {
       "method": "GET",
-      "url": "/api/v1/jobs/ed461411beb54e3982b9c30aa091b2cb",
+      "url": "/api/v1/jobs/cd948243b3c94e98a5f5f588890f2dee",
       "status": 200,
       "contentType": "application/json"
     },
@@ -90,26 +109,56 @@
     },
     {
       "method": "POST",
-      "url": "/api/v1/jobs/18cfcc8a75f44ebab6eba0e93314d7ed/mock/plan",
+      "url": "/api/v1/jobs/9953524258ed4b57baea583fab39d45f/mock/plan",
       "status": 200,
       "contentType": "application/json"
     },
     {
       "method": "POST",
-      "url": "/api/v1/jobs/18cfcc8a75f44ebab6eba0e93314d7ed/mock/copy",
+      "url": "/api/v1/jobs/9953524258ed4b57baea583fab39d45f/mock/copy",
       "status": 200,
       "contentType": "application/json"
     },
     {
       "method": "POST",
-      "url": "/api/v1/jobs/18cfcc8a75f44ebab6eba0e93314d7ed/approvals/copy",
+      "url": "/api/v1/jobs/9953524258ed4b57baea583fab39d45f/approvals/copy",
       "status": 200,
       "contentType": "application/json"
     },
     {
       "method": "POST",
-      "url": "/api/v1/jobs/18cfcc8a75f44ebab6eba0e93314d7ed/mock/image",
+      "url": "/api/v1/jobs/9953524258ed4b57baea583fab39d45f/mock/image",
       "status": 409,
+      "contentType": "application/json"
+    },
+    {
+      "method": "POST",
+      "url": "/api/v1/jobs",
+      "status": 201,
+      "contentType": "application/json"
+    },
+    {
+      "method": "POST",
+      "url": "/api/v1/jobs/c47f354ba1584b9fb1110ffe802e6457/mock/plan",
+      "status": 200,
+      "contentType": "application/json"
+    },
+    {
+      "method": "POST",
+      "url": "/api/v1/jobs/c47f354ba1584b9fb1110ffe802e6457/mock/copy",
+      "status": 200,
+      "contentType": "application/json"
+    },
+    {
+      "method": "POST",
+      "url": "/api/v1/jobs/c47f354ba1584b9fb1110ffe802e6457/mock/copy",
+      "status": 409,
+      "contentType": "application/json"
+    },
+    {
+      "method": "GET",
+      "url": "/api/v1/jobs/c47f354ba1584b9fb1110ffe802e6457",
+      "status": 200,
       "contentType": "application/json"
     }
   ],

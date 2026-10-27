@@ -27,11 +27,24 @@ const page = await browser.newPage();
 await page.setViewport({ width: 1280, height: 1000, deviceScaleFactor: 1 });
 const trace = [];
 const consoleErrors = [];
+const downloads = path.join(evidence, "chrome_downloads");
+fs.mkdirSync(downloads, { recursive: true });
+await page._client().send("Page.setDownloadBehavior", { behavior: "allow", downloadPath: downloads });
+async function waitFile(filename) {
+  const target = path.join(downloads, filename);
+  for (let i = 0; i < 120; i++) {
+    if (fs.existsSync(target) && fs.statSync(target).size > 0 &&
+        !fs.readdirSync(downloads).some(name => name.endsWith(".crdownload"))) return target;
+    await new Promise(resolve => setTimeout(resolve, 100));
+  }
+  throw new Error("Browser did not save " + filename);
+}
+
 page.on("console", (m) => {
   if (m.type() !== "error") return;
   // Chrome logs expected HTTP 409 as a console resource error. Actual JS
   // exceptions must still fail; the 409 is asserted separately in this test.
-  if (m.text().includes("Failed to load resource: the server responded with a status of 409 (Conflict)")) return;
+  if (/Failed to load resource: the server responded with a status of (409 \(Conflict\)|404 \(Not Found\))/.test(m.text())) return;
   consoleErrors.push(m.text());
 });
 page.on("pageerror", (e) => consoleErrors.push("PAGE_ERROR: " + e.message));
@@ -119,11 +132,52 @@ try {
     JSON.stringify(downloadResult, null, 2) + "\n");
   process.stdout.write("PASS download=" + JSON.stringify(downloadResult) + "\n");
 
-  // Browser refresh must read persisted Job from URL, without replaying billable/side-effectful POST.
+  // Real React click -> Chrome download manager -> physical saved files.
+  await page.locator('[data-testid="final-download"]').click();
+  const savedPng = await waitFile("final_mock.png");
+  const savedBytes = fs.readFileSync(savedPng);
+  assert.equal(savedBytes.subarray(0, 8).toString("hex"), "89504e470d0a1a0a");
+  assert.equal(savedBytes.readUInt32BE(16), 1080);
+  assert.equal(savedBytes.readUInt32BE(20), 1350);
+  await page.locator('[data-testid="caption-download"]').click();
+  const savedCaption = await waitFile("caption.txt");
+  const savedText = new TextDecoder("utf-8", { fatal: true }).decode(fs.readFileSync(savedCaption));
+  assert.match(savedText, /라움/);
+  process.stdout.write("PASS actual Chrome saved PNG and UTF-8 caption\n");
+  fs.writeFileSync(path.join(evidence, "chrome_download_checks.json"),
+    JSON.stringify({png: path.basename(savedPng), bytes: savedBytes.length,
+      mime: "image/png", signature: savedBytes.subarray(0, 8).toString("hex"),
+      width: savedBytes.readUInt32BE(16), height: savedBytes.readUInt32BE(20),
+      caption: path.basename(savedCaption), captionText: savedText,
+      method: "React button click -> Chrome Blob download -> filesystem"}, null, 2) + "\n");
+
+  // Network-fault injection for missing artifact, requiring a visible React error.
+  await page.setRequestInterception(true);
+  const failCaption = async request => {
+    if (request.url().includes("/artifacts/caption")) {
+      await request.respond({status: 404, contentType:"application/json", body:'{"detail":"Artifact not found"}'});
+    } else { await request.continue(); }
+  };
+  page.on("request", failCaption);
+  await page.locator('[data-testid="caption-download"]').click();
+  await page.waitForFunction(() => document.querySelector('[data-testid="error"]')?.textContent?.includes("다운로드 실패"));
+  assert.match(await page.$eval('[data-testid="error"]', el => el.textContent), /404/);
+  page.off("request", failCaption);
+  await page.setRequestInterception(false);
+  process.stdout.write("PASS React surfaces failed download\n");
+
+  // Refresh: GET existing Job, no POST; Job and artifact links preserved.
+  const beforeReload = trace.length;
+  const finalLabel = await page.$eval('[data-testid="final-download"]', el => el.textContent);
   await page.reload({ waitUntil: "networkidle2" });
   await awaitStatus("COMPLETED");
   assert.match(page.url(), new RegExp("job=" + jobId));
-  process.stdout.write("PASS refresh_restores_existing_job_without_replay\n");
+  const newNetwork = trace.slice(beforeReload);
+  assert.ok(newNetwork.some(x => x.method === "GET" && x.url.endsWith("/jobs/" + jobId) && x.status === 200));
+  assert.equal(newNetwork.filter(x => x.method === "POST").length, 0);
+  assert.equal(await page.$eval('[data-testid="job-id"]', el => el.textContent), jobId);
+  assert.equal(await page.$eval('[data-testid="final-download"]', el => el.textContent), finalLabel);
+  process.stdout.write("PASS refresh GET + artifact restore, POST=0\n");
 
   await page.screenshot({ path: path.join(evidence, "b0_browser_harness_completed.png"), fullPage: true });
 
@@ -142,13 +196,42 @@ try {
   assert.equal(afterReject.status, 409);
   process.stdout.write("PASS rejection_blocks_image_409\n");
 
+  // Real UI 409: another request advanced backend while React is stale.
+  await (await page.$('[data-testid="products"]')).uploadFile(imageA, imageB);
+  await button("upload", "INPUTS_VALIDATED");
+  const conflictJobId = await page.$eval('[data-testid="job-id"]', el => el.textContent.trim());
+  await button("plan", "PLAN_READY");
+  const advanced = await page.evaluate(async id => {
+    const response = await fetch("/api/v1/jobs/" + id + "/mock/copy", {method:"POST"});
+    return response.status;
+  }, conflictJobId);
+  assert.equal(advanced, 200);
+  assert.equal(await status(), "PLAN_READY", "React state must still be stale");
+  const beforeConflictClick = trace.length;
+  await page.locator('[data-testid="copy"]').click();
+  await awaitStatus("COPY_REVIEW_REQUIRED");
+  await page.waitForFunction(() => document.querySelector('[data-testid="info"]')?.textContent?.includes("409 충돌"));
+  assert.match(await page.$eval('[data-testid="error"]', el => el.textContent), /HTTP 409/);
+  const calls = trace.slice(beforeConflictClick).filter(x =>
+    x.url.endsWith("/jobs/" + conflictJobId) || x.url.endsWith("/jobs/" + conflictJobId + "/mock/copy"));
+  const posts = calls.filter(x => x.method === "POST");
+  const gets = calls.filter(x => x.method === "GET");
+  assert.equal(posts.length, 1, "must only attempt one stale UI POST");
+  assert.equal(posts[0].status, 409);
+  assert.equal(gets.length, 1, "React must GET the latest Job after 409");
+  assert.equal(gets[0].status, 200);
+  await new Promise(resolve => setTimeout(resolve, 350));
+  assert.equal(trace.slice(beforeConflictClick).filter(x => x.method === "POST" &&
+    x.url.endsWith("/jobs/" + conflictJobId + "/mock/copy")).length, 1);
+  process.stdout.write("PASS React UI 409 -> GET Job -> reconciled UI -> no retry\n");
+
   assert.equal(consoleErrors.length, 0, "browser JS console/page errors: " + consoleErrors.join("; "));
   assert.ok(trace.some((r) => r.status === 201 && r.method === "POST"));
   assert.ok(trace.some((r) => r.status === 409));
   assert.ok(trace.some((r) => r.url.endsWith("/artifacts/final") && r.status === 200));
 
   fs.writeFileSync(path.join(evidence, "browser_network_trace.json"),
-    JSON.stringify({ mode: "MOCK", job_id: jobId, rejected_job_id: rejectedJobId,
+    JSON.stringify({ mode: "MOCK", job_id: jobId, rejected_job_id: rejectedJobId, conflict_job_id: conflictJobId,
       frontend: front, trace, consoleErrors,
       summary: "B0 React harness only; frontend Owner real application NOT VERIFIED", },
     null, 2) + "\n");

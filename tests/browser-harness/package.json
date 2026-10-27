@@ -6,7 +6,8 @@
   "scripts": {
     "dev": "vite --host 127.0.0.1 --port 4173 --strictPort",
     "build": "tsc --noEmit && vite build",
-    "browser:test": "node scripts/browser-smoke.mjs"
+    "browser:test": "node scripts/browser-smoke.mjs",
+    "browser:recovery": "node scripts/browser-recovery.mjs"
   },
   "dependencies": {
     "react": "19.3.1",

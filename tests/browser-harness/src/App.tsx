@@ -74,6 +74,32 @@ export default function App() {
     await run("업로드", () => createJob(products, references));
   }
 
+  // Download through the real server URL, surface an HTTP error in the UI,
+  // and save a native Blob file. No JSON/base64 or model call involved.
+  async function download(kind: "final" | "caption") {
+    const url = job?.artifacts?.[kind]?.download_url;
+    if (!url) return;
+    setErr("");
+    try {
+      const response = await fetch(url);
+      if (!response.ok) throw new ApiError(response.status, `Artifact ${kind} is unavailable`);
+      const blob = await response.blob();
+      const objectUrl = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = objectUrl;
+      link.download = kind === "final" ? "final_mock.png" : "caption.txt";
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.setTimeout(() => URL.revokeObjectURL(objectUrl), 1000);
+      setInfo(`${kind} 파일 다운로드 요청 완료`);
+    } catch (error) {
+      const description = error instanceof Error ? error.message : String(error);
+      setErr(`다운로드 실패${error instanceof ApiError ? " (HTTP " + error.status + ")" : ""}: ${description}`);
+      setInfo("다운로드 오류: Job 상태를 확인하고 다시 시도해 주세요.");
+    }
+  }
+
   const status = job?.status ?? "";
   const artifactUrl = (kind: ArtifactKind) => job?.artifacts?.[kind]?.download_url;
 
@@ -141,8 +167,8 @@ export default function App() {
           </div>
         </div>
         <div className="downloads">
-          {artifactUrl("final") && <a data-testid="final-download" href={artifactUrl("final")} download>최종 PNG 다운로드</a>}
-          {artifactUrl("caption") && <a data-testid="caption-download" href={artifactUrl("caption")} download>UTF-8 캡션 다운로드</a>}
+          {artifactUrl("final") && <button type="button" data-testid="final-download" onClick={() => void download("final")}>최종 PNG 다운로드</button>}
+          {artifactUrl("caption") && <button type="button" data-testid="caption-download" onClick={() => void download("caption")}>UTF-8 캡션 다운로드</button>}
         </div>
       </section>
       <footer>현재 API: P2/P3 B0 Mock 10개 · + Health 1개. 신규 7개 HTTP Wire 미동결. 비밀키·유료 모델 호출 없음.</footer>
