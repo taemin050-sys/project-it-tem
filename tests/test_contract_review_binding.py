@@ -297,3 +297,105 @@ def test_canonical_review_rejects_float_for_portability():
     ctx["product_facts"]["measured_value"] = 0.25
     with pytest.raises(ContractViolation, match="UNSUPPORTED_CANONICAL_JSON_TYPE"):
         stage(store, c, ctx=ctx)
+
+
+# P0-04R — review generation history invariants (T-17..T-21).
+# These are reference, single-process semantics; not actual JobStore transactions.
+
+def test_t17_copy_v1_v2_v1_restore_old_review_rejected_for_generation():
+    store, v1, old_record = reviewed()
+    reviewed_generation = store._records[old_record].reviewed_job_generation
+    assert reviewed_generation == store._jobs["job01"]["generation"] == 1
+    v2 = copy.deepcopy(v1)
+    v2["ad_copy"]["headline"] = "수정된 광고 문구 v2"
+    stage(store, v2, revision="copy-r02")
+    assert store._jobs["job01"]["generation"] == 2
+    stage(store, v1, revision="copy-r01")  # restore older revision is allowed only as a new generation
+    assert store._jobs["job01"]["generation"] == 3
+    with pytest.raises(ContractViolation, match="^STALE_REVIEW_GENERATION$"):
+        approve(store, v1, old_record)
+
+
+def test_t18_context_a_b_a_restore_old_review_rejected_for_generation():
+    store, c, old_record = reviewed()
+    baseline = context()
+    b = copy.deepcopy(baseline)
+    b["product_name"] = "바뀐 제품명"
+    stage(store, c, ctx=b)
+    assert store._jobs["job01"]["generation"] == 2
+    stage(store, c, ctx=baseline)
+    assert store._jobs["job01"]["generation"] == 3
+    assert canonical_copy_hash(c) == store._records[old_record].copy_sha256
+    with pytest.raises(ContractViolation, match="^STALE_REVIEW_GENERATION$"):
+        approve(store, c, old_record)
+
+
+def test_t19_revision_reuse_and_downgrade_does_not_reactivate_old_review():
+    store, v1, old_record = reviewed()
+    altered = copy.deepcopy(v1)
+    altered["ad_copy"]["subline"] = "내용이 다른 카피"
+    with pytest.raises(ContractViolation, match="CONFLICTING_COPY_REVISION"):
+        stage(store, altered, revision="copy-r01")
+    assert store._jobs["job01"]["generation"] == 1  # failed write does not mutate history
+    stage(store, altered, revision="copy-r02")
+    stage(store, v1, revision="copy-r01")  # revision reuse generates a NEW generation
+    assert store._jobs["job01"]["generation"] == 3
+    with pytest.raises(ContractViolation, match="^STALE_REVIEW_GENERATION$"):
+        approve(store, v1, old_record)
+
+
+def test_t20_fresh_review_after_copy_restore_new_generation_can_approve():
+    store, v1, old_record = reviewed()
+    v2 = copy.deepcopy(v1)
+    v2["caption"] += " v2"
+    stage(store, v2, revision="copy-r02")
+    stage(store, v1, revision="copy-r01")
+    with pytest.raises(ContractViolation, match="^STALE_REVIEW_GENERATION$"):
+        approve(store, v1, old_record)
+    fresh_record = finish(store)
+    assert store._records[fresh_record].reviewed_job_generation == 3
+    assert fresh_record != old_record
+    assert approve(store, v1, fresh_record)
+
+
+def test_t21_identical_stage_job_retries_are_idempotent_even_after_review():
+    store = ReferenceReviewLedger()
+    c = fixture("ad_copy_output")
+    ctx = context()
+    stage(store, c, ctx=ctx)
+    assert store._jobs["job01"]["generation"] == 1
+    for _ in range(5):
+        stage(store, copy.deepcopy(c), ctx=copy.deepcopy(ctx))
+        assert store._jobs["job01"]["generation"] == 1
+    record_id = finish(store)
+    assert store._records[record_id].reviewed_job_generation == 1
+    for _ in range(5):
+        stage(store, copy.deepcopy(c), ctx=copy.deepcopy(ctx))
+        assert store._jobs["job01"]["generation"] == 1
+    assert approve(store, c, record_id)
+
+
+def test_t18_additional_review_inputs_and_user_text_restore_do_not_resurrect():
+    store, c, old_record = reviewed()
+    ctx_b = context()
+    ctx_b["user_text"] += " 광고 주장 수정"
+    ctx_b["additional_review_inputs"]["new_review_claim"] = "과장된 진술"
+    stage(store, c, ctx=ctx_b)
+    stage(store, c, ctx=context())
+    assert store._jobs["job01"]["generation"] == 3
+    with pytest.raises(ContractViolation, match="^STALE_REVIEW_GENERATION$"):
+        approve(store, c, old_record)
+
+
+def test_t16_pending_review_changed_then_restored_cannot_complete():
+    store = ReferenceReviewLedger()
+    c = fixture("ad_copy_output")
+    stage(store, c)
+    token, _ = store.begin_review("job01", model_version="m1", rules_version="r1")
+    altered = context()
+    altered["product_facts"]["features"] = "다른 효능"
+    stage(store, c, ctx=altered)
+    stage(store, c)
+    assert store._jobs["job01"]["generation"] == 3
+    with pytest.raises(ContractViolation, match="REVIEW_INPUT_CHANGED_DURING_REVIEW"):
+        store.complete_review(token, fixture("compliance_report_pass"))

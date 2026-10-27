@@ -199,6 +199,7 @@ class StoredReview:
     copy_revision: str
     copy_sha256: str
     review_input_sha256: str
+    reviewed_job_generation: int
     report_sha256: str
     reviewed_snapshot_json: str
     report_json: str
@@ -219,7 +220,7 @@ class ReferenceReviewLedger:
         self._jobs: dict[str, dict] = {}
         self._pending: dict[str, dict] = {}
         self._records: dict[str, StoredReview] = {}
-        self._completed_runs: dict[str, tuple[str, str]] = {}
+        self._completed_runs: dict[str, tuple[str, str, int]] = {}
 
     def stage_job(self, *, job_id: str, copy_revision: str, copy_output: dict,
                   review_context: dict) -> None:
@@ -307,6 +308,7 @@ class ReferenceReviewLedger:
                 copy_revision=snap["copy_revision"],
                 copy_sha256=canonical_copy_hash(snap["copy_output"]),
                 review_input_sha256=pending["review_sha256"],
+                reviewed_job_generation=pending["generation"],
                 report_sha256=sha256(report_json.encode("utf-8")).hexdigest(),
                 reviewed_snapshot_json=_canonical_json(snap),
                 report_json=report_json,
@@ -314,7 +316,9 @@ class ReferenceReviewLedger:
                 model_version=pending["model_version"],
                 rules_version=pending["rules_version"],
             )
-            self._completed_runs[review_token] = (record_id, pending["review_sha256"])
+            self._completed_runs[review_token] = (
+                record_id, pending["review_sha256"], pending["generation"],
+            )
             return record_id
 
     def approve(self, *, job_id: str, review_record_id: str,
@@ -333,7 +337,8 @@ class ReferenceReviewLedger:
                 raise ContractViolation("REVIEW_JOB_MISMATCH")
             # Reject records inserted/copied without a completed server-run ledger entry.
             if self._completed_runs.get(rec.source_review_token) != (
-                rec.review_record_id, rec.review_input_sha256
+                rec.review_record_id, rec.review_input_sha256,
+                rec.reviewed_job_generation,
             ) or rec.review_record_id != review_record_id:
                 raise ContractViolation("UNTRUSTED_REVIEW_PROVENANCE")
             current = job["payload"]
@@ -352,6 +357,10 @@ class ReferenceReviewLedger:
             )
             if current_review_sha != rec.review_input_sha256:
                 raise ContractViolation("STALE_REVIEW_CONTEXT")
+            # Snapshot equality alone does not prove no intervening changes:
+            # v1 -> v2 -> v1 must invalidate the review from the first v1.
+            if rec.reviewed_job_generation != job["generation"]:
+                raise ContractViolation("STALE_REVIEW_GENERATION")
             if sha256(rec.report_json.encode("utf-8")).hexdigest() != rec.report_sha256:
                 raise ContractViolation("REVIEW_REPORT_TAMPERED")
             report = json.loads(rec.report_json)
