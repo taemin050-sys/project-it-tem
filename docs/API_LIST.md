@@ -144,8 +144,8 @@ curl -fsS "$API_BASE/api/v1/jobs/$JOB_ID"
 | Param | Location | Type | 필수 | 제약 |
 |---|---|---|---|---|
 | `job_id` | path | string | 예 | 유효한 Job ID |
-| `brand_name` | JSON body | string | 예 | 앞뒤 공백 제거, 1~80자, 제어문자 금지 |
-| `product_name` | JSON body | string | 예 | 앞뒤 공백 제거, 1~100자, 제어문자 금지 |
+| `brand_name` | JSON body | string | 예 | **입력 원문 1~80자** 검사 후 앞뒤 공백 제거·빈 값/제어문자 차단 |
+| `product_name` | JSON body | string | 예 | **입력 원문 1~100자** 검사 후 앞뒤 공백 제거·빈 값/제어문자 차단 |
 
 **이전 상태:** `INPUTS_VALIDATED` → **200** `PLAN_READY`. 응답은 **전체 Job JSON**이며 `plan` 객체와 `artifacts.plan`이 추가된다.
 
@@ -199,7 +199,7 @@ curl -fsS -X POST "$API_BASE/api/v1/jobs/$JOB_ID/mock/copy"
 
 ## 5. Approval
 
-두 엔드포인트는 같은 서버 `ReviewRequest` 모델을 사용한다. **`approved:boolean` 단일 필수 JSON**, 추가 필드는 Pydantic `extra=forbid`로 422. 신규 카피 revision/hash/검수기록을 기존 Boolean API에 임의 추가할 수 없다.
+두 엔드포인트는 같은 서버 `ReviewRequest` 모델을 사용한다. **`approved:boolean` 단일 필수 JSON**, 추가 필드는 Pydantic `extra=forbid`로 422. **프론트는 JSON Boolean `true`/`false`만 전송해야 한다.** 현재 타입은 일반 Pydantic `bool`이므로 `"yes"`, `1`, `"FALSE"` 등도 형변환되어 수락된다(**StrictBool 아님**); 타입 엄격화는 후속 정책·서버 PR 대상이다. 신규 카피 revision/hash/검수기록을 기존 Boolean API에 임의 추가할 수 없다.
 
 | Method / Endpoint | 이전 상태 | Request | 승인 결과 | 거절 결과 | 중복·순서 위반 |
 |---|---|---|---|---|---|
