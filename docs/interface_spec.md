@@ -258,6 +258,7 @@ stateDiagram-v2
 | `job_id`, `copy_revision` | 검수 대상 Job과 카피 판본 | 다른 Job 기록 재사용·동일 revision의 다른 카피 저장 차단 |
 | `copy_sha256` | **AdCopyOutput 전체 객체만** 대상으로 하는 종전 SHA-256 | 클라이언트가 전달하는 값은 기대값에 불과함 |
 | `review_input_sha256` | **검수 시작 시 고정된** 카피+실제 사용된 제품/사용자 맥락+review 버전 digest | 승인 시 **서버 현재 저장 상태**와 비교; 호출자가 새 digest를 다시 제출해도 무관 |
+| `reviewed_job_generation` | **검수 시작~완료 당시의 서버 Job 세대** | 동일 입력/hash로 복원해도 현재 Job generation이 달라지면 옛 보고서 승인 불가 |
 | `review_record_id`, `source_review_token` | 서빙이 시작→완료한 특정 검수 실행을 연결한 서버 내부 식별자 | 응답/브라우저의 임의 ID는 검수 실행 출처 증명이 아님 |
 | `report_json`, `report_sha256` | 서빙이 검증 결과를 수령해 저장한 **그 당시 ComplianceReport**의 정확한 내용·digest | 결과 누락·조작·보고서 식별자 불일치 시 차단 |
 | `model_version`, `rules_version`, `source_schema_version` | 실제 검수 입력과 실행 정책을 재현하는 메타데이터 | 버전 변경 시 사용된 검수 기록과 대상의 관계를 확인 |
@@ -276,6 +277,8 @@ stateDiagram-v2
 3. 검수가 정상 완료된 뒤 서빙이 `review_record_id`, `copy_sha256`, `review_input_sha256`, `report_sha256`, 검수 원문/모델·규칙 버전을 **서버 신뢰 저장소**에 기록한다. 사용자의 HTTP 승인 요청에서 제출된 보고서/해시로 이 기록을 생성하지 않는다.
 4. 사용자가 승인하면 인증/Job 소유권·상태·expected revision/hash를 확인한 후 **서버에 기록된 최신 카피·context**와 검수 기록의 revision/입력 fingerprint/보고서 hash 및 `passed=true`를 원자적으로 재검증하고 승인 사실을 저장한다. 누락, 변경, 다른 Job, 검수 실패, 중복 승인/경합은 fail-closed.
 5. `revised_fields` 적용, 제품명·user_text·제품 주장·검수 입력/판본 변경 → **검수 기록 무효화**, 새로운 입력 fingerprint와 **새 검수 실행·보고서** 필요. 복사해 둔 옛 보고서에 새 해시를 제출하는 방식은 무효.
+
+**P0-04R 세대 불변조건:** 검수 이후 Copy v1→v2→v1 또는 Context A→B→A로 **원본을 복원해 현재 hash가 완전히 같더라도**, 변경 이력 때문에 Job generation이 증가했으므로 이전 `StoredReview.reviewed_job_generation`과 불일치해 과거 검수는 무효이다. 완전히 동일한 `stage_job` 반복 호출은 멱등 처리하여 generation을 증가시키지 않는다. 과거 revision 복원을 허용하더라도 **새 generation에서 새 검수를 시작·완료해야** 다시 승인할 수 있다. 검수 시작/완료·승인 검사는 각각 현재 generation을 일치시켜야 하며, 승인 비교·저장은 운영 DB에서 동일 트랜잭션으로 처리한다. 이번 변경은 **메모리 참조 계약만 구현**, 실제 JobStore 영속 세대 관리/인증/HTTP 적용은 후속 PR이다.
 
 ```mermaid
 sequenceDiagram

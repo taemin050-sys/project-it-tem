@@ -99,3 +99,35 @@ git diff --check
 ```
 
 **검증 의미:** 기존 계약 28개 + 신규 23개 = **51 PASS**는 참조 계약 수준만 증명한다. 기존 `f979331` 118 회귀는 별도 고정 스냅샷 검증이며 새 runtime 승인 게이트를 보증하지 않는다. 판정: **REFERENCE CONTRACT PASS / RUNTIME NOT IMPLEMENTED**. 독립 재감사 및 PM 병합 보류 유지.
+
+
+## 8. P0-04R — 검수 후 변경·복원 시 과거 ReviewRecord 재활성화 차단 (2026-10-27)
+
+**최우선 감사 원문:** `it-tem_handoff/09_PR4_INDEPENDENT_REAUDIT_f388f75_20261027.md` 113줄 전체 확인. 해당 의견서의 **REQUEST CHANGES / HOLD MERGE**와 기존 T-03/T-04 해결 사실을 유지한다.
+
+**기준:** PR #4 `f388f75c5f94fb93a10e7880ab942837419bea07` → 제한 수정 커밋 `555883a711ed5c8f62f312eeda10c64ccc3a6970`. 참조 계약과 기존 API/Owner 스키마를 구분한다.
+
+| 결함·재현 | 수정 전 실제 실행 | 수정 후 재현·증거 | 상태 |
+|---|---|---|---|
+| **P0-04R / T-17** 카피 v1 검수→v2 변경→v1 복원→옛 기록 승인 | Job `generation: 1→2→3`; **`approval_allowed() == True` 직접 재현** | 과거 `reviewed_job_generation=1` vs 현재 3, **`STALE_REVIEW_GENERATION`** | **RESOLVED (REFERENCE)** |
+| **P0-04R / T-18** 제품 Context A 검수→B 변경→A 복원 | Job `generation: 1→2→3`; **`approval_allowed() == True` 직접 재현** | copy/context hash가 같아도 기록 세대 불일치로 **차단** | **RESOLVED (REFERENCE)** |
+| **T-19** 동일 revision 다른 카피 저장/과거 revision 복원 | 같은 revision 다른 카피는 충돌, 복원 경로는 이전 기록 재활성화 위험 | 변경 내용 + 기존 revision 충돌은 `CONFLICTING_COPY_REVISION`; 과거 revision 복원은 **새 generation 3 + 이전 검수 거부** | **PASS** |
+| **T-20** 새 generation 검수 실행 | 새 판본이 영구 승인 불가가 되면 안 됨 | 새 세대에서 `begin_review`→`complete_review` 후 새 기록으로 **정상 승인** | **PASS** |
+| **T-21** 동일 Snapshot 중복 저장/검수 | 동일 네트워크 요청에 불필요한 재검수 금지 | 검수 전·후 각각 여러 차례 같은 요청 제출해도 `generation=1` 유지, 기존 기록 정상 승인 | **PASS** |
+| **추가 2개** user_text·추가 맥락 변경 복원 / 검수 도중 변경·복원 | 최종 snapshot/hash 같아도 중간 변경 감지 필요 | 옛 완료 기록 `STALE_REVIEW_GENERATION`, 검수 진행 중이면 `REVIEW_INPUT_CHANGED_DURING_REVIEW` | **PASS** |
+
+**원인 및 수정:** 기존 `ReferenceReviewLedger.stage_job()`은 변경 때 세대를 증가시켰지만, `StoredReview`에 검수 당시 세대를 저장하지 않아 `approve()`가 현재와 과거의 같은 내용만 검사했다. `StoredReview.reviewed_job_generation`은 `begin_review()`에서 고정한 `pending.generation`을 `complete_review()` 시점에 저장한다. 신뢰 완료 실행 인덱스 `_completed_runs`에도 세대를 결속하고, `approve()`의 같은 `RLock` 안에서 기존 copy·context 오류 검사 후 `rec.reviewed_job_generation == job.generation`을 필수 요구한다. 기존 T-03/T-04의 `STALE_REVIEW_COPY`/`STALE_REVIEW_CONTEXT` 오류 구분을 보존하면서 복원 경로는 `STALE_REVIEW_GENERATION`으로 식별된다. 과거 revision 복원은 **허용하되 늘 새로운 세대**가 되며 **재검수해야만** 승인 가능. 동일 입력은 현재 `serialized`가 같을 때만 멱등 반환한다.
+
+**검증 재현 (Mac Studio, 격리 코드/기존 Feature 별도):**
+```bash
+python3 docs/contracts/validate_package.py
+python -m pytest -q tests/test_contract_review_binding.py tests/test_contract_review_validation.py tests/test_contract_wire_proposals.py tests/test_serving_health.py
+# 해당 PR 계약/기본 58 passed (기존 51 + 신규 7)
+# f979331 별도 격리 스냅샷, IT_TEM_KOREAN_FONT 지정:
+python -m pytest -q # 기존 Feature 118 passed
+python -m scripts.audit_p4_handoff --output .runtime/handoff/p004r_audit_20261027.json
+# 기존 13/13 API, 0 fixture issues, 0 artifact issues
+git diff --check
+```
+
+**실행 경계:** **REFERENCE CONTRACT PASS / RUNTIME NOT IMPLEMENTED**. 이번 수정은 참조 메모리 `RLock`에만 적용. 실제 `job_store.py` generation 영속/복구, 서버 서명·Owner 입력, 인증된 actor·권한, 멀티 worker 및 승인 DB 원자 트랜잭션, 실제 FastAPI/OpenAPI/TypeScript·유료 Provider/Browser E2E는 **FOLLOW_UP/NOT VERIFIED**. 변경·복원 후 정확한 결과 재검수 없이 실제 이미지 단계로 전달해서는 안 된다. 신규 7개 공개 Wire는 **BLOCKED_WIRE / FROZEN 0건** 유지. **PM 병합 보류**, 최신 SHA 기준 독립 재감사 재요청.

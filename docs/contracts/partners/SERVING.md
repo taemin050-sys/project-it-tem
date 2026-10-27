@@ -113,11 +113,13 @@ sequenceDiagram
 
 | 서버 단계 | 소유 위치·필수 구현 | 인수 부정 테스트 |
 |---|---|---|
-| 검수 입력 스냅샷/Job 판본 기록 | `job_store.py`에 copy revision·불변 입력·기준 Job version을 영속화 | 같은 revision 다른 카피, 검수 중 context/제품 주장 변경 |
+| 검수 입력 스냅샷/Job 세대 기록 | `job_store.py`에 copy revision·불변 입력·**단조 증가 generation** 영속화. 동일 snapshot 반복 요청은 세대 불변, 변경→원본 복원도 새 세대 | T-17/T-18/T-19/T-21, 검수 중 변경→복원 |
 | 신뢰 가능한 검수 실행·결과 수신 | 실제 텍스트 Owner Wrapper 호출 결과만 backend가 correlation ID로 수령·검증; **HTTP 사용자가 기록 생성 불가** | 재사용된 report, 조작 report hash, 검수 수행되지 않은 record ID |
-| 검수 결과 영속·무결성 | 서버 저장소의 `review_record_id`·report/input hash·rule/model/schema version + audit metadata | T-03 새 hash+옛 report, T-04 제품명 변경, 원본 user_text 변경 |
-| Copy 승인 원자 처리 | `job_api.py`/현재 승인 라우터 + JobStore의 **상태/권한/job version/review hash/passed 비교·승인 기록 저장을 하나의 트랜잭션**으로 묶음 | 다른 Job record, stale/missing/failed review, 경합·중복 승인, TOCTOU |
+| 검수 결과 영속·무결성 | 서버 저장소의 `review_record_id`·report/input hash·**reviewed_job_generation**·rule/model/schema version + audit metadata | T-03/T-04 및 T-17/T-18 변경 후 복원·옛 기록 재사용 거절 |
+| Copy 승인 원자 처리 | `job_api.py`/승인 라우터+JobStore에서 **상태·권한·현재 Job generation = ReviewRecord 세대·hash·passed 비교/승인 영속화를 하나의 트랜잭션**으로 묶음 | T-19 옛 판본, T-20 새 세대 재검수 승인, TOCTOU·경합·중복 승인 |
 | 실패/재시작 복구 | 승인·보고서 저장/검수 job 중간 단계 crash 복구와 receipt 불확실 상태 추적 | 프로세스 재시작 후 이전 승인/검수 복원, 결함 시 호출 0 |
 | HTTP/FE 계약 | PM+React+서빙 합의 후 정확한 409/error body 및 TS 타입/Fixture 생성 | 승인 전 이미지 호출 0, 정상/실패 OpenAPI, Browser E2E |
+
+**P0-04R 인수 게이트:** 동일 snapshot 멱등 요청은 세대 유지, Copy/Context 변경→복원은 세대 증가·과거 ReviewRecord 차단, **새 세대의 새 검수 T-20은 정상 승인**해야 한다. 단일 worker 재시작 후에도 generation을 보존하고 이전 세대 보고서를 복원·승인하지 않도록 DB/파일 원자 저장·동시성·복구 테스트를 요구한다. 실제 JobStore에는 아직 적용되지 않았다. 자세한 불변조건은 [SSOT §3.2](../../interface_spec.md).
 
 **실행 구분:** `ReferenceReviewLedger`의 단일 프로세스 `RLock`/메모리 저장은 **원자성 참조 예제**일 뿐, legacy JobStore 파일 쓰기/멀티 worker/인증 안전성을 입증하지 않는다. 기존 서버 `ReviewRequest.approved: bool`는 그대로이며 본 PR에는 실제 운영용 검수 기록 저장 또는 승인 게이트를 추가하지 않았다. **Owner 공식 스키마와 입력 scope, 실 저장소 트랜잭션 설계 및 PM Wire 승인 전 Live 경로에 연결 금지.**
