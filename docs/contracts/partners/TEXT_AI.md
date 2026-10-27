@@ -49,7 +49,7 @@ flowchart TD
     "reason": "의약품 효능 오인 우려", "suggestion": "피부 결 정돈",
     "basis": null, "detected_by": "rule", "auto_fixed": false
   }],
-  "revised_fields": {"headline": "피부 결 정돈을 위한 루틴"},
+  "revised_fields": {"headline": "오늘의 피부 결 정돈 크림"},
   "checklist": ["제품의 실제 표시사항과 근거 확인"],
   "notice": "검수 결과는 참고용이며 법적 판단이 아닙니다. 게시 전 최종 확인 책임은 사용자에게 있습니다."
 }
