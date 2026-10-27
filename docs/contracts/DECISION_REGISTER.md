@@ -1,0 +1,76 @@
+# 10/26 파트 연동 회의 결정 레지스터
+
+> **원본:** 사용자가 제공한 `파트 연동 회의 결과 (10/26)` + 김다혜 텍스트 `schemas.py v0.5`.
+> **이 문서의 역할:** 회의에서 **결정된 사실**과 **기술 이행·후속 실험·고도화**를 분리한다. 규범적 계약은 [interface_spec.md](../interface_spec.md)를 참조한다.
+
+## 1. 상태 범례
+
+| 기호 | 의미 | 처리 |
+|---|---|---|
+| **D** | 10/26 회의에서 방향/정책 결정 | 설계·개발의 우선 기준 |
+| **I** | 결정에 따른 구현 필요 | 개발 PR + 테스트, 완료로 표시 금지 |
+| **E** | 비교 실험 후 결정 | 임의 상한·형식 강제 금지 |
+| **H** | 고도화로 이관/정책 미결 | 이번 MVP 필수 범위에 조용히 추가 금지 |
+
+## 2. 기존 C-01~C-12와의 결정 대조
+
+| C-ID | 10/26 결정 (D) | 이행(I) / 실험(E) / 고도화(H) | 영향 담당 |
+|---|---|---|---|
+| **C-01** | 텍스트 `schemas.py v0.5`를 서빙이 우선 수용; 통합 계약 단일 SSOT | **I** 실제 Pydantic 원본 hash와 HTTP 매핑/버전·PR 리뷰 | 김다혜·이형기·PM |
+| **C-02** | 제품 사진 2–5 / 참고 0–5, 바이트 전달, 큰 사진 자동 축소·압축 | **I** 기존 10MiB·60MiB·40MP와 차이, 메모리·보안 상한 설계 | React·서빙 |
+| **C-03** | VLM 화장품 여부 판별, 텍스트 모듈 검색 및 **같은 생성에서 조사 요약** | **I** 단계·결과 영속/표시 / **H** 비화장품 UX·동일제품·세트 판별 | 텍스트·서빙·React |
+| **C-04** | 승인 카피→이미지, 한국어 prompt+mood, 외곽 5% 여백 | **I** revision/hash·asset 검증 / **H** 카피 거절 뒤 수정·재승인 | 텍스트·이미지·서빙 |
+| **C-05** | OpenAI 이미지 Wrapper + 별도 4:5 리사이즈·합성, 이미지팀이 고정 금지 문구 부착 | **E** 모델 텍스트 합성 vs 후처리, 한글·제품 외형/라벨 QA | 박지수·서빙 |
+| **C-06** | 기존 사람 승인 2개 유지; `passed=false` 위반 의심 카피 승인 차단 | **I** React 하이라이트 + **서버 승인 거절** / **H** 재진입 UX | React·서빙·텍스트 |
+| **C-07** | 초기 timeout 300s / 출력 1200 tokens / SDK 자동 재시도 0 | **I** 같은 단계의 다른 순차 suboperation 허용·동일 요청 중복 차단 | 서빙·모델 |
+| **C-08** | 텍스트 내부 검색, 실패 시 `AI 추론` 표기, 실제 OpenAI URL 인용만 전달 | **E** 초기 검색 회수 제약 없이 비용·품질 실측 후 최적화 | 김다혜·서빙 |
+| **C-09** | 금지어/정규식 + LLM 2단계 검수, 위반 의심 차단·근거 확인 필요 경고, 대안·책임 고지 | **I** `ComplianceReport` 저장/승인 게이트·위치 일치 | 김다혜·React·서빙 |
+| **C-10** | 베이스라인 실험 포함 팀 전체 **$10** 상한; 추가 PM 승인 | **I** 모델별 사용량 추적, 실제 과금 대조·다중 요청 보호 | PM·서빙·모델 |
+| **C-11** | 단일 제품 4:5 **1080×1350 PNG** + caption/hashtags, 요약·Compliance UI | **I** Mock/Live/Browser/광고·이미지 품질 각각 인수 항목 확정 | PM·전원 |
+| **C-12** | 담당: 텍스트 김다혜, 이미지·합성 박지수, 서빙 이형기, React 권혁상, PM 이태민 | **I** 누적 feature P2~Stage3의 안전한 `dev` 통합 순서 | PM·서빙 |
+
+## 3. 회의 안건 추가 분해 (C-ID 바깥)
+
+| 이슈 | 확정된 기준 / 변경 없음 | 확인·실험이 필요한 이유 |
+|---|---|---|
+| 사진 검증 체크 | 사용 권한 보유 여부 사용자가 체크 | 실제 법적 권한을 AI가 증명하는 것은 아님 |
+| 사용자 필드 | `brand_name`, `product_category` 포함 | **nullable**, 필수 여부를 임의 확정 금지 |
+| 텍스트 카피 구조 | v0.5는 `headline/subline/cta`와 caption·hashtags | 최종 시각 합성 분리 여부·글자 수는 **E** |
+| 레거시 CopyResult 길이 | 구현 220자 | 회의 임시 400자 언급, **코드 아직 수정 안 됨** |
+| 규제 위험 하이라이트 | `field/start/end` 제공 | 문자열 위치·자동 수정 후 재검수·버전 정합성을 **I** |
+| 검수 결과 | 위반 의심 하나라도 있으면 승인 불가 | `passed=true`도 법적 적법성 자동 보증은 아님 |
+| ImagePrompt | 한국어 `prompt`·`concept`·`mood`, 텍스트 negative_prompt 없음 | 이미지팀의 고정 negative/preservation 프롬프트와 결합 **I** |
+| VLM ProductAnalysis | `is_cosmetic` 및 외형 속성 출력 | `is_same_product` 신규 필드로 추가하지 않음(**H**) |
+| 검색 실패 | `research_performed=false`; 전부 AI 추론 | 검색 URL과 LLM 생성 문자열/의견 엄격 분리 **I** |
+| 10/30 Live 최소범위 | 1차 E2E 마일스톤 목표 존재 | 실제 어떤 Live 단계를 필수로 할지 수용표 확정 필요 |
+
+## 4. 변경 제안 접수 형식
+
+```text
+Contract Change ID: C-xx / NEW-xx
+상태: 제안 / 승인 / HOLD
+변경: 전 → 후
+영향: API 경로 / 필드 / 화면 / 상태 / 비용 / 테스트 / 보안
+Owner + Reviewer + PM: ...
+Backward compatibility / Migration: ...
+필수 Fixture·계약 테스트·PR 링크: ...
+효력 발생: contract 버전 + Git commit
+```
+
+추가 회의를 개발 선행조건으로 만들지 않는다. 이미 **D**인 사항은 각 담당이 병렬 구현하며, **E/H**는 실험 증빙·버전 변경 없이 확정했다고 말하지 않는다.
+
+
+## 5. 별도 계약 Freeze 레지스터 (PR #4 재감사 기준)
+
+| 계층 | 상태 | 결정 근거 / 승인 필요 |
+|---|---|---|
+| 기존 Feature 13 HTTP API·9 Status | **LEGACY_IMPLEMENTED_UNMERGED** | `f979331` 실제 구현·테스트; `dev`에는 P1만 |
+| 10/26 화장품·파트 책임·VLM·2단계 광고 검수·$10 정책 | **APPROVED_POLICY** | PM 참석 회의 결론. HTTP method/body/error를 보증하지 않음 |
+| 신규 7개 Target Wire 제안 | **BLOCKED_WIRE**, FROZEN 0개 | [SSOT 2.5](../interface_spec.md) + [합성 예제](examples/wire_proposals.json). 영향 담당 source/signature·PM 승인 필요 |
+| VLM false/unknown/error의 최소 fail-closed | **정책 방향 보존 / HTTP·UX BLOCKED_BY_DECISION** | `ProductAnalysis.is_cosmetic`는 Boolean; unknown은 유효한 출력 객체가 아님 |
+| 카피 승인 revision/hash/검수 일치 | **APPROVED_POLICY / FOLLOW_UP IMPLEMENTATION** | 현재 서버 Boolean 승인, Actor 인증 없음 |
+| Cost Guard 중복방지·팀 $10 | **APPROVED_POLICY / FOLLOW_UP IMPLEMENTATION** | SQLite 예약만으로 외부 계정 실청구 합산 안 됨 |
+| Copy 길이/표현·이미지 합성 선택 | **EXPERIMENT** | PM·이미지 실측 후 freeze |
+| 같은 제품·편집 재승인·최종 비화장품 UX | **DEFER** | 임의 MVP 상태 추가 금지 |
+
+**동결 기록 최소 필드:** `change_id, component, status, approver, approved_at, owner_source_commit, wire_example_fixture_sha, openapi_sha, ts_type_check, related_pr`. 이번 PR에는 **신규 FROZEN_WIRE 항목이 없다**.

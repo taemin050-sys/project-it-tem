@@ -1,0 +1,25 @@
+{
+  "passed": false,
+  "issues": [
+    {
+      "field": "headline",
+      "text": "피부 재생",
+      "start": 4,
+      "end": 9,
+      "category": "의약품 오인",
+      "risk_level": "위반 의심",
+      "reason": "의약품 효능으로 오인할 여지가 있는 표현",
+      "suggestion": "피부 결 정돈",
+      "basis": null,
+      "detected_by": "rule",
+      "auto_fixed": false
+    }
+  ],
+  "revised_fields": {
+    "headline": "오늘의 피부 결 정돈 크림"
+  },
+  "checklist": [
+    "제품 표시사항·근거 확인"
+  ],
+  "notice": "검수 결과는 참고용이며 법적 판단이 아닙니다. 게시 전 최종 확인 책임은 사용자에게 있습니다."
+}
