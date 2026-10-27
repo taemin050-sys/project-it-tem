@@ -267,6 +267,8 @@ stateDiagram-v2
 
 **직렬화 계약(v0 참조 알고리즘):** `copy_sha256`는 기존 `canonical_copy_hash` 그대로다. `review_input_sha256`는 `profile="it-tem-compliance-review-input-v0-proposed"`, `job_id`, `copy_revision`, `copy_output`, `review_context`, `model_version`, `rules_version`을 포함한다. UTF-8 JSON, 키 정렬, 공백 없는 구분자, `ensure_ascii=False`, Unicode 정규화하지 않음, `NaN/Infinity` 불가. v0 참조 검사에서 값은 `null/bool/string/list/object` 또는 JS 안전 정수 범위의 정수만 허용하고 float·잘못된 Unicode surrogate를 거부한다. **Python↔TypeScript golden-vector 교차 구현은 아직 NOT RUN**이고, Owner 확정/버전 동결 전 해시 상호운용성을 보증하지 않는다.
 
+**합성 골든 벡터(Owner 공식 자료 아님):** `tests/test_contract_review_binding.py::test_canonical_review_input_vectors_stable_and_distinct`에서 고정된 `AdCopyOutput` 해시 `00e69bd8bc4bdc26c1916c2089ce145bf802327fa7be9d76287d7b2116587847`, 해당 모의 검수 입력 fingerprint `d5d3bc533bc030012267eeda2478c21401a3b99646007548fd3818ef22776899`를 검증한다. Python 내 재현 기준이며 **JS 교차 구현 PASS를 뜻하지 않는다**.
+
 **서버만 할 수 있는 실행 순서 (새 HTTP Wire가 아님):**
 
 1. 서버가 현재 Job의 카피 판본과 정확한 검수 입력을 **불변 스냅샷으로 저장**하고 검수 실행을 시작한다. 검수 시작 토큰은 **인증이 아니라 내부 correlation ID**이다.

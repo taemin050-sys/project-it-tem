@@ -282,6 +282,8 @@ def test_canonical_review_input_vectors_stable_and_distinct():
     )
     digest = canonical_review_input_hash(**args)
     assert len(digest) == 64 and digest == canonical_review_input_hash(**copy.deepcopy(args))
+    assert digest == "d5d3bc533bc030012267eeda2478c21401a3b99646007548fd3818ef22776899"
+    assert canonical_copy_hash(c) == "00e69bd8bc4bdc26c1916c2089ce145bf802327fa7be9d76287d7b2116587847"
     assert canonical_copy_hash(c) != digest
     assert canonical_review_input_hash(**{**args, "review_context": {
         **ctx, "product_name": "제품명 변경",
