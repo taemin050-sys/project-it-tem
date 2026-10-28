@@ -202,6 +202,13 @@ def transition_job(
         if contents:
             next_job["artifacts"] = registered
 
+        # Opt-in S5-I0 trusted mutation observer. The earlier B1-R hook
+        # (from its separate unmerged PR) can coexist without conflict.
+        # This runs before any artifact or Job ledger publication.
+        s5_observer = getattr(store, "_s5_mutation_observer", None)
+        if s5_observer is not None:
+            s5_observer(current, next_job)
+
         pending: list[Path] = []
         published: list[Path] = []
         temp_ledger = job_dir / f"job.{uuid4().hex}.tmp"
