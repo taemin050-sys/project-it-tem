@@ -69,9 +69,9 @@ def official_inputs():
     )
 
 
-def png(color):
+def png(color, size=(115,160)):
     out=BytesIO()
-    Image.new("RGB",(115,160),color).save(out,"PNG")
+    Image.new("RGB",size,color).save(out,"PNG")
     return out.getvalue()
 
 
@@ -101,6 +101,28 @@ def test_v08_official_models_and_strict_no_coercion():
     assert "src.text_generation.llm_client" not in __import__("sys").modules
 
 
+def test_v08_research_default_error_is_backward_compatible():
+    legacy=f("research_result_no_search.json")
+    legacy.pop("error",None)
+    parsed=text_owner.ResearchResult.model_validate(legacy,strict=True)
+    assert parsed.error is None
+    result=verify_research(legacy,model=text_owner.ResearchResult)
+    assert result.original["error"] is None
+    assert result.outcome == "search_not_performed"
+
+
+def test_image_owner_error_excluded_during_dump_still_blocks():
+    # The official Image Owner hides this field in model_dump(exclude=True).
+    analysis=image_owner.ProductAnalysisResult.model_validate({
+        "analysis": f("product_analysis.json"),
+        "analysis_succeeded": True, "error": "provider failed",
+    },strict=True)
+    assert "error" not in analysis.model_dump()
+    with pytest.raises(TextBoundaryError) as denied:
+        verify_analysis(analysis,model=text_owner.ProductAnalysisResult)
+    assert denied.value.code == "VLM_FAILED"
+
+
 def test_v08_research_error_fallback_is_not_cosmetic_failure():
     a,r,c,p=official_inputs()
     r.error="temporary provider issue"
@@ -125,7 +147,7 @@ def test_real_v08_owner_through_existing_pr10_offline_image_flow(tmp_path,revisi
     assert stage.image_prompt["mood"] == source[2].plan.mood
 
     calls=[]
-    generated_png = png((240,238,234))
+    generated_png = png((240,238,234),(1152,1440))
     def handler(request):
         calls.append("mock")
         return httpx.Response(
@@ -143,7 +165,8 @@ def test_real_v08_owner_through_existing_pr10_offline_image_flow(tmp_path,revisi
     app=create_app(tmp_path/"jobs")
     project_id=uuid5(NAMESPACE_URL,"s4-offline-fixture-project")
     font=Path(os.environ.get("IT_TEM_KOREAN_FONT",
-                             "/System/Library/Fonts/Supplemental/NotoSansGothic-Regular.ttf"))
+                             str(Path(__file__).parent / "image_generation" /
+                                 "fixtures/fonts/NanumGothic-Regular.ttf")))
     assert font.is_file()
     with TestClient(app) as client:
         response=client.post("/api/v1/jobs",files=[

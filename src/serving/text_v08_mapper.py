@@ -54,6 +54,8 @@ def verify_analysis(
 ) -> VerifiedAnalysis:
     """Reject before Image DTO serialization, asset writes, or provider calls."""
     raw = _mapping(incoming, "VLM_INVALID_RESULT")
+    if set(raw) - {"analysis", "analysis_succeeded", "error"}:
+        raise TextBoundaryError("VLM_INVALID_RESULT")
     success = raw.get("analysis_succeeded")
     error = raw.get("error")
     analysis = raw.get("analysis")
@@ -93,6 +95,8 @@ def verify_research(
 ) -> ResearchSnapshot:
     """Preserve owner raw result and separately downgrade unverified UI claims."""
     raw = _mapping(incoming, "RESEARCH_INVALID_RESULT")
+    if set(raw) - {"research", "citations", "research_performed", "error"}:
+        raise TextBoundaryError("RESEARCH_INVALID_RESULT")
     if type(raw.get("research_performed")) is not bool:
         raise TextBoundaryError("RESEARCH_INVALID_RESULT")
     if raw.get("error") is not None and type(raw["error"]) is not str:
