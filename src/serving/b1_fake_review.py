@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 from copy import deepcopy
 from hashlib import sha256
 from pathlib import Path
@@ -37,6 +38,133 @@ def _sha(data: object) -> str:
     return sha256(_canonical_json(data).encode("utf-8")).hexdigest()
 
 
+# Explicit persisted-file schema: reject malformed internal values *before*
+# any approval code can call .encode(), .get(), index dictionaries or unpack
+# arrays. Error output must never echo provider text, report JSON or secrets.
+_SHA256_RE = re.compile(r"[0-9a-f]{64}\Z")
+_RECORD_ID_RE = re.compile(r"[0-9a-f]{32}\Z")
+_ROOT_FIELDS = frozenset({
+    "job_id", "copy_revision", "generation", "snapshot_json", "copy_sha256",
+    "user_text", "product_facts", "extra", "pending", "records", "runs",
+    "latest_record_id", "approved",
+})
+_RECORD_FIELDS = frozenset({
+    "review_record_id", "source_review_token", "reviewed_job_generation",
+    "review_input_sha256", "copy_sha256", "copy_revision", "report_sha256",
+    "report_json", "reviewed_snapshot_json", "model_version", "rules_version",
+})
+_PENDING_FIELDS = frozenset({
+    "token", "generation", "snapshot_json", "input_sha256",
+})
+
+
+def _valid_unicode_string(value: object) -> bool:
+    if type(value) is not str:
+        return False
+    try:
+        value.encode("utf-8")
+        return True
+    except UnicodeError:
+        return False
+
+
+def _nonempty_string(value: object) -> bool:
+    return _valid_unicode_string(value) and bool(value)
+
+
+def _valid_canonical_object(value: object) -> bool:
+    if type(value) is not dict:
+        return False
+    try:
+        _canonical_json(value)
+        return True
+    except (ContractViolation, ValueError, TypeError, UnicodeError):
+        return False
+
+
+def _token(value: object) -> bool:
+    return type(value) is str and _RECORD_ID_RE.fullmatch(value) is not None
+
+
+def _digest(value: object) -> bool:
+    return type(value) is str and _SHA256_RE.fullmatch(value) is not None
+
+
+def _generation(value: object) -> bool:
+    return type(value) is int and value >= 1
+
+
+def _json_object_string(value: object) -> bool:
+    if type(value) is not str:
+        return False
+    try:
+        # Exclude floats, non-string keys, out-of-range ints, lone surrogate
+        # values and nonstandard NaN/Infinity within stored JSON objects.
+        return _valid_canonical_object(json.loads(value))
+    except (ValueError, TypeError, UnicodeError):
+        return False
+
+
+def _valid_review_record(key: object, rec: object) -> bool:
+    if not _token(key) or type(rec) is not dict or set(rec) != _RECORD_FIELDS:
+        return False
+    return (
+        rec["review_record_id"] == key
+        and _token(rec["source_review_token"])
+        and _generation(rec["reviewed_job_generation"])
+        and _digest(rec["review_input_sha256"])
+        and _digest(rec["copy_sha256"])
+        and _nonempty_string(rec["copy_revision"])
+        and _digest(rec["report_sha256"])
+        and _json_object_string(rec["report_json"])
+        and _json_object_string(rec["reviewed_snapshot_json"])
+        and _nonempty_string(rec["model_version"])
+        and _nonempty_string(rec["rules_version"])
+    )
+
+
+def _valid_review_state(value: object, job_id: str) -> bool:
+    if type(value) is not dict or set(value) not in (_ROOT_FIELDS, _ROOT_FIELDS | {"dirty"}):
+        return False
+    if not (
+        value["job_id"] == job_id
+        and _nonempty_string(value["copy_revision"])
+        and _generation(value["generation"])
+        and _json_object_string(value["snapshot_json"])
+        and _digest(value["copy_sha256"])
+        and (value["user_text"] is None or _valid_unicode_string(value["user_text"]))
+        and _valid_canonical_object(value["product_facts"])
+        and _valid_canonical_object(value["extra"])
+        and type(value["records"]) is dict
+        and type(value["runs"]) is dict
+        and (value["latest_record_id"] is None or _token(value["latest_record_id"]))
+        and type(value["approved"]) is bool
+        and ("dirty" not in value or type(value["dirty"]) is bool)
+    ):
+        return False
+    pending = value["pending"]
+    if pending is not None and (
+        type(pending) is not dict
+        or set(pending) != _PENDING_FIELDS
+        or not _token(pending["token"])
+        or not _generation(pending["generation"])
+        or not _json_object_string(pending["snapshot_json"])
+        or not _digest(pending["input_sha256"])
+    ):
+        return False
+    if not all(_valid_review_record(key, rec) for key, rec in value["records"].items()):
+        return False
+    return all(
+        _token(key)
+        and type(run) is list
+        and len(run) == 3
+        and _token(run[0])
+        and _digest(run[1])
+        and _generation(run[2])
+        for key, run in value["runs"].items()
+    )
+
+
 class FakeComplianceGate:
     """Trusted in-process testing interface; NOT an HTTP/Owner API.
 
@@ -61,31 +189,7 @@ class FakeComplianceGate:
                 _blocked("INVALID_SERVER_REVIEW_RECORD")
             with path.open("r", encoding="utf-8") as f:
                 value = json.load(f)
-            required = {
-                "job_id", "copy_revision", "generation", "snapshot_json",
-                "copy_sha256", "user_text", "product_facts", "extra",
-                "pending", "records", "runs", "latest_record_id", "approved",
-            }
-            if (not isinstance(value, dict) or value.get("job_id") != job_id
-                or set(value) != required and set(value) != required | {"dirty"}
-                or type(value.get("generation")) is not int
-                or value["generation"] < 1
-                or not isinstance(value.get("snapshot_json"), str)
-                or not isinstance(value.get("copy_revision"), str)
-                or not isinstance(value.get("copy_sha256"), str)
-                or not isinstance(value.get("records"), dict)
-                or not isinstance(value.get("runs"), dict)
-                or type(value.get("approved")) is not bool
-                or any(not isinstance(rec, dict) or not {
-                    "review_record_id", "source_review_token", "reviewed_job_generation",
-                    "review_input_sha256", "copy_sha256", "copy_revision",
-                    "report_sha256", "report_json", "reviewed_snapshot_json",
-                    "model_version", "rules_version",
-                }.issubset(rec) for rec in value["records"].values())
-                or any(not isinstance(run, list) or len(run) != 3
-                       for run in value["runs"].values())
-                or (value.get("pending") is not None
-                    and not isinstance(value.get("pending"), dict))):
+            if not _valid_review_state(value, job_id):
                 _blocked("INVALID_SERVER_REVIEW_RECORD")
             return value
         except (FileNotFoundError, ValueError, TypeError, OSError):

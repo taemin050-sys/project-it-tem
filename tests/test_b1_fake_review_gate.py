@@ -500,3 +500,149 @@ def test_broken_persisted_record_schema_yields_safe_409_not_500(rig, mutation):
             state["generation"] = "invalid-string"
         gate._write(j, state)
     assert reason(approval(rig, j)) == "INVALID_SERVER_REVIEW_RECORD"
+
+# B1R-P1-01: malformed persisted records MUST return HTTP 409, NEVER 500.
+# Each case starts from a real server-completed Fake review. Mutation happens
+# directly to the private on-disk sidecar, then the public approval API is used.
+@pytest.mark.parametrize("corruption", [
+    "report_json_list", "report_json_dict", "report_json_null",
+    "report_json_number", "report_json_invalid_text", "report_json_array_text",
+    "report_sha256_list", "report_sha256_missing", "report_sha256_number",
+    "report_sha256_invalid_hex", "latest_record_id_list",
+    "latest_record_id_object", "latest_record_id_invalid_id",
+    "latest_record_id_missing", "pending_list", "pending_number",
+    "pending_missing", "pending_partial", "pending_bad_generation",
+    "pending_bad_snapshot", "pending_bad_hash",
+    "runs_list", "runs_missing", "runs_not_a_list", "runs_short_list",
+    "runs_bad_record_id", "runs_bad_hash", "runs_bad_generation",
+    "runs_bad_token_key", "records_not_a_dict", "records_missing_field",
+    "records_bad_token", "records_bad_generation", "records_bad_snapshot",
+    "records_bad_model_version", "root_bad_product_facts", "root_bad_extra",
+    "root_bad_snapshot", "root_bad_dirty",
+    "report_json_nan_text", "report_json_float_text",
+    "root_bad_fact_float", "root_bad_extra_large_int",
+    "root_bad_user_text_type", "pending_bad_json_text",
+    "runs_bad_nested_hash", "records_wrong_record_id",
+])
+def test_b1r_p1_malformed_disk_record_returns_safe_409_without_job_mutation(rig, corruption):
+    """No internal exception may escape as HTTP 500; no copy approval bypass."""
+    app, http, gate = rig
+    job = setup_job(rig)
+    _, review_id = ready(rig, job)
+    good_job = http.get(f"/api/v1/jobs/{job}").json()
+    assert good_job["status"] == "COPY_REVIEW_REQUIRED"
+    with app.state.job_store._lock:
+        disk = gate._read(job)
+        review = disk["records"][review_id]
+        token = review["source_review_token"]
+        mutations = {
+            "report_json_list": lambda: review.__setitem__("report_json", []),
+            "report_json_dict": lambda: review.__setitem__("report_json", {"passed": True}),
+            "report_json_null": lambda: review.__setitem__("report_json", None),
+            "report_json_number": lambda: review.__setitem__("report_json", 7),
+            "report_json_invalid_text": lambda: review.__setitem__("report_json", "{malformed"),
+            "report_json_array_text": lambda: review.__setitem__("report_json", "[]"),
+            "report_sha256_list": lambda: review.__setitem__("report_sha256", []),
+            "report_sha256_missing": lambda: review.pop("report_sha256"),
+            "report_sha256_number": lambda: review.__setitem__("report_sha256", 44),
+            "report_sha256_invalid_hex": lambda: review.__setitem__("report_sha256", "bad"),
+            "latest_record_id_list": lambda: disk.__setitem__("latest_record_id", []),
+            "latest_record_id_object": lambda: disk.__setitem__("latest_record_id", {}),
+            "latest_record_id_invalid_id": lambda: disk.__setitem__("latest_record_id", "wrong"),
+            "latest_record_id_missing": lambda: disk.pop("latest_record_id"),
+            "pending_list": lambda: disk.__setitem__("pending", []),
+            "pending_number": lambda: disk.__setitem__("pending", 3),
+            "pending_missing": lambda: disk.pop("pending"),
+            "pending_partial": lambda: disk.__setitem__("pending", {"token": token}),
+            "pending_bad_generation": lambda: disk.__setitem__("pending", {
+                "token": token, "generation": True, "snapshot_json": disk["snapshot_json"],
+                "input_sha256": review["review_input_sha256"],
+            }),
+            "pending_bad_snapshot": lambda: disk.__setitem__("pending", {
+                "token": token, "generation": 1, "snapshot_json": [],
+                "input_sha256": review["review_input_sha256"],
+            }),
+            "pending_bad_hash": lambda: disk.__setitem__("pending", {
+                "token": token, "generation": 1, "snapshot_json": disk["snapshot_json"],
+                "input_sha256": [],
+            }),
+            "runs_list": lambda: disk.__setitem__("runs", []),
+            "runs_missing": lambda: disk.pop("runs"),
+            "runs_not_a_list": lambda: disk["runs"].__setitem__(token, {}),
+            "runs_short_list": lambda: disk["runs"].__setitem__(token, [review_id]),
+            "runs_bad_record_id": lambda: disk["runs"].__setitem__(
+                token, [[], review["review_input_sha256"], 1],
+            ),
+            "runs_bad_hash": lambda: disk["runs"].__setitem__(token, [review_id, 1, 1]),
+            "runs_bad_generation": lambda: disk["runs"].__setitem__(
+                token, [review_id, review["review_input_sha256"], False],
+            ),
+            "runs_bad_token_key": lambda: disk["runs"].__setitem__(
+                "not-an-id", [review_id, review["review_input_sha256"], 1],
+            ),
+            "records_not_a_dict": lambda: disk.__setitem__("records", []),
+            "records_missing_field": lambda: review.pop("report_json"),
+            "records_bad_token": lambda: review.__setitem__("source_review_token", []),
+            "records_bad_generation": lambda: review.__setitem__("reviewed_job_generation", 1.5),
+            "records_bad_snapshot": lambda: review.__setitem__("reviewed_snapshot_json", []),
+            "records_bad_model_version": lambda: review.__setitem__("model_version", {}),
+            "root_bad_product_facts": lambda: disk.__setitem__("product_facts", []),
+            "root_bad_extra": lambda: disk.__setitem__("extra", 7),
+            "root_bad_snapshot": lambda: disk.__setitem__("snapshot_json", []),
+            "root_bad_dirty": lambda: disk.__setitem__("dirty", "False"),
+            "report_json_nan_text": lambda: review.__setitem__(
+                "report_json", '{"passed":NaN}',
+            ),
+            "report_json_float_text": lambda: review.__setitem__(
+                "report_json", '{"passed":1.2}',
+            ),
+            "root_bad_fact_float": lambda: disk["product_facts"].update({
+                "fake_fact": {"numeric": 1.2},
+            }),
+            "root_bad_extra_large_int": lambda: disk["extra"].update({
+                "unsafe_integer": 2 ** 60,
+            }),
+            "root_bad_user_text_type": lambda: disk.__setitem__("user_text", []),
+            "pending_bad_json_text": lambda: disk.__setitem__("pending", {
+                "token": token, "generation": 1, "snapshot_json": "[1,2]",
+                "input_sha256": review["review_input_sha256"],
+            }),
+            "runs_bad_nested_hash": lambda: disk["runs"].__setitem__(
+                token, [review_id, [], 1],
+            ),
+            "records_wrong_record_id": lambda: review.__setitem__(
+                "review_record_id", "0" * 32,
+            ),
+        }
+        mutations[corruption]()
+        # Trusted internal test hook permits malformed on-disk JSON.
+        gate._write(job, disk)
+
+    from fastapi.testclient import TestClient
+    with TestClient(app, raise_server_exceptions=False) as network:
+        response = network.post(
+            f"/api/v1/jobs/{job}/approvals/copy", json={"approved": True},
+        )
+        observed = network.get(f"/api/v1/jobs/{job}")
+        assert response.status_code == 409, (
+            f"{corruption}: expected fail-closed HTTP 409, received "
+            f"{response.status_code} {response.text[:120]}"
+        )
+        assert response.json()["detail"]["error"] == "B1_FAKE_COMPLIANCE_BLOCKED"
+        assert response.json()["detail"]["reason"] == "INVALID_SERVER_REVIEW_RECORD"
+        assert observed.status_code == 200
+        assert observed.json() == good_job
+        assert observed.json()["status"] == "COPY_REVIEW_REQUIRED"
+        assert observed.json().get("copy_approved") is not True
+
+
+
+def test_b1r_p1_valid_empty_user_text_remains_backward_compatible(rig):
+    """The proposed review contract allows an explicitly empty user_text."""
+    _, http, gate = rig
+    job = setup_job(rig)
+    assert gate.stage(job, user_text="") == 1
+    token, snapshot = gate.begin(job)
+    gate.complete(job, token, fake_report(snapshot))
+    assert approval(rig, job).status_code == 200
+    assert http.get(f"/api/v1/jobs/{job}").json()["status"] == "COPY_APPROVED"
