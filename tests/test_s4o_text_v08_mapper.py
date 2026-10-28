@@ -85,13 +85,13 @@ def test_research_failure_vs_not_performed_vs_citation(performed,error,citations
     assert checked.outcome == expected
     assert checked.original == before
     assert original == before
-    if expected == "search_cited":
-        assert checked.display["research"]["display_summary"][0]["source"] == "검색 결과"
-    else:
-        assert checked.display["research"]["display_summary"][0]["source"] == "AI 추론"
+    # Global citations cannot substantiate this particular item.
+    assert checked.display["research"]["display_summary"][0]["source"] == "AI 추론"
+    assert checked.display["citations"] == []
     if not performed or error is not None:
-        assert checked.display["citations"] == []
         assert checked.display["research_performed"] is False
+    else:
+        assert checked.display["research_performed"] is True
 
 
 def test_research_error_keeps_raw_evidence_but_downgrades_display():
@@ -104,6 +104,36 @@ def test_research_error_keeps_raw_evidence_but_downgrades_display():
     assert snap.display["citations"] == []
     assert snap.display["research_performed"] is False
     assert snap.outcome == "research_failed_fallback"
+
+
+def test_research_screen_never_contains_provider_error_original_retained():
+    secret = "https://provider.invalid/trace?api_key=FAKE_SECRET_123456"
+    data = research(research_performed=False, error=secret)
+    snap = verify_research(data)
+    assert snap.original["error"] == secret
+    assert snap.display["error"] == "RESEARCH_UNAVAILABLE"
+    assert secret not in json.dumps(snap.display, ensure_ascii=False)
+    assert snap.outcome == "research_failed_fallback"
+
+
+def test_single_global_citation_does_not_verify_unrelated_search_claims():
+    data = research(research_performed=True, error=None, citations=[
+        {"title": "Research A", "url": "https://example.org/cited-a"},
+    ])
+    for key in ("market_insights", "similar_products", "display_summary"):
+        data["research"][key] = [
+            {"text": "개별 URL 연결 없는 주장 1", "source": "검색 결과"},
+            {"text": "개별 URL 연결 없는 주장 2", "source": "검색 결과"},
+        ]
+    result = verify_research(data)
+    assert result.outcome == "search_cited"
+    assert result.original["citations"] == data["citations"]
+    assert result.display["citations"] == []
+    for key in ("market_insights", "similar_products", "display_summary"):
+        assert all(item["source"] == "AI 추론"
+                   for item in result.display["research"][key])
+        assert all(item["source"] == "검색 결과"
+                   for item in result.original["research"][key])
 
 
 @pytest.mark.parametrize("value", ["true", 1, None])

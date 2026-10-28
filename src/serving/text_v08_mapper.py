@@ -117,15 +117,21 @@ def verify_research(
         outcome = "search_completed_uncited"
     else:
         outcome = "search_cited"
-    # Preserve original owner receipt, but avoid presenting unverified citations.
+    # The v0.8 schema offers a global citation list, NOT item-to-URL bindings.
+    # Even one real citation cannot substantiate every individual search claim.
+    # Retain the original research/citations internally, but show neither
+    # unbound citations nor an unsupported per-item "검색 결과" claim.
+    display["citations"] = []
     if failure or not performed:
         display["research_performed"] = False
-        display["citations"] = []
-    if failure or not performed or not cited:
-        for key in ("market_insights", "similar_products", "display_summary"):
-            for item in display["research"].get(key, []):
-                if item.get("source") == "검색 결과":
-                    item["source"] = "AI 추론"
+    for key in ("market_insights", "similar_products", "display_summary"):
+        for item in display["research"].get(key, []):
+            if item.get("source") == "검색 결과":
+                item["source"] = "AI 추론"
+    # Provider error details belong to the internal original only.
+    # No exceptions, API URLs, credentials, or provider traces in UI payload.
+    if failure:
+        display["error"] = "RESEARCH_UNAVAILABLE"
     return ResearchSnapshot(original=original, display=display, outcome=outcome)
 
 
@@ -153,13 +159,18 @@ def verify_copy(
         or type(parsed["hashtags"]) is not list
         or any(type(v) is not str for v in parsed["hashtags"])):
         raise TextBoundaryError("COPY_INVALID_RESULT")
-    try:
-        canonical = json.dumps(parsed, sort_keys=True, ensure_ascii=False,
-                               separators=(",", ":"), allow_nan=False)
-    except (TypeError, ValueError, UnicodeError):
-        raise TextBoundaryError("COPY_INVALID_RESULT") from None
     return CopySnapshot(output=deepcopy(parsed),
-                        sha256=sha256(canonical.encode("utf-8")).hexdigest())
+                        sha256=_digest(parsed, "COPY_INVALID_RESULT"))
+
+
+def _digest(value: dict[str, Any], code: str) -> str:
+    """The same canonical full-value digest used by the existing Image Owner."""
+    try:
+        canonical = json.dumps(value, sort_keys=True, ensure_ascii=False,
+                               separators=(",", ":"), allow_nan=False)
+        return sha256(canonical.encode("utf-8")).hexdigest()
+    except (TypeError, ValueError, UnicodeError, OverflowError, RecursionError):
+        raise TextBoundaryError(code) from None
 
 
 def verify_prompt(
@@ -189,14 +200,28 @@ class OfflineTextStage:
     image_prompt: dict[str, Any]
     copy_hash: str
     research: ResearchSnapshot
+    _image_prompt_hash: str
+    _analysis_hash: str
 
     def fixture_args(self) -> dict[str, Any]:
-        """Only args to PR #10 stage_copy; this does NOT approve anything."""
+        """Recheck mutable snapshots at the S4->S5 boundary (NOT user approval)."""
+        cp = verify_copy(self.copy_output)
+        if cp.sha256 != self.copy_hash:
+            raise TextBoundaryError("STAGED_COPY_CHANGED")
+        ip = verify_prompt(self.image_prompt, cp)
+        if _digest(ip, "STAGED_PROMPT_CHANGED") != self._image_prompt_hash:
+            raise TextBoundaryError("STAGED_PROMPT_CHANGED")
+        vlm = verify_analysis(self.product_analysis)
+        if _digest(vlm.image_owner_input, "STAGED_ANALYSIS_CHANGED") != self._analysis_hash:
+            raise TextBoundaryError("STAGED_ANALYSIS_CHANGED")
+        if not ((type(self.copy_revision) is str and bool(self.copy_revision.strip()))
+                or (type(self.copy_revision) is int and self.copy_revision > 0)):
+            raise TextBoundaryError("COPY_INVALID_REVISION")
         return {
-            "copy_output": deepcopy(self.copy_output),
+            "copy_output": deepcopy(cp.output),
             "copy_revision": self.copy_revision,
-            "product_analysis": deepcopy(self.product_analysis),
-            "image_prompt": deepcopy(self.image_prompt),
+            "product_analysis": deepcopy(vlm.image_owner_input),
+            "image_prompt": deepcopy(ip),
         }
 
 
@@ -221,4 +246,6 @@ def prepare_offline_stage(
         copy_output=cp.output, copy_revision=copy_revision,
         product_analysis=vlm.image_owner_input, image_prompt=ip,
         copy_hash=cp.sha256, research=rs,
+        _image_prompt_hash=_digest(ip, "PROMPT_INVALID_RESULT"),
+        _analysis_hash=_digest(vlm.image_owner_input, "VLM_INVALID_RESULT"),
     )

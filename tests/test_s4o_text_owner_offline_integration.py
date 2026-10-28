@@ -136,6 +136,66 @@ def test_v08_research_error_fallback_is_not_cosmetic_failure():
     assert stage.fixture_args()["copy_revision"] == "1"
 
 
+@pytest.mark.parametrize("mutate", ["caption", "hashtags", "plan", "prompt", "mood", "analysis"])
+def test_s4_stage_mutation_cannot_reach_pr10_stage_copy(tmp_path, mutate):
+    analysis, research, copy, prompt = official_inputs()
+    stage = prepare_offline_stage(analysis, research, copy, prompt,
+                                  owner_schemas=text_owner, copy_revision="1")
+    # Frozen dataclass doesn't freeze mutable nested dictionaries.
+    if mutate == "caption":
+        stage.copy_output["caption"] += " 변조"
+    elif mutate == "hashtags":
+        stage.copy_output["hashtags"].append("#변조")
+    elif mutate == "plan":
+        stage.copy_output["plan"]["key_message"] += " 변조"
+    elif mutate == "prompt":
+        stage.image_prompt["prompt"] += " 변조"
+    elif mutate == "mood":
+        stage.image_prompt["mood"] = ["변조"]
+    elif mutate == "analysis":
+        stage.product_analysis["analysis"]["colors"].append("변조")
+
+    app = create_app(tmp_path / "jobs")
+    with TestClient(app) as client:
+        created = client.post("/api/v1/jobs", files=[
+            ("product_images", ("a.png", png((20, 30, 40)), "image/png")),
+            ("product_images", ("b.png", png((80, 70, 60)), "image/png")),
+        ])
+        assert created.status_code == 201
+        job = created.json()["job_id"]
+        assert client.post(f"/api/v1/jobs/{job}/mock/plan",
+                           json={"brand_name": "라움", "product_name": "크림"}).status_code == 200
+        assert client.post(f"/api/v1/jobs/{job}/mock/copy").status_code == 200
+
+        calls = []
+        def handler(request):
+            calls.append(request)
+            raise AssertionError("Unexpected fake provider call")
+        provider = OpenAIImagesAdapter(
+            OpenAIImagesConfig(live_calls=False, api_key=None),
+            transport=httpx.MockTransport(handler))
+        adapter = BackendImageAdapter(
+            ExternalImageProcessor(
+                LocalAssetStore(tmp_path / "image_assets"), provider,
+                ProviderAttemptStore(tmp_path / "attempts.sqlite3"),
+                budget_limit_usd="10"),
+            tmp_path / "bindings.sqlite3")
+        font = Path(__file__).parent / "image_generation/fixtures/fonts/NanumGothic-Regular.ttf"
+        flow = OfflineImageFlow(app.state.job_store, adapter=adapter,
+                                project_id=uuid5(NAMESPACE_URL, "s4-integrity-negative"),
+                                font_path=font)
+        with pytest.raises(TextBoundaryError) as denied:
+            flow.stage_copy(job, **stage.fixture_args())
+        assert denied.value.code in {
+            "STAGED_COPY_CHANGED", "STAGED_PROMPT_CHANGED", "STAGED_ANALYSIS_CHANGED",
+            "PROMPT_PLAN_MISMATCH",
+        }
+        unchanged = app.state.job_store.get_job(job)
+        assert unchanged["status"] == "COPY_REVIEW_REQUIRED"
+        assert "offline_copy" not in unchanged
+        assert calls == []
+
+
 @pytest.mark.parametrize("revision",["1",1])
 def test_real_v08_owner_through_existing_pr10_offline_image_flow(tmp_path,revision):
     assert hashlib.sha256(Path(text_owner.__file__).read_bytes()).hexdigest() == OWNER_SCHEMA_SHA256
