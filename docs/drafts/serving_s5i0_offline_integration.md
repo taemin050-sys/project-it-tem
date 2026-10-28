@@ -61,3 +61,7 @@ IT_TEM_KOREAN_FONT=/path/to/licensed/KoreanFont.ttf \
 - 정식 권혁상 님 React B0-O Browser E2E는 최우선이며, 본 시험 모듈은 이를 대체하지 않습니다.
 
 **병합 정책:** Owner 소스 PR·현재 PR의 계약 검증, 독립 감사, PM 승인 전 공식 `dev/main`에 병합하지 않습니다.
+
+### 시험 경로와 B0 Mock 공개 경로 분리
+
+S5-I0는 HTTP 라우트를 추가하지 않으며, 기존 B0 `/mock/*`의 Boolean 승인·Mock 합성 의미를 바꾸지 않습니다. 따라서 S5-I0와 B0 Mock API를 동일 서비스에서 혼용하여 실제 Compliance·실제 이미지 승인을 완료했다고 표시해서는 안 됩니다. 정식 공개 서빙의 실제 승인→이미지→합성 연결 및 라우트 접근 통제는 Owner 소스·정식 계약·PM 승인 이후 별도 범위에서 처리합니다.

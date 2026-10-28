@@ -421,3 +421,23 @@ def test_image_source_stays_explicitly_offline_before_generation(setup):
     assert_409(rejected,"OFFLINE_PROVIDER_NOT_AVAILABLE")
     assert len(calls)==0
     assert http.get(f"/api/v1/jobs/{job}").json()["status"] == "COPY_APPROVED"
+
+
+
+def test_full_owner_copy_snapshot_tamper_blocks_generation_before_mocktransport(setup):
+    import json
+    app, http, job, flow, calls = setup
+    stage_and_approve(setup)
+    path = app.state.job_store._job_dir(job) / "job.json"
+    before = path.read_text(encoding="utf-8")
+    try:
+        altered = json.loads(before)
+        altered["offline_copy"]["copy_output"]["caption"] += " 조작된 광고 문구"
+        path.write_text(json.dumps(altered, ensure_ascii=False), encoding="utf-8")
+        with pytest.raises(Exception) as blocked:
+            flow.generate(job)
+        assert_409(blocked, "FULL_COPY_HASH_MISMATCH")
+        assert len(calls) == 0
+        assert http.get(f"/api/v1/jobs/{job}").json()["status"] == "COPY_APPROVED"
+    finally:
+        path.write_text(before, encoding="utf-8")
