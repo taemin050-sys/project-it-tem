@@ -199,10 +199,17 @@ class BackendImageAdapter:
 
     def generate(self, body: BackendImageInput, *, project_id: UUID) -> BackendGeneratedImage:
         # Revalidate copies/model_construct before trusting mutable nested data.
-        body = BackendImageInput.model_validate(body.model_dump(warnings=False))
+        snapshot = body.model_dump(warnings=False)
+        # Public serialization intentionally excludes the private provider error.
+        # Retain it only in this validation snapshot, or a contradictory success
+        # result would lose its error before the fail-closed guard can inspect it.
+        if isinstance(body.product_analysis, ProductAnalysisResult):
+            snapshot["product_analysis"]["error"] = body.product_analysis.error
+        body = BackendImageInput.model_validate(snapshot)
         # Guard before binding, asset writes, reservations and network activity.
         # A failed text analysis may contain is_cosmetic=True as a default.
-        if not body.product_analysis.analysis_succeeded:
+        if (not body.product_analysis.analysis_succeeded
+                or body.product_analysis.error is not None):
             raise GatewayError("PRODUCT_ANALYSIS_FAILED", "제품 분석에 실패했습니다. 분석을 확인해 주세요.")
         if not body.product_analysis.analysis.is_cosmetic:
             raise GatewayError("PRODUCT_NOT_COSMETIC", "화장품 사진을 다시 올려주세요.")
