@@ -3,6 +3,8 @@
 > **소유:** 이미지 생성 OpenAI API Wrapper·고정 금지/보존 프롬프트·제품 외형·합성·한글 시각 품질.
 > **필독:** [공통 SSOT 제6장](../../interface_spec.md), [스키마 매핑](../SCHEMA_MAPPING.md). 실제 HTTP 경로 이름은 서빙과 버전별 합의 후 결정.
 
+> **이미지 MVP 연결 요청:** [구현 완료 범위·서빙 추가 연결·프롬프트 입력 형식·합성 예시](../../servingMvpAlignment.md)를 확인해 주세요. `feat/image-generation` 구현 기준이며, 아래 기존 계약과 구분해 남은 연결 작업을 정리했습니다.
+
 ## 1. 생성/합성의 연결 경계
 
 ```mermaid
