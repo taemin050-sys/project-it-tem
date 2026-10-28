@@ -646,3 +646,152 @@ def test_b1r_p1_valid_empty_user_text_remains_backward_compatible(rig):
     gate.complete(job, token, fake_report(snapshot))
     assert approval(rig, job).status_code == 200
     assert http.get(f"/api/v1/jobs/{job}").json()["status"] == "COPY_APPROVED"
+
+
+# B1R-P1-02: deep-but-well-formed JSON must fail closed through the REAL
+# FastAPI approval endpoint. D06 deliberately bypasses the writer to simulate
+# on-disk corruption, because json.dump itself may reject 1200 levels.
+def _deep_object(levels: int) -> str:
+    return '{"x":' * levels + '0' + '}' * levels
+
+
+def _deep_array(levels: int) -> str:
+    return '[' * levels + '0' + ']' * levels
+
+
+@pytest.mark.parametrize(
+    ("case", "expected_reason"),
+    [
+        ("D01_report_deep_object", "INVALID_SERVER_REVIEW_RECORD"),
+        ("D02_report_deep_array", "INVALID_SERVER_REVIEW_RECORD"),
+        ("D03_root_snapshot_deep_object", "INVALID_SERVER_REVIEW_RECORD"),
+        ("D04_reviewed_snapshot_deep_object", "INVALID_SERVER_REVIEW_RECORD"),
+        ("D05_pending_snapshot_deep_object", "INVALID_SERVER_REVIEW_RECORD"),
+        ("D06_top_level_extra_deep_object", "MISSING_OR_INVALID_SERVER_REVIEW"),
+        ("D07_top_level_extra_deep_but_parseable", "INVALID_SERVER_REVIEW_RECORD"),
+    ],
+)
+def test_b1r_p1_02_deep_persisted_json_is_http_409_not_500(
+    rig, case, expected_reason,
+):
+    app, http, gate = rig
+    job_id = setup_job(rig)
+    _, record_id = ready(rig, job_id)
+    before = http.get(f"/api/v1/jobs/{job_id}").json()
+    assert before["status"] == "COPY_REVIEW_REQUIRED"
+
+    with app.state.job_store._lock:
+        state = gate._read(job_id)
+        # CPython 3.13 can parse 1,200 levels in json.load(); use 12,000
+        # for D06 to explicitly exercise the *top-level parser* boundary.
+        deep = _deep_object(12000 if case == "D06_top_level_extra_deep_object" else 1200)
+        review = state["records"][record_id]
+        if case == "D01_report_deep_object":
+            review["report_json"] = deep
+        elif case == "D02_report_deep_array":
+            review["report_json"] = _deep_array(1200)
+        elif case == "D03_root_snapshot_deep_object":
+            state["snapshot_json"] = deep
+        elif case == "D04_reviewed_snapshot_deep_object":
+            review["reviewed_snapshot_json"] = deep
+        elif case == "D05_pending_snapshot_deep_object":
+            state["pending"] = {
+                "token": review["source_review_token"],
+                "generation": state["generation"],
+                "snapshot_json": deep,
+                "input_sha256": review["review_input_sha256"],
+            }
+        elif case in ("D06_top_level_extra_deep_object",
+                      "D07_top_level_extra_deep_but_parseable"):
+            path = gate._file(job_id)
+            raw = path.read_text(encoding="utf-8")
+            assert raw.count('"extra": {}') == 1
+            path.write_text(
+                raw.replace('"extra": {}', '"extra": ' + deep, 1),
+                encoding="utf-8",
+            )
+        else:
+            raise AssertionError(case)
+        if case not in ("D06_top_level_extra_deep_object",
+                        "D07_top_level_extra_deep_but_parseable"):
+            gate._write(job_id, state)
+        damaged_file = gate._file(job_id).read_bytes()
+
+    # raise_server_exceptions=False exposes actual 500 vs 409 over HTTP.
+    with TestClient(app, raise_server_exceptions=False) as network:
+        response = network.post(
+            f"/api/v1/jobs/{job_id}/approvals/copy",
+            json={"approved": True},
+        )
+        after_response = network.get(f"/api/v1/jobs/{job_id}")
+    assert response.status_code == 409, (
+        f"{case}: expected HTTP 409, observed HTTP {response.status_code}"
+    )
+    assert response.json()["detail"] == {
+        "error": "B1_FAKE_COMPLIANCE_BLOCKED", "reason": expected_reason,
+    }
+    assert after_response.status_code == 200
+    assert after_response.json() == before
+    assert after_response.json()["status"] == "COPY_REVIEW_REQUIRED"
+    assert not after_response.json().get("copy_approved")
+    assert gate._file(job_id).read_bytes() == damaged_file
+    # No internals, tokens, raw report, traceback, or filesystem paths leak.
+    public_response = response.text
+    assert "Traceback" not in public_response
+    assert "RecursionError" not in public_response
+    assert "source_review_token" not in public_response
+    assert review["source_review_token"] not in public_response
+    assert str(gate._file(job_id)) not in public_response
+
+
+def test_b1r_p1_02_nested_canonical_validation_boundaries_and_empty_input(rig):
+    from src.serving.b1_fake_review import (
+        _json_object_string, _valid_canonical_object,
+    )
+    shallow = '{"x":' * 5 + '0' + '}' * 5
+    assert _json_object_string(shallow)
+    assert _valid_canonical_object(json.loads(shallow))
+    assert not _json_object_string(_deep_object(1200))
+    assert not _json_object_string(_deep_array(1200))
+    assert not _valid_canonical_object(_deep_object_as_python_dict(1200))
+    assert _json_object_string("{}")
+    assert _valid_canonical_object({})
+    _, http, gate = rig
+    job = setup_job(rig)
+    gate.stage(job, user_text="", product_facts={}, extra={})
+    token, snap = gate.begin(job)
+    gate.complete(job, token, fake_report(snap))
+    assert approval(rig, job).status_code == 200
+
+
+def _deep_object_as_python_dict(levels: int) -> dict:
+    root = {}
+    node = root
+    for _ in range(levels):
+        child = {}
+        node["x"] = child
+        node = child
+    return root
+
+
+@pytest.mark.parametrize("case", ["missing_report_and_deep", "wrong_pending_and_deep"])
+def test_b1r_p1_02_deep_combined_with_missing_or_wrong_fields(rig, case):
+    app, http, gate = rig
+    job = setup_job(rig)
+    _, record_id = ready(rig, job)
+    before = http.get(f"/api/v1/jobs/{job}").json()
+    with app.state.job_store._lock:
+        state = gate._read(job)
+        if case == "missing_report_and_deep":
+            del state["records"][record_id]["report_json"]
+            state["snapshot_json"] = _deep_object(1200)
+        else:
+            state["pending"] = []
+            state["records"][record_id]["report_json"] = _deep_object(1200)
+        gate._write(job, state)
+    with TestClient(app, raise_server_exceptions=False) as network:
+        result = network.post(f"/api/v1/jobs/{job}/approvals/copy", json={"approved": True})
+        after = network.get(f"/api/v1/jobs/{job}").json()
+    assert result.status_code == 409
+    assert result.json()["detail"]["error"] == "B1_FAKE_COMPLIANCE_BLOCKED"
+    assert after == before

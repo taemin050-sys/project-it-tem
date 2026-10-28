@@ -78,7 +78,7 @@ def _valid_canonical_object(value: object) -> bool:
     try:
         _canonical_json(value)
         return True
-    except (ContractViolation, ValueError, TypeError, UnicodeError):
+    except (ContractViolation, ValueError, TypeError, UnicodeError, RecursionError):
         return False
 
 
@@ -101,7 +101,7 @@ def _json_object_string(value: object) -> bool:
         # Exclude floats, non-string keys, out-of-range ints, lone surrogate
         # values and nonstandard NaN/Infinity within stored JSON objects.
         return _valid_canonical_object(json.loads(value))
-    except (ValueError, TypeError, UnicodeError):
+    except (ValueError, TypeError, UnicodeError, RecursionError):
         return False
 
 
@@ -192,7 +192,7 @@ class FakeComplianceGate:
             if not _valid_review_state(value, job_id):
                 _blocked("INVALID_SERVER_REVIEW_RECORD")
             return value
-        except (FileNotFoundError, ValueError, TypeError, OSError):
+        except (FileNotFoundError, ValueError, TypeError, OSError, RecursionError):
             _blocked("MISSING_OR_INVALID_SERVER_REVIEW")
 
     def _write(self, job_id: str, state: dict) -> None:
