@@ -1,4 +1,4 @@
-"""5종 전체 흐름 테스트 (조사 → 카피 → 이미지 프롬프트)
+"""5종 전체 흐름 테스트 (조사 → 카피 → 1차 규제 검수 → 이미지 프롬프트)
 
 python -m scripts.test_pipeline                 # 전체
 python -m scripts.test_pipeline 롬앤글래스팅스프링피버   # 특정 제품만
@@ -12,6 +12,7 @@ from collections import Counter
 from datetime import datetime
 from pathlib import Path
 
+from src.text_generation.compliance.report_builder import review_copy
 from src.text_generation.copy_generator import copy_lengths, generate_copy
 from src.text_generation.image_prompt_generator import generate_image_prompt
 from src.text_generation.llm_client import LLMError
@@ -79,6 +80,10 @@ def run_one(
     record["copy_lengths"] = copy_lengths(copy)
 
     start = time.perf_counter()
+    record["compliance"] = review_copy(copy, product, analysis).model_dump()
+    times["compliance"] = round(time.perf_counter() - start, 3)
+
+    start = time.perf_counter()
     try:
         prompt = generate_image_prompt(
             copy.plan, analysis, model=model, reasoning_effort=effort
@@ -122,6 +127,15 @@ def print_record(r: dict) -> None:
     print(f"본문 ({n['caption']}자) :\n{c['caption']}")
     print(f"해시태그 ({n['hashtags_count']}개) : {' '.join(c['hashtags'])}")
 
+    rep = r["compliance"]
+    print(
+        f"검수 : {'통과' if rep['passed'] else '승인 차단'} | 문제 {len(rep['issues'])}개"
+    )
+    for i in rep["issues"]:
+        print(
+            f"  [{i['risk_level']}] {i['field']} '{i['text']}' {i['category']} → {i['suggestion'] or '삭제 권장'}"
+        )
+
     if "image_prompt_error" in r:
         print(f"이미지 프롬프트 실패 : {r['image_prompt_error']}")
     else:
@@ -162,6 +176,10 @@ def main():
                     record["research"]["research_performed"],
                     len(record["research"]["citations"]),
                     record.get("copy_lengths", {}).get("total", "-"),
+                    ("통과" if record["compliance"]["passed"] else "차단")
+                    + f"({len(record['compliance']['issues'])})"
+                    if "compliance" in record
+                    else "-",
                     len(record["image_prompt"]["prompt"])
                     if "image_prompt" in record
                     else "-",
@@ -170,7 +188,7 @@ def main():
             )
 
     print("\n===== 요약 =====")
-    print("제품 | 모델 | 검색 | 인용 | 카피 합계 | 프롬프트 | 시간(초)")
+    print("제품 | 모델 | 검색 | 인용 | 카피 합계 | 검수 | 프롬프트 | 시간(초)")
     for row in summary:
         print(" | ".join(str(x) for x in row))
 
