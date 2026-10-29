@@ -1,0 +1,281 @@
+# 1차 규제 검수 금지어 사전 (v0.1)
+# 기준 : 화장품 표시·광고 관리 지침 (민원인 안내서, 2025.8.14) + 식약처 FAQ·뉴스레터·적발 사례
+# - patterns : 정규식 (대소문자 무시)
+# - risk : 위반 의심 → 승인 차단 / 근거 확인 필요 → 경고만
+# - suggestion : 대체 표현 예시, 원래 표현 자리에 바꿔 넣을 수 있는 짧은 말 (여러 개는 ' / '로 구분, null이면 삭제 권장)
+
+rules:
+  # ---------- 의약품 오인 (별표 1, 제13조 제1항 제1호) ----------
+  - id: drug_disease
+    patterns: ["아토피", "건선", "소양증", "모낭충", "기저귀\\s*발진", "atopy"]
+    category: 의약품 오인
+    risk: 위반 의심
+    suggestion: null
+    basis: "지침 별표1 p.9"
+
+  - id: drug_treatment
+    patterns: ["치료", "치유", "처치", "완치", "heal(ing)?"]
+    category: 의약품 오인
+    risk: 위반 의심
+    suggestion: "건강한 피부 / 피부 컨디션 케어"
+    basis: "지침 별표1 p.9~11"
+
+  - id: drug_inflammation
+    patterns: ["항염", "소염", "염증", "진통", "통증\\s*(경감|완화)", "살균", "소독", "항진균", "항바이러스", "항알레르기", "면역\\s*(강화|력)"]
+    category: 의약품 오인
+    risk: 위반 의심
+    suggestion: null
+    basis: "지침 별표1 p.9, 적발 사례"
+
+  - id: drug_antibacterial
+    patterns: ["항균"]
+    category: 의약품 오인
+    risk: 근거 확인 필요
+    suggestion: null
+    basis: "지침 별표1 p.9, 별표2 p.15 (인체세정용 제품만 실증 시 가능)"
+
+  - id: drug_regeneration
+    patterns: ["(피부|세포)\\s*재생", "재생\\s*(효과|크림|케어)", "세포\\s*(활성|성장)", "DNA\\s*활성", "혈액\\s*순환", "호르몬"]
+    category: 의약품 오인
+    risk: 위반 의심
+    suggestion: "촉촉한 피부결 / 피부 컨디션 케어"
+    basis: "지침 별표1 p.11"
+
+  - id: drug_damage_recovery
+    patterns: ["(손상|상처|흉터|반흔)\\S*\\s*(을|를)?\\s*(회복|복구|치료|제거|완화)", "흉터", "반흔"]
+    category: 의약품 오인
+    risk: 위반 의심
+    suggestion: null
+    basis: "지침 별표1 p.10 (일부 단어만 써도 해당)"
+
+  - id: drug_detox
+    patterns: ["디톡스", "detox", "독소\\s*(를|을)?\\s*(제거|배출)", "해독", "체내\\s*노폐물"]
+    category: 의약품 오인
+    risk: 위반 의심
+    suggestion: "모공 노폐물 세정 / 깨끗한 세정"
+    basis: "지침 별표1 p.9~10, p.13 (피부·모공 노폐물 제거는 가능)"
+
+  - id: drug_name
+    patterns: ["의약품", "메디슨", "medicine", "드럭", "\\bdrug\\b", "코스메슈티컬", "cosmeceutical", "\\bmed\\b", "메드\\b"]
+    category: 의약품 오인
+    risk: 위반 의심
+    suggestion: null
+    basis: "지침 별표1 p.11, FAQ (메드)"
+
+  - id: drug_body
+    patterns: ["다이어트", "체중\\s*감량", "지방\\s*분해", "체형\\s*변화", "몸매\\s*개선", "가슴\\s*(탄력|확대)", "얼굴\\s*(크기|이)\\s*작아", "슬리밍"]
+    category: 의약품 오인
+    risk: 위반 의심
+    suggestion: null
+    basis: "지침 별표1 p.11"
+
+  - id: drug_hair
+    patterns: ["발모", "육모", "양모", "(모발|머리카락|속눈썹|눈썹)\\S*\\s*(이|가)?\\s*(자란|자라|성장|굵어)", "모발\\s*두께"]
+    category: 의약품 오인
+    risk: 위반 의심
+    suggestion: null
+    basis: "지침 별표1 p.10 (탈모완화 기능성 심사 효능효과는 가능)"
+
+  # ---------- 별표 2 실증 대상 (근거 확인 필요) ----------
+  - id: proof_aging
+    patterns: ["안티\\s*에이징", "anti-?aging", "(피부)?\\s*노화\\s*(완화|방지|개선|감소|징후)", "탄력\\s*(개선|회복|강화)", "콜라겐\\s*(증가|생성|활성|부스팅)", "효소\\s*(증가|활성)"]
+    category: 효능 과장
+    risk: 근거 확인 필요
+    suggestion: "탄탄해 보이는 / 생기 있는"
+    basis: "지침 별표1 p.10, 별표2 p.15"
+
+  - id: proof_specific_effect
+    patterns: ["셀룰라이트", "붓기", "부기", "다크\\s*서클", "피부\\s*혈행", "피부\\s*장벽\\s*(손상|개선|강화|회복)", "피지\\s*(분비)?\\s*조절", "미세\\s*먼지\\s*(차단|흡착)", "여드름성\\s*피부"]
+    category: 효능 과장
+    risk: 근거 확인 필요
+    suggestion: null
+    basis: "지침 별표2 p.15 (인체 적용시험 자료 필요)"
+
+  - id: proof_numbers
+    patterns: ["\\d+(\\.\\d+)?\\s*%\\s*(개선|증가|감소|향상|효과)", "\\d+\\s*(초|분|시간|일|주|개월)\\s*(만에|후|동안|로|이면|보습|흡수|완성|효과|케어|진정)", "\\d+\\s*배"]
+    category: 수치·임상 표현
+    risk: 근거 확인 필요
+    suggestion: null
+    basis: "지침 별표2 p.16 (효능·품질 수치, 비교 광고)"
+
+  - id: proof_test
+    patterns: ["피부과\\s*테스트", "임상", "인체\\s*적용\\s*시험", "테스트\\s*완료", "효과\\s*입증", "검증\\s*완료", "저자극\\s*테스트"]
+    category: 수치·임상 표현
+    risk: 근거 확인 필요
+    suggestion: null
+    basis: "지침 별표2 p.16, FAQ (임상기관 테스트 결과는 근거 필요)"
+
+  - id: proof_free_from
+    patterns: ["무첨가", "無\\s*\\S+", "\\S+\\s*free\\b", "\\S+\\s*프리\\b"]
+    category: 소비자 오인
+    risk: 근거 확인 필요
+    suggestion: null
+    basis: "지침 별표1 p.13 (배합금지 원료 무첨가는 금지), 별표2 p.16 (무 OO는 시험 자료 필요)"
+
+  - id: proof_natural
+    patterns: ["천연", "유기농", "오가닉", "organic", "\\bnatural\\b"]
+    category: 소비자 오인
+    risk: 근거 확인 필요
+    suggestion: null
+    basis: "지침 별표1 p.14, 별표2 p.16 (대한화장품협회 기준 자료 필요)"
+
+  - id: proof_soothing
+    patterns: ["진정"]
+    category: 의약품 오인
+    risk: 근거 확인 필요
+    suggestion: "편안한 / 산뜻한"
+    basis: "식약처 뉴스레터 34호 (의약품 오인 예시, 팀 논의 필요)"
+
+  # ---------- 소비자 오인 · 화장품 범위 밖 (제13조 제1항 제4호) ----------
+  - id: consumer_institution
+    patterns: ["(의사|전문의|피부과|병원|약사|의료진)\\S*\\s*(가|이)?\\s*(추천|개발|인증|공동\\s*개발)", "병원\\s*(용|전용)", "피부과\\s*(전용|시술용)", "약국\\s*(용|전용)", "협회\\s*인증"]
+    category: 전문가·매체 추천
+    risk: 위반 의심
+    suggestion: null
+    basis: "지침 별표1 p.13, 적발 사례"
+
+  - id: consumer_procedure
+    patterns: ["보톡스", "레이저", "카복시", "시술", "지방\\s*볼륨", "니들", "needle", "미세침", "\\bMTS\\b", "진피층?\\s*(까지)?\\s*침투"]
+    category: 소비자 오인
+    risk: 위반 의심
+    suggestion: null
+    basis: "지침 별표1 p.13~14, 적발 사례 (진피층 침투)"
+
+  - id: consumer_human_origin
+    patterns: ["줄기\\s*세포", "stem\\s*cell", "\\d+\\s*억\\s*세포", "인체\\s*(세포|조직)\\s*배양액", "엑소좀"]
+    category: 소비자 오인
+    risk: 위반 의심
+    suggestion: null
+    basis: "지침 별표1 p.13~14 (식물·우유 엑소좀 등 인체 외 유래는 가능)"
+
+  - id: consumer_no_side_effect
+    patterns: ["부작용\\s*(이)?\\s*(전혀\\s*)?없", "먹을\\s*수\\s*있", "명현\\s*현상"]
+    category: 소비자 오인
+    risk: 위반 의심
+    suggestion: null
+    basis: "지침 별표1 p.13"
+
+  - id: consumer_mfds
+    patterns: ["식약처\\s*(허가|인증|인정|승인)", "식품의약품안전처\\s*(허가|인증|인정|승인)"]
+    category: 소비자 오인
+    risk: 위반 의심
+    suggestion: null
+    basis: "지침 별표1 p.14, FAQ (기능성 심사 관련 표현은 가능)"
+
+  - id: consumer_skin_age
+    patterns: ["피부\\s*나이", "\\d+\\s*(세|살|년)\\s*(어려|젊어|감소)"]
+    category: 소비자 오인
+    risk: 위반 의심
+    suggestion: null
+    basis: "지침 별표1 p.14, 별표2 p.15 (단위를 '세'로 표기 불가)"
+
+  - id: consumer_patent
+    patterns: ["특허\\s*출원"]
+    category: 소비자 오인
+    risk: 위반 의심
+    suggestion: "특허 등록 성분 (등록된 경우만)"
+    basis: "FAQ"
+
+  - id: consumer_no_animal_test
+    patterns: ["동물\\s*실험\\s*(미실시|안\\s*함|하지\\s*않)", "크루얼티\\s*프리", "cruelty[\\s-]*free"]
+    category: 소비자 오인
+    risk: 위반 의심
+    suggestion: null
+    basis: "FAQ"
+
+  - id: consumer_sexual
+    patterns: ["여성\\s*크림", "질\\s*(보습|수축|세정|내)", "이너\\s*케어", "쾌감"]
+    category: 소비자 오인
+    risk: 위반 의심
+    suggestion: null
+    basis: "지침 별표1 p.14"
+
+  # ---------- 순위·최상급 (FAQ 절대 표현) ----------
+  - id: rank_superlative
+    patterns: ["최고", "최상", "최적", "최초", "유일", "넘버\\s*원", "No\\.?\\s*1", "\\d+\\s*위"]
+    category: 순위·최상급 표현
+    risk: 위반 의심
+    suggestion: "삭제 후 제품 특징으로 구체적으로 (예: 촉촉한, 산뜻한)"
+    basis: "FAQ (배타적 절대 표현)"
+
+  - id: rank_must_have
+    patterns: ["필수템", "필수\\s*아이템", "인생템", "끝판왕", "완벽"]
+    category: 효능 과장
+    risk: 근거 확인 필요
+    suggestion: "데일리템 / 데일리 아이템"
+    basis: "팀 기준 (10/28 카피 테스트에서 발견, 과장 표현)"
+
+# ---------- 기능성 분기 (별표 1 제13조 제1항 제2호, 시행규칙 제2조) ----------
+# 일반 화장품 → not_functional_risk / 기능성 화장품 → functional_risk
+functional_rules:
+  - id: func_whitening
+    functional_type: 미백
+    patterns: ["미백", "화이트닝", "whitening", "기미", "주근깨", "잡티\\s*(제거|개선|완화)", "멜라닌"]
+    category: 기능성 오인
+    not_functional_risk: 위반 의심
+    functional_risk: 근거 확인 필요
+    suggestion: "화사한 / 맑은 (색조는 '톤업')"
+    basis: "지침 별표1 p.9, p.12, 별표2 p.15"
+
+  - id: func_wrinkle
+    functional_type: 주름개선
+    patterns: ["주름\\s*(개선|완화|감소|예방|케어|제거)", "링클", "wrinkle"]
+    category: 기능성 오인
+    not_functional_risk: 위반 의심
+    functional_risk: 근거 확인 필요
+    suggestion: "매끄러운 피부결 / 촉촉한 피부결"
+    basis: "지침 별표1 p.12"
+
+  - id: func_uv
+    functional_type: 자외선차단
+    patterns: ["자외선\\s*(차단|보호)", "\\bUV\\s*(차단|protection|block)", "SPF\\s*\\d+", "PA\\s*\\+{1,4}", "선\\s*(크림|블록|스크린)"]
+    category: 기능성 오인
+    not_functional_risk: 위반 의심
+    functional_risk: 근거 확인 필요
+    suggestion: null
+    basis: "지침 별표1 p.12"
+
+  - id: func_acne
+    functional_type: 여드름완화
+    patterns: ["여드름(?!성\\s*피부)", "트러블\\s*(개선|완화|케어|진정)", "\\bacne\\b"]
+    category: 기능성 오인
+    not_functional_risk: 위반 의심
+    functional_risk: 근거 확인 필요
+    suggestion: null
+    basis: "지침 별표1 p.9 (여드름완화 기능성은 인체세정용 제품만)"
+
+  - id: func_hair_loss
+    functional_type: 탈모완화
+    patterns: ["탈모", "빠지는\\s*(모발|머리카락)"]
+    category: 기능성 오인
+    not_functional_risk: 위반 의심
+    functional_risk: 근거 확인 필요
+    suggestion: null
+    basis: "지침 별표1 p.10, 별표2 p.15~16"
+
+  - id: func_itch
+    functional_type: 가려움개선
+    patterns: ["가려움", "간지러움"]
+    category: 기능성 오인
+    not_functional_risk: 위반 의심
+    functional_risk: 근거 확인 필요
+    suggestion: "보습으로 건조함에 의한 가려움을 일시적으로 덜어줌"
+    basis: "지침 별표1 p.10 (보습을 통한 일시적 완화는 가능)"
+
+  - id: func_stretch_mark
+    functional_type: 튼살붉은선완화
+    patterns: ["튼살", "임신선"]
+    category: 기능성 오인
+    not_functional_risk: 위반 의심
+    functional_risk: 근거 확인 필요
+    suggestion: null
+    basis: "지침 별표1 p.10"
+
+# ---------- 색조 예외 (제품 종류가 색조일 때만) ----------
+# 아래 표현은 같은 문장에 allow_with가 함께 있으면 통과
+color_exceptions:
+  patterns: ["흔적", "홍조", "홍반", "뾰루지", "V\\s*라인", "윤곽", "필러", "filler"]
+  allow_with: ["가려", "커버", "연출", "채워"]
+  category: 의약품 오인
+  risk: 위반 의심
+  basis: "지침 별표1 p.10, p.11, p.13 (색조 제품의 '가려준다·연출한다·채워준다'는 가능)"
