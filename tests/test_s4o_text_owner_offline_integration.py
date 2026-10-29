@@ -34,7 +34,7 @@ from src.serving.text_v08_mapper import (
     TextBoundaryError, prepare_offline_stage, verify_analysis, verify_research,
 )
 
-OWNER_SCHEMA_SHA256 = "a21d974309db5e88dc0b82ab8ab7639ab256061bf1023f47ccf25ab7dd8be014"
+OWNER_SCHEMA_SHA256 = "051aab8b02d461b4d8787053e6af6dfc1267acbd48fd0304ff0f4f090bac18f7"
 FIX = Path(__file__).resolve().parents[1] / "docs/contracts/fixtures"
 
 
