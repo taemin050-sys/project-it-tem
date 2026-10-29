@@ -10,6 +10,7 @@ from contextlib import contextmanager
 import hashlib
 from io import BytesIO
 import os
+import sys
 from pathlib import Path
 import sqlite3
 import tempfile
@@ -129,12 +130,21 @@ class LocalAssetStore:
             with warnings.catch_warnings():
                 warnings.simplefilter("error", UserWarning)
                 with Image.open(BytesIO(data)) as image:
-                    if image.format not in {"PNG", "JPEG", "WEBP"}:
-                        raise GatewayError("INVALID_IMAGE", "Only PNG, JPEG and WebP images are supported.")
-                    clean = self._normalize(image)
+                    if image.format not in {"PNG", "JPEG", "WEBP", "MPO"}:
+                        raise GatewayError("INVALID_IMAGE", "Only PNG, JPEG, WebP and MPO images are supported.")
+                    if image.format == "MPO":
+                        # MPO holds still photos (and sometimes auxiliary maps).
+                        # Select one primary photo; never flatten/submit all frames.
+                        image.seek(0)
+                        self._check_size(image.size)
+                        image.load()
+                        with image.copy() as primary:
+                            clean = self._normalize(primary)
+                    else:
+                        clean = self._normalize(image)
         except (Image.DecompressionBombWarning, Image.DecompressionBombError) as exc:
             raise GatewayError("IMAGE_TOO_LARGE", "Image dimensions exceed the decoder safety limit.") from exc
-        except (UnidentifiedImageError, OSError, ValueError, SyntaxError, UserWarning) as exc:
+        except (UnidentifiedImageError, OSError, EOFError, ValueError, SyntaxError, UserWarning) as exc:
             raise GatewayError("INVALID_IMAGE", "Image could not be decoded.") from exc
         return self._publish(clean, project_id)
 
@@ -154,6 +164,11 @@ class LocalAssetStore:
 
     @staticmethod
     def _sync_directory(directory: Path) -> None:
+        # The Windows stdlib cannot open/fsync directories this POSIX way.
+        # Regular-file fsync, atomic replace and SQLite commit still run.
+        # Directory-entry crash durability is therefore weaker on Windows.
+        if sys.platform == "win32":
+            return
         descriptor = os.open(directory, os.O_RDONLY)
         try:
             os.fsync(descriptor)
