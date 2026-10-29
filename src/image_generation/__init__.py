@@ -26,6 +26,7 @@ After serving verifies approval, call compose_ad_png(CompositionInput(...),
 font_path=server_font_path). Pass the approved image bytes/SHA-256, complete
 AdCopyOutput snapshot/canonical hash, copy revision and explicit text regions.
 It returns a 1080x1350 PNG and UTF-8 caption/hashtags without a model call.
+Use make_a_template() for paired upper safe-zone / centered A layout settings.
 Layout coordinates use the final canvas. Supply product protection regions
 to prevent text overlap; absent regions require manual product/layout review.
 The full copy hash includes plan, ad_copy, caption and hashtags. Hash matching
@@ -34,6 +35,7 @@ live serving E2E and human layout acceptance remain separate checks.
 The source project's historical English/experiment request databases are not
 migrated; use a separate persistent runtime directory for this MVP package.
 """
+from .a_template import make_a_template
 from .ad_resize import resize_ad_png
 from .backend_adapter import BackendGeneratedImage, BackendImageAdapter, BackendImageInput
 from .contracts import ExternalImageRequest, ImagePrompt
@@ -41,7 +43,7 @@ from .composition import (ComposedAd, CompositionInput, CompositionLayout,
                           CompositionRect, CompositionTextRegion, compose_ad_png)
 from .product_analysis import ProductAnalysis, ProductAnalysisResult
 
-__all__ = ["BackendGeneratedImage", "BackendImageAdapter", "BackendImageInput",
+__all__ = ["make_a_template", "BackendGeneratedImage", "BackendImageAdapter", "BackendImageInput",
            "ExternalImageRequest", "ImagePrompt", "ProductAnalysis",
            "ProductAnalysisResult", "resize_ad_png", "ComposedAd", "CompositionInput",
            "CompositionLayout", "CompositionRect", "CompositionTextRegion", "compose_ad_png"]

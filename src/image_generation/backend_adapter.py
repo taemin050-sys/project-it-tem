@@ -145,17 +145,10 @@ class BackendImageAdapter:
             raise ValueError("A server-resolved project UUID is required")
         return uuid5(project_id, "beautyai/backend/image/v1/" + service_job_id)
 
-    def _bind(self, body: BackendImageInput, project_id: UUID) -> ExternalImageRequest:
-        # Keep legacy structured/int request fingerprints and prompt bytes stable:
-        # an existing job must still replay its original paid-attempt record.
-        legacy = body.image_prompt.concept is not None and type(body.copy_revision) is int
-        version = "backend-v02-ko-v1" if legacy else "backend-v02-ko-v2"
-        metadata = body.model_dump(mode="json", exclude={"product_images", "reference_images"})
-        metadata.update(model=self.model, quality=self.quality, adapter_version=version,
-                        mock=self.processor.adapter.offline)
-        for role in ("product_images", "reference_images"):
-            metadata[role] = [hashlib.sha256(data).hexdigest() for data in getattr(body, role)]
-        fingerprint = content_hash(metadata)
+    @staticmethod
+    def _build_prompt(body: BackendImageInput, version: str) -> ImagePrompt:
+        # Only new bindings use this policy. Existing paid jobs keep stored bytes.
+        legacy = version == "backend-v02-ko-v1"
         # Validation precedes any paid attempt. Do not truncate text silently.
         positive = body.image_prompt.prompt
         if body.image_prompt.concept is not None:
@@ -182,10 +175,26 @@ class BackendImageAdapter:
         if body.safe_zone:
             zone = body.safe_zone
             positive += (f"\n카피 여백: 왼쪽 {zone.left}, 위 {zone.top}, 오른쪽 {zone.right}, "
-                         f"아래 {zone.bottom}. 0~1 정규화 좌표. 이 영역에 제품을 배치하지 않는다.")
-        prompt = ImagePrompt(
+                         f"아래 {zone.bottom}. 0~1 정규화 좌표. 이 영역에 제품·소품을 배치하지 않는다. "
+                         "복잡한 무늬·장식·강한 반사광을 피하고 카피가 읽히는 단순한 배경을 유지한다. "
+                         "카피 글자는 직접 생성하지 않는다.")
+        return ImagePrompt(
             positive=positive,
-            language="ko", prompt_version=version, source_revision=body.copy_revision)
+            language="ko",
+            prompt_version="backend-v02-ko-v3" if body.safe_zone else version,
+            source_revision=body.copy_revision)
+
+    def _bind(self, body: BackendImageInput, project_id: UUID) -> ExternalImageRequest:
+        # Keep legacy input fingerprints stable; existing jobs replay the stored
+        # request before any new prompt policy is built or validated.
+        legacy = body.image_prompt.concept is not None and type(body.copy_revision) is int
+        version = "backend-v02-ko-v1" if legacy else "backend-v02-ko-v2"
+        metadata = body.model_dump(mode="json", exclude={"product_images", "reference_images"})
+        metadata.update(model=self.model, quality=self.quality, adapter_version=version,
+                        mock=self.processor.adapter.offline)
+        for role in ("product_images", "reference_images"):
+            metadata[role] = [hashlib.sha256(data).hexdigest() for data in getattr(body, role)]
+        fingerprint = content_hash(metadata)
         try:
             with self._connect() as db:
                 db.execute("BEGIN IMMEDIATE")
@@ -199,6 +208,7 @@ class BackendImageAdapter:
                     if content_hash(request) != row[2]:
                         raise ValueError("Stored request integrity failed")
                     return request
+                prompt = self._build_prompt(body, version)
                 # Assets are immutable. A crash may leave unreferenced assets,
                 # but no provider call occurs until this binding is committed.
                 products = [self.processor.assets.put_upload(data, project_id=project_id)
