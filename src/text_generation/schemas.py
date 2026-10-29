@@ -1,7 +1,8 @@
 """텍스트 모듈 스키마 (v0.8)
 
 흐름 : 사용자 입력 → 제품 분석(VLM) → 기획 AI 사전 조사 → 콘셉트·카피 생성 → 규제 검수
-      → (이미지 생성·합성은 이미지/서비스 파트) → 최종 출력(이미지 + 게시글 본문 + 해시태그)
+      → 카피 승인 → 이미지 프롬프트 → (이미지 생성·합성은 이미지/서비스 파트)
+      → 최종 출력(이미지 + 게시글 본문 + 해시태그)
 
 - ProductInput       : 사용자 입력 (브랜드명, 제품명, 카테고리, 특징, 광고 목적, 기능성 여부, 사진 검증)
 - ProductAnalysis    : VLM 제품 분석 결과 (제품 사진 2~5장을 함께 분석)
@@ -259,7 +260,8 @@ class ComplianceIssue(BaseModel):
     field: CopyField = Field(..., description="문제가 있는 위치")
     text: str = Field(..., description="위험 표현 원문")
     start: int = Field(
-        ..., description="해당 필드 안 시작 글자 위치 (하이라이트용, 코드에서 계산)"
+        ...,
+        description="해당 필드 안 시작 위치 (end 미포함, 해시태그는 공백으로 이어 붙인 문자열 기준, 하이라이트용)",
     )
     end: int
     category: RiskCategory
@@ -283,7 +285,7 @@ class ComplianceReport(BaseModel):
     issues: list[ComplianceIssue]
     revised_fields: dict[str, str] = Field(
         default_factory=dict,
-        description="대체 문구 반영본, 예: {'headline': '...', 'caption': '...'}",
+        description="대체 문구 반영본 (MVP는 빈 값, 3주차 LLM 재작성 때 사용)",
     )
     checklist: list[str] = Field(
         default_factory=list, description="게시 전 사용자가 직접 확인할 항목"
