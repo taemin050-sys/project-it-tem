@@ -1,0 +1,93 @@
+{
+  "source": "current FastAPI TestClient app.openapi(), no external API",
+  "mode": "MOCK_ONLY",
+  "operation_count": 11,
+  "operations": [
+    {
+      "method": "GET",
+      "path": "/api/v1/jobs/{job_id}"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/jobs/{job_id}/artifacts/{kind}"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/jobs/{job_id}/assets/{asset_id}"
+    },
+    {
+      "method": "GET",
+      "path": "/health"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/jobs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/jobs/{job_id}/approvals/copy"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/jobs/{job_id}/approvals/image"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/jobs/{job_id}/mock/compose"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/jobs/{job_id}/mock/copy"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/jobs/{job_id}/mock/image"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/jobs/{job_id}/mock/plan"
+    }
+  ],
+  "observed": {
+    "job_created_status": 201,
+    "job_keys": [
+      "assets",
+      "created_at",
+      "job_id",
+      "status"
+    ],
+    "job_asset_keys": [
+      "asset_id",
+      "content_type",
+      "height",
+      "original_filename",
+      "role",
+      "sha256",
+      "size_bytes",
+      "width"
+    ],
+    "wrong_workflow_state": 409,
+    "wrong_workflow_detail": "Plan must be ready before copy",
+    "artifact_missing": 404
+  },
+  "documented_artifact_get_200": {
+    "media_types": [
+      "application/json"
+    ],
+    "json_schema": {}
+  },
+  "diagnostic_gaps": {
+    "file_response": "OpenAPI currently describes /artifacts/{kind} with JSON, but actual FileResponse returns PNG/JSON/text with Content-Disposition",
+    "business_errors": "404/409/413/503 handler outcomes not enumerated on all operations",
+    "client_types": "TS Job is a hand-maintained structural type; not generated from authoritative response_model"
+  },
+  "typescript_static_keys_checked": [
+    "job_id",
+    "status",
+    "created_at",
+    "assets",
+    "download_url",
+    "content_type"
+  ],
+  "contract_change": "NONE; diagnostic only; new HTTP Wire still BLOCKED_WIRE=7 FROZEN=0"
+}

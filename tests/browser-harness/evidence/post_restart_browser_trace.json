@@ -1,0 +1,29 @@
+{
+  "job_id": "cd948243b3c94e98a5f5f588890f2dee",
+  "mode": "MOCK",
+  "browserReloadAfterBackendRestart": true,
+  "image": {
+    "status": 200,
+    "width": 1080,
+    "height": 1350,
+    "type": "image/png"
+  },
+  "trace": [
+    {
+      "method": "GET",
+      "status": 200,
+      "url": "/api/v1/jobs/cd948243b3c94e98a5f5f588890f2dee"
+    },
+    {
+      "method": "GET",
+      "status": 200,
+      "url": "/api/v1/jobs/cd948243b3c94e98a5f5f588890f2dee"
+    },
+    {
+      "method": "GET",
+      "status": 200,
+      "url": "/api/v1/jobs/cd948243b3c94e98a5f5f588890f2dee/artifacts/final"
+    }
+  ],
+  "unexpectedPOST": 0
+}
