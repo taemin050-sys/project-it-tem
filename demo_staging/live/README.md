@@ -15,3 +15,12 @@ Status: OFFLINE_OWNER_E2E_PASS / LIVE_PROVIDER_DISABLED
 - No team account entitlement or remaining budget verification, no actual model calls, no GCP Live service started or new public tunnel published.
 - Remaining: PM Live Wire approval, text receipt hook Owner review, safe failure/charge reconciliation, provider/budget permissions, real generated ad and human/remote evaluation.
 - This is a repeatable preflight/development asset, NOT a real Live E2E acceptance or legal cosmetics advertising certification.
+
+## Post-handoff hardening (isolated commit following fc395dc)
+
+- Web queue capability and worker execution policy are separately gated. Staging web can enqueue only if LIVE_WEB_QUEUE_ENABLED, LIVE_ENABLED, LIVE_EXECUTION_APPROVED and PROVIDER_READINESS_CONFIRMED are all explicitly YES, actor is individually allowlisted and positive budget/count limits parse successfully. No provider API key is read or held in web process. Worker separately enforces secret availability, allowlist and budget before claiming a task.
+- The first stored owner Text result sets mode LIVE or OFFLINE_FIXTURE in the **same transaction** as the product/copy snapshots. INPUT_ONLY is never presented as real AI completion.
+- The Text Vision, Research, Copy and Image-Prompt stage checkpoints each bind actor, Job, execution mode, model/context SHA and official Owner schema. Valid saved results are reusable without calling the provider again. A charged attempt with no durable checkpoint is an explicit manual reconciliation HOLD; never auto-retry.
+- React DemoLiveConsole restores the evaluator-scoped saved Job ID from sessionStorage and fetches the authorized server Job. If the image upload succeeded but the Live ProductInput write failed, the same uploaded Job is reused rather than POSTing the photos a second time. Polling does not overwrite edits in progress.
+- No Mock output is published under LIVE. Image generation access, provider spending and final acceptance remain explicitly unapproved.
+- Mac full Python suite: 655 PASS with licensed/local Korean font explicitly supplied as environment configuration, 24 Owner React unit tests PASS, lint 0 warnings/errors and Vite build PASS. All tests run without a real OpenAI key.

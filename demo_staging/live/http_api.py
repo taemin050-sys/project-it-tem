@@ -47,8 +47,45 @@ class ComposeRequest(BaseModel):
     layout:dict
 
 
+def web_queue_policy() -> dict:
+    """Queue-only PM policy. Web must never possess API credentials.
+
+    Live remains entirely OFF unless all explicit controls agree. Worker
+    independently validates the key and identical PM/cost configuration.
+    """
+    required=("IT_TEM_LIVE_WEB_QUEUE_ENABLED","IT_TEM_LIVE_ENABLED",
+              "IT_TEM_LIVE_EXECUTION_APPROVED","IT_TEM_PROVIDER_READINESS_CONFIRMED")
+    if any(os.environ.get(k)!="YES" for k in required):
+        return {"enabled":False,"actors":frozenset()}
+    try:
+        from decimal import Decimal,InvalidOperation
+        actors=frozenset(x.strip() for x in
+            os.environ.get("IT_TEM_LIVE_APPROVED_ACTORS","").split(",") if x.strip())
+        if (not actors or "*" in actors or
+            any(not x.replace("_","").replace("-","").isalnum() for x in actors)):
+            raise ValueError
+        limit=int(os.environ.get("IT_TEM_LIVE_REQUEST_LIMIT","0"))
+        budget=Decimal(os.environ.get("IT_TEM_LIVE_BUDGET_USD","0"))
+        text=Decimal(os.environ.get("IT_TEM_TEXT_RESERVATION_USD","0"))
+        image=Decimal(os.environ.get("IT_TEM_IMAGE_RESERVATION_USD","0"))
+        if (limit<=0 or not all(x.is_finite() and 0<x<=1000000
+             for x in (budget,text,image)) or text>budget or image>budget):
+            raise ValueError
+    except (ValueError,TypeError,InvalidOperation,OverflowError):
+        return {"enabled":False,"actors":frozenset()}
+    return {"enabled":True,"actors":actors,
+            "limit":limit,"budget":float(budget),
+            "text":float(text),"image":float(image)}
+
+
 def register_live_api(app:FastAPI, ledger, runtime_root:Path, cookie_name:str):
-    flow=LivePipeline(Path(runtime_root)/"live",app.state.job_store)
+    policy=web_queue_policy()
+    flow=LivePipeline(Path(runtime_root)/"live",app.state.job_store,
+        live_enabled=policy["enabled"],pm_authorized=policy["enabled"],
+        approved_actors=policy["actors"],
+        request_limit=policy.get("limit",0),budget_limit_usd=policy.get("budget",0),
+        text_reservation_usd=policy.get("text",0),
+        image_reservation_usd=policy.get("image",0))
     queue=LiveQueue(Path(runtime_root)/"live"/"queue.sqlite")
     app.state.live_pipeline=flow
     app.state.live_queue=queue
@@ -93,9 +130,12 @@ def register_live_api(app:FastAPI, ledger, runtime_root:Path, cookie_name:str):
 
     @app.get(prefix+"/capabilities")
     def capabilities(request:Request):
-        authorized(request)
-        return {"live_enabled":bool(flow.live_enabled and flow.pm_authorized),"mode":"LIVE_PREPARED" if (flow.live_enabled and flow.pm_authorized) else "LIVE_BLOCKED",
-                "reason":"COST_AND_CONTRACT_PM_GATE",
+        actor=authorized(request)
+        allowed=bool(flow.live_enabled and flow.pm_authorized
+                     and actor in flow.approved_actors)
+        return {"live_enabled":allowed,
+                "mode":"LIVE_QUEUE_READY" if allowed else "LIVE_BLOCKED",
+                "reason":None if allowed else "COST_AND_CONTRACT_PM_GATE",
                 "provisional_wire":True,"mock_fallback":False}
 
     @app.post(prefix+"/jobs/{job_id}/input")

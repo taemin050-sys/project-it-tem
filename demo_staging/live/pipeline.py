@@ -18,11 +18,15 @@ from uuid import UUID,uuid5
 
 from PIL import Image
 
-from src.text_generation.schemas import ProductInput, ProductAnalysisResult
+from src.text_generation.schemas import (
+    ProductInput, ProductAnalysisResult, ResearchResult, AdCopyOutput,
+    ImagePromptOutput, AdPlan
+)
 from src.serving.job_store import JobStore
 from demo_staging.live_safety import AttemptLedger,LiveNotAuthorized
 from .contracts import LiveGateError,digest
 from .store import LiveStore
+from .checkpoints import LiveCheckpoints
 
 
 class TextProvider(Protocol):
@@ -72,6 +76,7 @@ class LivePipeline:
         self.root.mkdir(parents=True,exist_ok=True,mode=0o700)
         self.jobs=job_store
         self.state=LiveStore(self.root/"live.sqlite")
+        self.checkpoints=LiveCheckpoints(self.root/"text_checkpoints.sqlite")
         self.cost=AttemptLedger(self.root/"cost.sqlite",live_enabled=live_enabled,
                                 max_requests=request_limit,budget_usd=budget_limit_usd)
         self.live_enabled=bool(live_enabled)
@@ -162,24 +167,33 @@ class LivePipeline:
             if provider is not None:
                 raise LiveGateError("INJECTED_PROVIDER_FORBIDDEN_IN_LIVE")
             provider=OfficialTextProvider(text_model,vision_model)
-        def call(stage,data,callback):
-            if offline:return callback()
-            return self._guarded(actor,job_id,stage,data,callback)
-        a=call("vision",{"assets":[x["sha256"] for x in snapshot["ordered_asset_hashes"]],
-                 "model":vision_model},lambda:provider.analyze(photos))
-        if (not isinstance(a,ProductAnalysisResult) or a.analysis_succeeded is not True
-            or a.error is not None or a.analysis.is_cosmetic is not True):
+        mode="OFFLINE_FIXTURE" if offline else "LIVE"
+        def call(stage,data,model,callback):
+            # A stored, verified Owner output may be replayed with zero new calls.
+            fingerprint=digest(data)
+            saved=self.checkpoints.load(actor,job_id,stage,fingerprint,mode,model)
+            if saved is not None:
+                return saved
+            output=callback() if offline else self._guarded(actor,job_id,stage,data,callback)
+            return self.checkpoints.commit(actor,job_id,stage,fingerprint,mode,output,model)
+        a=call("vision",
+               {"input_sha":job["input_sha"],
+                "assets":[x["sha256"] for x in snapshot["ordered_asset_hashes"]],
+                "model":vision_model},
+               ProductAnalysisResult,lambda:provider.analyze(photos))
+        if (a.analysis_succeeded is not True or a.error is not None
+            or a.analysis.is_cosmetic is not True):
             raise LiveGateError("VLM_FAIL_CLOSED")
-        r=call("research",{"input_sha":job["input_sha"],"analysis":a.model_dump(mode="json"),
-                            "model":text_model},lambda:provider.research(product,a.analysis))
+        r=call("research",{"input_sha":job["input_sha"],"analysis_sha":digest(a.model_dump(mode="json")),
+                           "model":text_model},
+               ResearchResult,lambda:provider.research(product,a.analysis))
         cp=call("copy",{"input_sha":job["input_sha"],
-                         "research":r.model_dump(mode="json"),"model":text_model},
-                lambda:provider.generate_copy(product,a.analysis,r))
-        # Each owner return passes strict official model validation; raw data
-        # retained, uncited claims downgraded, review server-bound by generation.
-        stored=self.state.store_text(actor,job_id,a,r,cp)
-        self.state.set_provenance(actor,job_id,"OFFLINE_FIXTURE" if offline else "LIVE")
-        return self.state.get(actor,job_id)
+                         "analysis_sha":digest(a.model_dump(mode="json")),
+                         "research_sha":digest(r.model_dump(mode="json")),
+                         "model":text_model},
+                AdCopyOutput,lambda:provider.generate_copy(product,a.analysis,r))
+        return self.state.store_text(
+            actor,job_id,a,r,cp,mode=mode)
 
     def prompt(self,actor,job_id,provider:TextProvider|None=None,*,offline=False,
                text_model="gpt-6-luna"):
@@ -197,13 +211,20 @@ class LivePipeline:
             provider=OfficialTextProvider(text_model,text_model)
         cp=json.loads(job["copy_json"])
         a=ProductAnalysisResult.model_validate(json.loads(job["analysis_json"]),strict=True)
-        def do_prompt():
-            return provider.generate_prompt(
-                __import__("src.text_generation.schemas",fromlist=["AdPlan"]).AdPlan.model_validate(cp["plan"],strict=True),
-                a.analysis)
-        out=do_prompt() if offline else self._guarded(actor,job_id,"image_prompt",
-            {"copy_sha":job["copy_sha"],"generation":job["generation"],"model":text_model},
-            do_prompt)
+        mode="OFFLINE_FIXTURE" if offline else "LIVE"
+        ctx={"copy_sha":job["copy_sha"],"generation":job["generation"],
+             "approval_sha":job["approval_sha"],"model":text_model}
+        fingerprint=digest(ctx)
+        out=self.checkpoints.load(actor,job_id,"image_prompt",fingerprint,mode,
+                                  ImagePromptOutput)
+        if out is None:
+            def do_prompt():
+                return provider.generate_prompt(
+                    AdPlan.model_validate(cp["plan"],strict=True),a.analysis)
+            proposed=do_prompt() if offline else self._guarded(actor,job_id,
+                "image_prompt",ctx,do_prompt)
+            out=self.checkpoints.commit(actor,job_id,"image_prompt",fingerprint,
+                                        mode,proposed,ImagePromptOutput)
         return self.state.store_prompt(actor,job_id,out)
 
     def image_input(self,actor,job_id):

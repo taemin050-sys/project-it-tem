@@ -33,9 +33,12 @@ async function request<T>(url:string, method='GET', payload?:unknown):Promise<T>
   return res.json() as Promise<T>
 }
 
-export default function DemoLiveConsole(){
+export default function DemoLiveConsole({evaluatorId}:{evaluatorId:string}){
   const [cap,setCap]=useState<State|null>(null)
   const [snap,setSnap]=useState<LiveSnapshot|null>(null)
+  const [pendingId,setPendingId]=useState<string|null>(null)
+  const [savedCounts,setSavedCounts]=useState({products:0,references:0})
+  const savedJobKey='ittem.live.job.'+evaluatorId
   const [task,setTask]=useState<Task|null>(null)
   const [error,setError]=useState('')
   const [busy,setBusy]=useState(false)
@@ -74,6 +77,32 @@ export default function DemoLiveConsole(){
     return ()=>{on=false}
   },[])
   useEffect(()=>{
+    let active=true
+    const saved=sessionStorage.getItem(savedJobKey)
+    if(!saved || !/^[0-9a-f]{32}$/.test(saved))return
+    lastId.current=saved
+    void Promise.resolve().then(()=>update(saved)).catch(async()=>{
+      // B0 upload may have succeeded before the Live input write failed.
+      // Reuse its uploaded images; never re-POST and create another Job.
+      try{
+        const response=await fetch('/api/v1/jobs/'+saved,{
+          credentials:'same-origin',cache:'no-store'})
+        if(!response.ok)throw Error('Previous upload unavailable')
+        const job=await response.json() as {
+          assets?:Array<{role:string}>,status?:string
+        }
+        if(!active)return
+        if(job.status!=='INPUTS_VALIDATED')throw Error('Previous upload state changed')
+        setSavedCounts({products:(job.assets||[]).filter(x=>x.role==='product').length,
+                        references:(job.assets||[]).filter(x=>x.role==='reference').length})
+        setPendingId(saved)
+      }catch{
+        if(active){sessionStorage.removeItem(savedJobKey);lastId.current=null}
+      }
+    })
+    return ()=>{active=false}
+  },[savedJobKey,update])
+  useEffect(()=>{
     const timer=setInterval(()=>{
       if(lastId.current){
         void update(lastId.current).catch(()=>{/* no retrying provider POSTs */})
@@ -90,24 +119,35 @@ export default function DemoLiveConsole(){
     finally{setBusy(false)}
   }
   async function create(){
-    if(files.length<2||files.length>5||refs.length>5||!rights||!product.trim()||!features.trim()){
+    const productCount=pendingId?savedCounts.products:files.length
+    const referenceCount=pendingId?savedCounts.references:refs.length
+    if(productCount<2||productCount>5||referenceCount>5||!rights||!product.trim()||!features.trim()){
       throw Error('제품 사진 2~5장, 참고 0~5장, 제품 정보와 사용권 확인이 필요합니다.')
     }
-    const data=new FormData()
-    files.forEach(f=>data.append('product_images',f))
-    refs.forEach(f=>data.append('reference_images',f))
-    const response=await fetch('/api/v1/jobs',{method:'POST',body:data,credentials:'same-origin'})
-    if(!response.ok)throw Error('제품 사진 업로드 실패 (HTTP '+response.status+')')
-    const job=await response.json() as {job_id:string}
-    const record=await request<LiveSnapshot>(api+'/jobs/'+job.job_id+'/input','POST',{
-      customer_request_id:crypto.randomUUID()+'-demo',
+    let jobId=pendingId
+    if(!jobId){
+      const data=new FormData()
+      files.forEach(f=>data.append('product_images',f))
+      refs.forEach(f=>data.append('reference_images',f))
+      const response=await fetch('/api/v1/jobs',{method:'POST',body:data,credentials:'same-origin'})
+      if(!response.ok)throw Error('제품 사진 업로드 실패 (HTTP '+response.status+')')
+      const job=await response.json() as {job_id:string}
+      jobId=job.job_id
+      lastId.current=jobId
+      sessionStorage.setItem(savedJobKey,jobId)
+      setPendingId(jobId)
+      setSavedCounts({products:productCount,references:referenceCount})
+    }
+    const record=await request<LiveSnapshot>(api+'/jobs/'+jobId+'/input','POST',{
+      customer_request_id:'demo-'+jobId,
       product:{
         brand_name:brand.trim()||null,product_name:product.trim(),
         product_category:category||null,features:features.trim(),ad_purpose:purpose.trim(),
         is_functional:functional,photo_verified:rights,
-        product_image_count:files.length,reference_image_count:refs.length,
+        product_image_count:productCount,reference_image_count:referenceCount,
       }})
-    lastId.current=job.job_id
+    lastId.current=jobId
+    setPendingId(null)
     setSnap(record)
   }
   const enqueue=async(step:'queue-text'|'queue-prompt'|'queue-image')=>{
@@ -162,12 +202,13 @@ export default function DemoLiveConsole(){
     {!snap&&<section>
       <h2>1. 제품 사진·정보 입력</h2>
       <p>기존 B0 이미지 업로드 검증을 재사용합니다. 원본 사진은 AI 추정의 확정 근거가 아닙니다.</p>
+      {pendingId&&<p role="status">기존 제품 사진 업로드가 복구됐습니다. 제품 정보만 확인한 후 이어서 저장하세요. 새 업로드를 하지 않습니다.</p>}
       <label>제품 사진 (2~5장)
-        <input type="file" accept="image/png,image/jpeg,image/webp" multiple
+        <input disabled={Boolean(pendingId)} type="file" accept="image/png,image/jpeg,image/webp" multiple
           onChange={e=>setFiles(Array.from(e.target.files || []))}/>
       </label>
       <label>디자인 참고 (최대 5장)
-        <input type="file" accept="image/png,image/jpeg,image/webp" multiple
+        <input disabled={Boolean(pendingId)} type="file" accept="image/png,image/jpeg,image/webp" multiple
           onChange={e=>setRefs(Array.from(e.target.files || []))}/>
       </label>
       <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(250px,1fr))',gap:12}}>

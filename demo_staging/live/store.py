@@ -76,28 +76,20 @@ class LiveStore:
                 return self._read(c,job_id,actor)
             c.execute("""INSERT INTO live_jobs
                 (job_id,actor,state,mode,input_json,input_sha)
-                VALUES (?,?,?,'LIVE_PREPARED',?,?)""",
+                VALUES (?,?,?,'INPUT_ONLY',?,?)""",
                 (job_id,actor,"INPUT_STORED",json.dumps(snapshot,ensure_ascii=False),sha))
             r=self._read(c,job_id,actor)
             self._event(c,r,"input_committed",r["state"],sha)
             c.commit()
             return r
 
-    def set_provenance(self,actor,job_id,mode):
-        if mode not in ("OFFLINE_FIXTURE","LIVE"):
-            raise LiveGateError("INVALID_PROVENANCE")
-        with self.db() as c:
-            c.execute("BEGIN IMMEDIATE")
-            j=self._read(c,job_id,actor)
-            if j["state"] not in ("COPY_REVIEW_REQUIRED",):
-                raise LiveGateError("PROVENANCE_STATE_INVALID")
-            c.execute("UPDATE live_jobs SET mode=? WHERE job_id=?",(mode,job_id))
-
     def get(self,actor,job_id):
         with self.db() as c:
             return self._read(c,job_id,actor)
 
-    def store_text(self,actor,job_id,analysis,research,copy):
+    def store_text(self,actor,job_id,analysis,research,copy,*,mode="OFFLINE_FIXTURE"):
+        if mode not in ("OFFLINE_FIXTURE","LIVE"):
+            raise LiveGateError("INVALID_PROVENANCE")
         a,r,display,candidate,sha=owner_text_snapshots(analysis,research,copy)
         with self.db() as c:
             c.execute("BEGIN IMMEDIATE")
@@ -108,10 +100,10 @@ class LiveStore:
             report=strict_review(candidate,context["product"],a)
             report_sha=digest({"input_sha":job["input_sha"],"analysis":a,
                               "copy":candidate,"report":report,"generation":job["generation"]+1})
-            c.execute("""UPDATE live_jobs SET state='COPY_REVIEW_REQUIRED',generation=generation+1,
+            c.execute("""UPDATE live_jobs SET state='COPY_REVIEW_REQUIRED',mode=?,generation=generation+1,
                analysis_json=?,research_json=?,research_display_json=?,
                copy_json=?,copy_sha=?,compliance_json=?,review_sha=? WHERE job_id=?""",
-               (json.dumps(a,ensure_ascii=False),json.dumps(r,ensure_ascii=False),
+               (mode,json.dumps(a,ensure_ascii=False),json.dumps(r,ensure_ascii=False),
                 json.dumps(display,ensure_ascii=False),
                 json.dumps(candidate,ensure_ascii=False),sha,
                 json.dumps(report,ensure_ascii=False),report_sha,job_id))

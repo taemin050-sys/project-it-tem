@@ -59,14 +59,15 @@ export default function DemoGate() {
   </main>
   return <>
     <aside style={{padding:'9px 14px',background:'#202b3b',color:'white',display:'flex',justifyContent:'space-between',alignItems:'center',flexWrap:'wrap',gap:10}}>
-      <span><strong>IT-TEM DEMO — MOCK</strong> · AI 미호출 · 법률 검수 미수행 · 결과는 평가용</span>
+      <span><strong>{livePage?'IT-TEM LIVE — 승인 게이트 적용':'IT-TEM DEMO — MOCK'}</strong> ·
+        {livePage?' 실제 모델 호출은 별도 비용 승인 필요':' AI 미호출 · 법률 검수 미수행'} · 결과는 평가용</span>
       <span>{identity.evaluator_id} · <button type="button" onClick={() => void logout()}>로그아웃</button></span>
     </aside>
     <nav style={{padding:'10px 18px',display:'flex',gap:18}}>
       <Link to="/">검증된 B0 Mock</Link>
       <Link to="/demo/live">실제 AI Live (비용 승인 필요)</Link>
     </nav>
-    {livePage ? <DemoLiveConsole /> : <>
+    {livePage ? <DemoLiveConsole evaluatorId={identity.evaluator_id} /> : <>
       <App />
       <DemoEvaluation identity={identity} />
     </>}
