@@ -1,8 +1,9 @@
 # IT-TEM 팀 공통 연동 패키지 · 2026-10-26 / Contract v0.2
 
 > **진입점:** 전체 팀은 이 문서를 먼저 읽고, 담당자별 파일은 **각자 하나만 추가** 읽으면 된다.
-> **리뷰 상태:** 계약 PR #4 (머지 전 회의 반영안) · **코드 기준:** `dev=d5d07aa` / 기능 브랜치 `f979331`
+> **현재 기준(2026-10-27):** PR #4 계약 v0.2 · PR #5 B0(Mock) 서빙 모두 **`dev` 병합 완료** (`dev@b5e227e`).
 > **원칙:** 의미·정책의 공식 SSOT는 `../interface_spec.md`. 이 폴더는 이해·실행·검증용 가이드로, 동일 계약을 다시 정의하지 않는다.
+> **B0 HTTP 호출 안내:** [`docs/API_LIST.md`](../API_LIST.md) — 병합된 `dev@b5e227e`에서 확인한 **OpenAPI 11개(Health 1 + Job/Mock 10)**, 요청·오류·다운로드 예제. 신규 모델 API는 포함하지 않는다.
 
 ## 1. 필독 범위 — 전원에게 4문서 강제하지 않음
 
@@ -14,7 +15,7 @@
 | **이미지·합성** | 위 + [계약 6장](../interface_spec.md) | [Wire 후보 JSON](examples/wire_proposals.json) |
 | **PM·서빙 통합** | 위 + [IMPLEMENTATION_PLAN](IMPLEMENTATION_PLAN.md) 및 [감사 추적표](DOCUMENT_AUDIT.md) | Branch/QA/예산 증거 |
 
-**신규 기술 Freeze 상태:** 10/27 현재 새 HTTP **FROZEN_WIRE 0건**, 제안 7건 **BLOCKED_WIRE**. 10/26 회의 정책(APPROVED_POLICY)은 동결된 엔드포인트나 구현을 뜻하지 않는다. 실제 사용 가능한 예제는 원격 `dev`가 아닌 `f979331`의 **레거시 13 API**라는 제한을 확인한다.
+**현재 구현과 기술 동결 구분:** `dev@b5e227e`에는 **B0 Mock용 HTTP 11개(Health 1 + Job/Mock 10)**가 실제 구현돼 있다. 누적 기능 브랜치 `feat/p4-contract-handoff@f979331`의 OpenAPI는 **14개(Health 포함)**이며, 그중 **3개(`POST /api/v1/jobs/{job_id}/ai/plan`, `POST /api/v1/jobs/{job_id}/ai/copy`, `GET /api/v1/capabilities`)는 `dev` 미병합**이다. 신규 모델 HTTP 제안 7건은 **BLOCKED_WIRE / FROZEN_WIRE 0건**이다. 10/26 회의 정책 승인(APPROVED_POLICY)은 기술 Wire 동결이나 Live 구현을 뜻하지 않는다.
 
 ```mermaid
 flowchart LR
@@ -43,11 +44,11 @@ flowchart LR
 
 | 유형 | 현재 위치 | 해석 |
 |---|---|---|
-| P1 health | `dev` (`d5d07aa`) | 현재 `dev`에 실제 존재 |
-| HTTP 13개·9개 상태·118개 회귀 | `feat/p4-contract-handoff` (`f979331`) | feature 구현, `dev` 미병합 |
+| P1 Health + P2/P3 B0 HTTP 11개·Job 9개 상태 | `dev` (`b5e227e`; PR #4/#5 병합) | 현재 `dev`의 실제 **MOCK** 구현. 호출 상세는 API_LIST.md |
+| 기능 누적 OpenAPI 14개(Health 포함)·기존 118개 회귀 | `feat/p4-contract-handoff` (`f979331`) | 현재 `dev` 대비 추가 HTTP 3개는 **feature 전용**. P4A~Stage3 미병합; 모델 Live 완료 증거 아님 |
 | 텍스트 `schemas.py v0.5` | 회의에서 공유된 정의 | **실제 팀원 저장소 원본 path/commit 검증 후 정식 동결** |
-| [샘플 Fixture](fixtures/README.md) 8개 | 본 PR | 합성 예제, **회의 스키마 스냅샷 Pydantic 검증과 실제 Owner 원본 검증은 별개** |
-| [TS 업로드 샘플](examples/frontend_legacy_upload.ts) | 본 PR | 구 feature HTTP 예제, 현 `dev` API가 아님 |
+| [샘플 Fixture](fixtures/README.md) 8개 | PR #4 병합분 | 합성 예제; **회의 스키마 스냅샷과 실제 Owner 원본 검증은 별개** |
+| [TS 업로드 샘플](examples/frontend_legacy_upload.ts) | PR #4 병합분 | `/jobs` 업로드 필드명은 B0와 호환. **샘플 주석은 과거 dev(P1) 기준이므로 현재 사용 안내는 API_LIST.md 우선** |
 | 모델·React Live 통합 | 미검증 | 테스트 결과 PASS로 표시 금지 |
 
 ## 4. 문서 vs 기계 판독 계약 사용 규칙
@@ -67,7 +68,7 @@ flowchart LR
 ## 5. 검증·배포 절차
 
 1. `python3 docs/contracts/validate_package.py`로 **배포 문서·합성 Fixture 정적 검사** (외부 호출 0).
-2. 계약 PR 리뷰·병합 후 **고정 Git commit SHA**를 전원에게 배포한다. `TEAM_DISTRIBUTION.md` 사용.
+2. 변경 PR이 승인·병합되면 **실제 병합된 Git commit SHA**를 전원에게 배포한다. `TEAM_DISTRIBUTION.md` 사용.
 3. 각 파트는 자기 가이드의 입력/출력 Fixture와 오류 케이스를 제출한다.
 4. 서빙은 실제 코드 OpenAPI·JSON Schema·TS·Contract Test를 맞춘다. Contract/Mock/Live/Browser/QA는 분리 판정한다.
 5. 이후 변경은 **계약 버전 + C-ID + 영향 담당 + 마이그레이션 + PR 링크**를 기록한다.
