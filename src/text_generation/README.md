@@ -40,7 +40,7 @@
 ```python
 from src.text_generation.product_analyzer import analyze_product
 from src.text_generation.researcher import research
-from src.text_generation.copy_generator import generate_copy, copy_lengths
+from src.text_generation.copy_generator import generate_copy, copy_lengths, check_copy_limits
 from src.text_generation.compliance.report_builder import review_copy
 from src.text_generation.image_prompt_generator import generate_image_prompt
 
@@ -90,11 +90,22 @@ if report.passed:                                  # 실제 서비스는 사용�
 - 입력하지 않은 효능·성분·용량 생성 금지, 기능성 표현 범위 준수
 - 사진 라벨 글자는 카피 근거로 쓰지 않음
 - 헤드·서브·CTA는 이미지 합성용, 본문·해시태그는 게시글 캡션용
-- 글자 수는 `copy_lengths()`로 계산 (헤드 + 서브 + CTA + 본문, 해시태그 제외)
-- 임시 기준 400자, 초과 시 로그 경고만 (차단·재생성 없음)
+- 이미지 위 문구 글자 수 기준 (이미지 합성 A 템플릿, 공백·문장부호 포함, 줄바꿈 제외)
+
+| 항목 | 총 글자 수 | 한 줄 | 최대 줄 수 |
+| --- | --- | --- | --- |
+| 헤드 | 15자 | 15자 | 1줄 |
+| 서브 | 25자 | 15자 | 2줄 |
+| CTA | 10자 | 10자 | 1줄 |
+
+- 서브가 15자를 넘으면 의미 단위로 줄바꿈(`\n`)을 넣어 두 줄로 보냄 (합성기에서 `\n` 위치로 줄을 나눔), 줄 앞뒤 공백은 코드에서 정리
+- 글자 수는 `copy_lengths()`로 계산 (헤드·서브·CTA는 줄바꿈 제외, `subline_lines`·`subline_line_max` 포함, 합계는 해시태그 제외)
+- 기준 초과는 `check_copy_limits()`로 확인, 초과 시 로그 경고만 (차단·재생성 없음)
+- 헤드 + 서브 + CTA + 본문 합계 임시 기준 400자
 
 **이미지 프롬프트**
-- 한국어 배경 프롬프트 한 문장, 제품 놓일 자리 비움, 배경 색은 용기 색과 다른 계열
+- 한국어 배경 프롬프트 1~2문장 (80~200자), 제품 놓일 자리(가운데) 비움, 배경 색은 용기 색과 다른 계열
+- 위쪽(카피 영역)은 단순한 단색·그라데이션, 소품은 좌우·아래쪽에만 배치 (프롬프트에는 카피·문구 같은 말을 쓰지 않음)
 - 금지 문구·제품 보존 문구는 넣지 않음 (이미지 쪽에서 추가)
 - `concept`·`mood`는 `AdPlan` 값으로 고정
 
@@ -128,6 +139,7 @@ if report.passed:                                  # 실제 서비스는 사용�
 **하이라이트 위치값 (`start`, `end`)**
 - 필드별 위치 : `field`가 `headline`이면 헤드 문구 안에서의 위치
 - `text[start:end]`가 위험 표현 (`end` 미포함)
+- 서브에 줄바꿈(`\n`)이 있으면 `\n`도 한 글자로 세서 위치 계산 (받은 문자열 그대로 자르면 됨)
 - 해시태그는 공백으로 이어 붙인 문자열 기준 (`" ".join(hashtags)`)
 - 파이썬 글자 수 기준이라 이모지가 있으면 자바스크립트 위치와 어긋날 수 있음 → 프론트에서 `Array.from(text)` 기준으로 세거나 `issue.text`로 찾기
 
