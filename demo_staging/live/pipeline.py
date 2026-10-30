@@ -71,15 +71,18 @@ class LivePipeline:
     def __init__(self,root:Path,job_store:JobStore,*,live_enabled=False,
                  pm_authorized=False,budget_limit_usd=0,
                  text_reservation_usd=0,image_reservation_usd=0,
-                 request_limit=0,project_id:UUID|None=None,approved_actors:frozenset[str]|None=None):
+                 request_limit=0,project_id:UUID|None=None,approved_actors:frozenset[str]|None=None,
+                 monitoring_only=False):
         self.root=Path(root)
         self.root.mkdir(parents=True,exist_ok=True,mode=0o700)
         self.jobs=job_store
         self.state=LiveStore(self.root/"live.sqlite")
         self.checkpoints=LiveCheckpoints(self.root/"text_checkpoints.sqlite")
         self.cost=AttemptLedger(self.root/"cost.sqlite",live_enabled=live_enabled,
-                                max_requests=request_limit,budget_usd=budget_limit_usd)
+                                max_requests=request_limit,budget_usd=budget_limit_usd,
+                                monitoring_only=monitoring_only)
         self.live_enabled=bool(live_enabled)
+        self.monitoring_only=bool(monitoring_only)
         self.approved_actors=frozenset(approved_actors or ())
         self.pm_authorized=bool(pm_authorized)
         self.text_reservation=float(text_reservation_usd)
@@ -131,8 +134,9 @@ class LivePipeline:
         image_receipt=getattr(result,"receipt",None)
         if image and isinstance(image_receipt,dict):
             if (getattr(result,"mock",True) is False
-                and image_receipt.get("submission_status")=="RESPONSE_RECEIVED"
                 and image_receipt.get("state")=="succeeded"
+                and image_receipt.get("attempt_id")
+                and image_receipt.get("model")
                 and image_receipt.get("provider_request_id")
                 and isinstance(image_receipt.get("usage"),dict)):
                 receipts=[{"provider":"openai","model":image_receipt.get("model"),

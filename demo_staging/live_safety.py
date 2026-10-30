@@ -24,11 +24,12 @@ class LiveNotAuthorized(Exception):
 
 class AttemptLedger:
     def __init__(self, filename: Path, *, live_enabled=False,
-                 max_requests=0, budget_usd=0):
+                 max_requests=0, budget_usd=0, monitoring_only=False):
         self.filename=Path(filename)
         self.filename.parent.mkdir(parents=True,exist_ok=True)
         self.live_enabled=bool(live_enabled)
         self.max_requests=int(max_requests)
+        self.monitoring_only=bool(monitoring_only)
         self.budget_usd=int(round(float(budget_usd)*1_000_000))
         with self.connect() as db:
             db.executescript("""
@@ -61,7 +62,11 @@ class AttemptLedger:
         if stage not in {"text","vision","research","copy","image_prompt","image"} or not actor or not job_id:
             raise LiveNotAuthorized("INVALID_STAGE_OR_PRINCIPAL")
         cost=int(round(float(estimated_usd)*1_000_000))
-        if cost<=0 or cost>self.budget_usd:
+        if self.monitoring_only:
+            # Monitoring only must not require a speculative per-call USD
+            # reservation. No monetary quota or user call-count quota applies.
+            cost=0
+        elif cost<=0 or cost>self.budget_usd:
             raise LiveNotAuthorized("INVALID_COST_OR_BUDGET")
         digest=self.digest(payload)
         with self.connect() as db:
@@ -73,7 +78,9 @@ class AttemptLedger:
                 return {"id":existing["id"],"status":existing["status"],"new":False}
             count=db.execute("SELECT COUNT(*) FROM attempts").fetchone()[0]
             reserved=db.execute("SELECT COALESCE(SUM(reserved_microusd),0) FROM attempts").fetchone()[0]
-            if count>=self.max_requests or reserved+cost>self.budget_usd:
+            if not self.monitoring_only and (
+                count>=self.max_requests or reserved+cost>self.budget_usd
+            ):
                 raise LiveNotAuthorized("QUOTA_OR_BUDGET_EXHAUSTED")
             attempt=uuid4().hex
             db.execute("INSERT INTO attempts VALUES(?,?,?,?,?,?,?,?,?,?,?)",(

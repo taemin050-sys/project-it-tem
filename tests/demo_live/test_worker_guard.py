@@ -42,6 +42,7 @@ def test_second_worker_must_not_reconcile_active_attempt(tmp_path,monkeypatch):
         "IT_TEM_IMAGE_RESERVATION_USD":"1",
         "IT_TEM_LIVE_REQUEST_LIMIT":"3",
         "IT_TEM_LIVE_APPROVED_ACTORS":"alice",
+        "IT_TEM_LIVE_COST_POLICY":"MONITOR_ONLY",
     }
     for key,value in flags.items():monkeypatch.setenv(key,value)
     queue=LiveQueue(tmp_path/"live"/"queue.sqlite")

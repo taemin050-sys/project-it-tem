@@ -57,25 +57,13 @@ def web_queue_policy() -> dict:
               "IT_TEM_LIVE_EXECUTION_APPROVED","IT_TEM_PROVIDER_READINESS_CONFIRMED")
     if any(os.environ.get(k)!="YES" for k in required):
         return {"enabled":False,"actors":frozenset()}
-    try:
-        from decimal import Decimal,InvalidOperation
-        actors=frozenset(x.strip() for x in
-            os.environ.get("IT_TEM_LIVE_APPROVED_ACTORS","").split(",") if x.strip())
-        if (not actors or "*" in actors or
-            any(not x.replace("_","").replace("-","").isalnum() for x in actors)):
-            raise ValueError
-        limit=int(os.environ.get("IT_TEM_LIVE_REQUEST_LIMIT","0"))
-        budget=Decimal(os.environ.get("IT_TEM_LIVE_BUDGET_USD","0"))
-        text=Decimal(os.environ.get("IT_TEM_TEXT_RESERVATION_USD","0"))
-        image=Decimal(os.environ.get("IT_TEM_IMAGE_RESERVATION_USD","0"))
-        if (limit<=0 or not all(x.is_finite() and 0<x<=1000000
-             for x in (budget,text,image)) or text>budget or image>budget):
-            raise ValueError
-    except (ValueError,TypeError,InvalidOperation,OverflowError):
+    actors=frozenset(x.strip() for x in
+        os.environ.get("IT_TEM_LIVE_APPROVED_ACTORS","").split(",") if x.strip())
+    if (os.environ.get("IT_TEM_LIVE_COST_POLICY")!="MONITOR_ONLY"
+            or not actors or "*" in actors
+            or any(not x.replace("_","").replace("-","").isalnum() for x in actors)):
         return {"enabled":False,"actors":frozenset()}
-    return {"enabled":True,"actors":actors,
-            "limit":limit,"budget":float(budget),
-            "text":float(text),"image":float(image)}
+    return {"enabled":True,"actors":actors}
 
 
 def register_live_api(app:FastAPI, ledger, runtime_root:Path, cookie_name:str):
@@ -85,7 +73,8 @@ def register_live_api(app:FastAPI, ledger, runtime_root:Path, cookie_name:str):
         approved_actors=policy["actors"],
         request_limit=policy.get("limit",0),budget_limit_usd=policy.get("budget",0),
         text_reservation_usd=policy.get("text",0),
-        image_reservation_usd=policy.get("image",0))
+        image_reservation_usd=policy.get("image",0),
+        monitoring_only=policy["enabled"])
     queue=LiveQueue(Path(runtime_root)/"live"/"queue.sqlite")
     app.state.live_pipeline=flow
     app.state.live_queue=queue

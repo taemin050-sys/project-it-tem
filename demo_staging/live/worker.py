@@ -27,20 +27,14 @@ def policy_from_env(root:Path):
         raise LiveNotAuthorized("PROVIDER_READINESS_NOT_CONFIRMED")
     if not os.environ.get("OPENAI_API_KEY"):
         raise LiveNotAuthorized("MODEL_CREDENTIAL_NOT_CONFIGURED")
-    budget=os.environ.get("IT_TEM_LIVE_BUDGET_USD","0")
-    t=os.environ.get("IT_TEM_TEXT_RESERVATION_USD","0")
-    i=os.environ.get("IT_TEM_IMAGE_RESERVATION_USD","0")
-    n=int(os.environ.get("IT_TEM_LIVE_REQUEST_LIMIT","0"))
-    if n<=0 or min(float(budget),float(t),float(i))<=0:
-        raise LiveNotAuthorized("LIVE_BUDGET_NOT_CONFIGURED")
+    if os.environ.get("IT_TEM_LIVE_COST_POLICY")!="MONITOR_ONLY":
+        raise LiveNotAuthorized("COST_POLICY_NOT_AUTHORIZED")
     actors=frozenset(x.strip() for x in
-         os.environ.get("IT_TEM_LIVE_APPROVED_ACTORS","").split(",") if x.strip())
+        os.environ.get("IT_TEM_LIVE_APPROVED_ACTORS","").split(",") if x.strip())
     if not actors or "*" in actors:
         raise LiveNotAuthorized("LIVE_ACTOR_ALLOWLIST_REQUIRED")
     return LivePipeline(root/"live",JobStore(root/"jobs"),live_enabled=True,
-        pm_authorized=True,budget_limit_usd=float(budget),
-        text_reservation_usd=float(t),image_reservation_usd=float(i),
-        request_limit=n,approved_actors=actors)
+        pm_authorized=True,approved_actors=actors,monitoring_only=True)
 
 
 def live_image_adapter(runtime:Path,request):
@@ -52,8 +46,8 @@ def live_image_adapter(runtime:Path,request):
     from src.image_generation.openai_images import OpenAIImagesAdapter,OpenAIImagesConfig
     from src.image_generation.backend_adapter import BackendImageAdapter
 
-    price_cap=os.environ["IT_TEM_LIVE_BUDGET_USD"]
-    reserve=os.environ["IT_TEM_IMAGE_RESERVATION_USD"]
+    price_cap="0"
+    reserve="0"
     model=os.environ.get("IT_TEM_IMAGE_MODEL","gpt-image-2.5-sunburst-2026-09-08")
     # Exact two models permitted by official Image Owner DTO at PR #17.
     if model not in ("gpt-image-2.5-sunburst-2026-09-08","gpt-image-2-2026-04-21"):
@@ -63,7 +57,7 @@ def live_image_adapter(runtime:Path,request):
     processor=ExternalImageProcessor(
         LocalAssetStore(runtime/"image_assets"),transport,
         ProviderAttemptStore(runtime/"image_attempts.sqlite"),
-        budget_limit_usd=price_cap,reservation_usd=reserve)
+        budget_limit_usd=price_cap,reservation_usd=reserve,monitoring_only=True)
     return BackendImageAdapter(processor,runtime/"image_bindings.sqlite",model=model)
 
 
@@ -139,11 +133,32 @@ def _run_locked(root:Path,flow:LivePipeline)->str:
         return "LIVE_STAGE_HELD_FOR_RECONCILIATION"
 
 
+def serve_loop(root:Path,interval:float=2.0):
+    """One task per cycle, no recursive attempt and no backend mock fallback."""
+    import time
+    while True:
+        status=run_once(root)
+        if status=="LIVE_STAGE_HELD_FOR_RECONCILIATION":
+            # A charged or ambiguous failure is a hard safety stop, unrelated
+            # to monetary project threshold. Requires manual incident review.
+            return status
+        time.sleep(interval)
+
+
 if __name__=="__main__":
+    import sys
+    from .env_loader import load_from_fixed_path
+    try:
+        load_from_fixed_path(worker=True)
+    except Exception:
+        print("OPENAI_ENV_NOT_READY")
+        raise SystemExit(4)
     base=os.environ.get("IT_TEM_DEMO_ROOT")
     if not base:raise SystemExit("IT_TEM_DEMO_ROOT_REQUIRED")
     try:
-        print(run_once(Path(base)/"runtime"))
+        root=Path(base)/"runtime"
+        print(serve_loop(root) if "--loop" in sys.argv[1:] else run_once(root),
+              flush=True)
     except LiveNotAuthorized:
         print("LIVE_WORKER_DISABLED_OR_NOT_APPROVED")
         raise SystemExit(4)

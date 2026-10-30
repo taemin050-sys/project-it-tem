@@ -9,6 +9,7 @@ ALL={
  "IT_TEM_LIVE_EXECUTION_APPROVED":"YES",
  "IT_TEM_PROVIDER_READINESS_CONFIRMED":"YES",
  "IT_TEM_LIVE_APPROVED_ACTORS":"alice",
+ "IT_TEM_LIVE_COST_POLICY":"MONITOR_ONLY",
  "IT_TEM_LIVE_REQUEST_LIMIT":"5",
  "IT_TEM_LIVE_BUDGET_USD":"3",
  "IT_TEM_TEXT_RESERVATION_USD":"0.5",
@@ -29,18 +30,22 @@ def test_web_policy_explicit_all_controls_and_actor_scoping(monkeypatch,tmp_path
     assert web_queue_policy()["enabled"] is False
 
 @pytest.mark.parametrize("key,invalid",[
-    ("IT_TEM_LIVE_BUDGET_USD","nan"),
-    ("IT_TEM_LIVE_BUDGET_USD","0"),
-    ("IT_TEM_TEXT_RESERVATION_USD","5"),
+    ("IT_TEM_LIVE_COST_POLICY",""),
     ("IT_TEM_LIVE_APPROVED_ACTORS","*"),
     ("IT_TEM_LIVE_APPROVED_ACTORS",""),
-    ("IT_TEM_LIVE_REQUEST_LIMIT","0"),
     ("IT_TEM_LIVE_EXECUTION_APPROVED","NO"),
 ])
 def test_web_queue_policy_fail_closed(monkeypatch,key,invalid):
     for k,v in ALL.items():monkeypatch.setenv(k,v)
     monkeypatch.setenv(key,invalid)
     assert web_queue_policy()["enabled"] is False
+
+def test_cost_alert_is_not_a_quota_in_monitoring_only(monkeypatch):
+    for k,v in ALL.items():monkeypatch.setenv(k,v)
+    monkeypatch.setenv("IT_TEM_LIVE_BUDGET_USD","0")
+    monkeypatch.setenv("IT_TEM_LIVE_REQUEST_LIMIT","0")
+    assert web_queue_policy()["enabled"] is True
+
 
 def test_key_alone_is_never_sufficient(monkeypatch):
     for k in ALL:monkeypatch.delenv(k,raising=False)
