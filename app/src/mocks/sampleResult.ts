@@ -54,10 +54,10 @@ const plan: AdCopyOutput['plan'] = {
   mood: ['내추럴', '미니멀'],
 }
 
-const adCopy: AdCopy = { headline: '하루 종일 촉촉하게 빛나는 피부결', subline: '가볍게 스며드는\n데일리 보습 세럼', cta: '지금 만나보세요' }
+const adCopy: AdCopy = { headline: '하루 종일 촉촉한 피부결', subline: '가볍게 스며드는\n데일리 보습 세럼', cta: '지금 만나보세요' }
 const HASHTAGS = ['#보습세럼', '#데일리케어', '#신제품']
 
-// 카피 길이는 실험 중(10/26)이라 고정하지 않는다. 긴·짧은 한글이 화면에서 깨지지 않는지 보려는 예시
+// 글자 수 기준(10/30): 헤드 15자, 서브 15자×2줄(\n, 총 25자), CTA 10자. default·blocked는 기준 안, long(기준 초과)·short(아주 짧음)는 화면이 깨지지 않는지 보려는 예시
 export type CopyVariant = 'default' | 'blocked' | 'long' | 'short'
 
 const COPIES: Record<CopyVariant, Omit<AdCopyOutput, 'plan'>> = {
@@ -155,12 +155,12 @@ export const adExamples = [
   {
     mood: '숲속 무드',
     imageUrl: '/mock/ad_moss.svg',
-    copy: { headline: '숲에서 시작하는 하루의 결', subline: '차분한 아침을 위한 데일리 보습 세럼', cta: '지금 만나보세요' },
+    copy: { headline: '숲에서 시작하는 하루의 결', subline: '차분한 아침을 위한\n데일리 보습 세럼', cta: '지금 만나보세요' },
   },
   { mood: '웜 베이지', imageUrl: MOCK_IMAGE_URL, copy: adCopy },
   {
     mood: '그린 타일',
     imageUrl: '/mock/ad_tile.svg',
-    copy: { headline: '욕실 선반 위 작은 루틴', subline: '가볍게 스며드는 데일리 보습 세럼', cta: '자세히 보기' },
+    copy: { headline: '욕실 선반 위 작은 루틴', subline: '가볍게 스며드는\n데일리 보습 세럼', cta: '자세히 보기' },
   },
 ]
