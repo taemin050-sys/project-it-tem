@@ -11,7 +11,7 @@ import json
 import os
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import FileResponse
 from PIL import Image, ImageDraw, ImageFont, ImageOps
 from pydantic import BaseModel, ConfigDict, Field, field_validator
@@ -146,7 +146,14 @@ def mock_copy(job_id: str, store: JobStore = Depends(get_job_store)):
 
 
 @router.post("/{job_id}/approvals/copy")
-def approve_copy(job_id: str, body: ReviewRequest, store: JobStore = Depends(get_job_store)):
+def approve_copy(job_id: str, body: ReviewRequest, request: Request,
+                 store: JobStore = Depends(get_job_store)):
+    # Test-only opt-in: actual POST approvals/copy now calls the durable
+    # server-owned Fake review gate. No client-supplied report/hash/record.
+    # Approved:false remains the existing explicit rejection transition.
+    gate = getattr(request.app.state, "b1_fake_gate", None)
+    if gate is not None and body.approved:
+        return gate.approve(job_id)
     return transition_job(
         store, job_id, expected_status="COPY_REVIEW_REQUIRED",
         next_status="COPY_APPROVED" if body.approved else "COPY_REJECTED",

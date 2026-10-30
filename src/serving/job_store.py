@@ -186,6 +186,13 @@ def transition_job(
         next_job = dict(current)
         next_job["status"] = next_status
         next_job.update(updates or {})
+        # B1 Fake opt-in only. Invalidate persisted reviews BEFORE publishing a
+        # trusted Job mutation. A failed publication may invalidate a review
+        # unnecessarily, but can never leave a modified Job with a valid stale
+        # review. The default B0 store has no observer and is unchanged.
+        observer = getattr(store, "_b1_observe_mutation", None)
+        if observer is not None:
+            observer(current, next_job)
         job_dir = store._job_dir(job_id)
         registered = dict(current.get("artifacts", {}))
         for kind, data in contents.items():
