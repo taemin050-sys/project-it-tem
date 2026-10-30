@@ -52,9 +52,12 @@ class ExternalImageProcessor:
 
     def process_job(self, request: ExternalImageRequest, project_id: UUID,
                     job_id: UUID) -> ExternalImageResult:
-        self.validate_request(request)
-        # Copy validated fields before hashing or crossing the external boundary.
-        request = ExternalImageRequest.model_validate(request.model_dump())
+        # Validate the same immutable snapshot before a scoped receipt lookup.
+        # Live-call credentials/allowance gate new submissions, not saved results.
+        try:
+            request = self.adapter._snapshot(request)
+        except OpenAIImagesError as error:
+            raise GatewayError(error.code, "OpenAI image request is unavailable or invalid.") from None
         snapshot_hash = content_hash(request)
         existing = self.attempts.get(job_id, project_id)
         if existing is not None:
@@ -64,6 +67,8 @@ class ExternalImageProcessor:
                     self.assets.read_bytes(result.image, project_id=project_id)
                     return result
             raise GatewayError("PROVIDER_ATTEMPT_CONFLICT", "This job already has an attempt; review its receipt.")
+        # Retain the complete execution guard before assets, reservation or POST.
+        self.validate_request(request)
         product_images = [self.assets.read_bytes(ref, project_id=project_id) for ref in request.product_images]
         reference_images = [self.assets.read_bytes(ref, project_id=project_id) for ref in request.reference_images]
         try:

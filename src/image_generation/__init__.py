@@ -21,6 +21,8 @@ control characters) or a legacy positive integer, without type coercion.
 Use the SAME type/value for generation, approval snapshot and composition;
 integer 1 and string "1" are different identities. Never cast revision labels.
 The result is a generated image candidate for user review, not a final ad.
+A matching saved success replays without a new provider call even when new
+live calls are disabled. Failed/uncertain attempts are never automatically retried.
 resize_ad_png creates a separate 1080x1350 PNG; it does not compose Korean copy.
 After serving verifies approval, call compose_ad_png(CompositionInput(...),
 font_path=server_font_path). Pass the approved image bytes/SHA-256, complete
