@@ -2,7 +2,7 @@
 
 import logging
 
-from .config import MODEL_TEXT
+from .config import MODEL_TEXT, REASONING_EFFORT
 from .llm_client import call_structured
 from .schemas import AdCopyOutput, ProductAnalysis, ProductInput, ResearchResult
 
@@ -86,7 +86,7 @@ def generate_copy(
     analysis: ProductAnalysis,
     research: ResearchResult,
     model: str = MODEL_TEXT,
-    reasoning_effort: str | None = None,
+    reasoning_effort: str | None = REASONING_EFFORT,
 ) -> AdCopyOutput:
     """기획 + 카피 생성 (1회 호출, 실패 시 LLMError). 400자 초과는 경고만"""
     output = call_structured(

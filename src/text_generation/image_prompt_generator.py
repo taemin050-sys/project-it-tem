@@ -2,7 +2,7 @@
 
 import logging
 
-from .config import MODEL_TEXT
+from .config import MODEL_TEXT, REASONING_EFFORT
 from .llm_client import call_structured
 from .schemas import AdPlan, ImagePromptOutput, ProductAnalysis
 
@@ -41,7 +41,7 @@ def generate_image_prompt(
     plan: AdPlan,
     analysis: ProductAnalysis,
     model: str = MODEL_TEXT,
-    reasoning_effort: str | None = None,
+    reasoning_effort: str | None = REASONING_EFFORT,
 ) -> ImagePromptOutput:
     """한국어 배경 프롬프트 생성 (1회 호출, 실패 시 LLMError). concept·mood는 AdPlan 값으로 고정"""
     output = call_structured(
