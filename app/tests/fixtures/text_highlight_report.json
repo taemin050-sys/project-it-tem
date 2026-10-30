@@ -1,0 +1,164 @@
+{
+  "copy": {
+    "plan": {
+      "target": "-",
+      "concept": "-",
+      "key_message": "-",
+      "tone": "-",
+      "mood": []
+    },
+    "ad_copy": {
+      "headline": "최고의 미백 크림",
+      "subline": "✨피부 재생✨부터 주름 개선까지",
+      "cta": "지금 만나보세요"
+    },
+    "caption": "테스트 크림으로 2주 만에 피부결 20% 개선! 🌿진정 효과까지.\n의사가 추천한 크림이에요.",
+    "hashtags": [
+      "#필수템",
+      "#토너추천",
+      "#줄기세포"
+    ]
+  },
+  "report": {
+    "passed": false,
+    "issues": [
+      {
+        "field": "headline",
+        "text": "최고",
+        "start": 0,
+        "end": 2,
+        "category": "순위·최상급 표현",
+        "risk_level": "위반 의심",
+        "reason": "순위·최상급 표현 우려 표현",
+        "suggestion": "삭제 후 제품 특징으로 구체적으로 (예: 촉촉한, 산뜻한)",
+        "basis": "FAQ (배타적 절대 표현)",
+        "detected_by": "rule",
+        "auto_fixed": false
+      },
+      {
+        "field": "headline",
+        "text": "미백",
+        "start": 4,
+        "end": 6,
+        "category": "기능성 오인",
+        "risk_level": "위반 의심",
+        "reason": "일반 화장품에 기능성(미백) 효능 표현 사용",
+        "suggestion": "화사한 / 맑은 (색조는 '톤업')",
+        "basis": "지침 별표1 p.9, p.12, 별표2 p.15",
+        "detected_by": "rule",
+        "auto_fixed": false
+      },
+      {
+        "field": "subline",
+        "text": "피부 재생",
+        "start": 1,
+        "end": 6,
+        "category": "의약품 오인",
+        "risk_level": "위반 의심",
+        "reason": "의약품 오인 우려 표현",
+        "suggestion": "촉촉한 피부결 / 피부 컨디션 케어",
+        "basis": "지침 별표1 p.11",
+        "detected_by": "rule",
+        "auto_fixed": false
+      },
+      {
+        "field": "subline",
+        "text": "주름 개선",
+        "start": 10,
+        "end": 15,
+        "category": "기능성 오인",
+        "risk_level": "위반 의심",
+        "reason": "일반 화장품에 기능성(주름개선) 효능 표현 사용",
+        "suggestion": "매끄러운 피부결 / 촉촉한 피부결",
+        "basis": "지침 별표1 p.12",
+        "detected_by": "rule",
+        "auto_fixed": false
+      },
+      {
+        "field": "caption",
+        "text": "2주 만에",
+        "start": 9,
+        "end": 14,
+        "category": "수치·임상 표현",
+        "risk_level": "근거 확인 필요",
+        "reason": "수치·임상 표현 우려 표현",
+        "suggestion": null,
+        "basis": "지침 별표2 p.16 (효능·품질 수치, 비교 광고)",
+        "detected_by": "rule",
+        "auto_fixed": false
+      },
+      {
+        "field": "caption",
+        "text": "20% 개선",
+        "start": 19,
+        "end": 25,
+        "category": "수치·임상 표현",
+        "risk_level": "근거 확인 필요",
+        "reason": "수치·임상 표현 우려 표현",
+        "suggestion": null,
+        "basis": "지침 별표2 p.16 (효능·품질 수치, 비교 광고)",
+        "detected_by": "rule",
+        "auto_fixed": false
+      },
+      {
+        "field": "caption",
+        "text": "진정",
+        "start": 28,
+        "end": 30,
+        "category": "의약품 오인",
+        "risk_level": "근거 확인 필요",
+        "reason": "의약품 오인 우려 표현",
+        "suggestion": "편안한 / 산뜻한",
+        "basis": "식약처 뉴스레터 34호 (의약품 오인 예시, 팀 논의 필요)",
+        "detected_by": "rule",
+        "auto_fixed": false
+      },
+      {
+        "field": "caption",
+        "text": "의사가 추천",
+        "start": 37,
+        "end": 43,
+        "category": "전문가·매체 추천",
+        "risk_level": "위반 의심",
+        "reason": "전문가·매체 추천 우려 표현",
+        "suggestion": null,
+        "basis": "지침 별표1 p.13, 적발 사례",
+        "detected_by": "rule",
+        "auto_fixed": false
+      },
+      {
+        "field": "hashtags",
+        "text": "필수템",
+        "start": 1,
+        "end": 4,
+        "category": "효능 과장",
+        "risk_level": "근거 확인 필요",
+        "reason": "효능 과장 우려 표현",
+        "suggestion": "데일리템 / 데일리 아이템",
+        "basis": "팀 기준 (10/28 카피 테스트에서 발견, 과장 표현)",
+        "detected_by": "rule",
+        "auto_fixed": false
+      },
+      {
+        "field": "hashtags",
+        "text": "줄기세포",
+        "start": 12,
+        "end": 16,
+        "category": "소비자 오인",
+        "risk_level": "위반 의심",
+        "reason": "소비자 오인 우려 표현",
+        "suggestion": null,
+        "basis": "지침 별표1 p.13~14 (식물·우유 엑소좀 등 인체 외 유래는 가능)",
+        "detected_by": "rule",
+        "auto_fixed": false
+      }
+    ],
+    "revised_fields": {},
+    "checklist": [
+      "'최고', '미백', '피부 재생', '주름 개선', '의사가 추천', '줄기세포' 표현을 대체 문구를 참고해 수정하거나 삭제해야 승인할 수 있습니다",
+      "'2주 만에', '20% 개선', '진정', '필수템' 표현은 시험·심사 자료 등 근거가 있을 때만 사용하세요",
+      "입력한 제품 특징·효능이 실제와 같은지 확인하세요"
+    ],
+    "notice": "검수 결과는 참고용이며 법적 판단이 아닙니다. 게시 전 최종 확인 책임은 사용자에게 있습니다."
+  }
+}
