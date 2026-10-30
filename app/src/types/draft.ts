@@ -1,77 +1,62 @@
-// shortcut: 김다혜 스키마 초안(10/21)·이형기 API 명세 수신 전, 체크리스트 v4 1장 기준 임시 타입.
-// 필드명은 전부 가정이다. 초안을 받으면 이 파일을 교체한다.
+// 서빙 Job 형식. 상태값·assets·artifacts·legacy 필드는 레거시 구현(f979331 job_store.py·mock_workflow.py) 기준,
+// v0.5 결과 키(product_analysis 등)는 신규 Wire 제안(wire_proposals.json) 기준이다.
+// shortcut: 신규 Wire는 BLOCKED_WIRE(미동결)라 가정값, 서빙 OpenAPI가 나오면 생성 타입으로 바꾼다
+import type { AdCopyOutput, ComplianceReport, ProductAnalysis, ResearchResult } from './textSchema'
 
-export type ProductInfo = {
-  name: string
-  product_type: string
-  volume: string
-  is_functional: boolean
-  functional_items: string[]
-  photo_rights_confirmed: boolean
+export const JOB_STATUSES = [
+  'INPUTS_VALIDATED', 'PLAN_READY', 'COPY_REVIEW_REQUIRED', 'COPY_APPROVED', 'COPY_REJECTED',
+  'IMAGE_REVIEW_REQUIRED', 'IMAGE_APPROVED', 'IMAGE_REJECTED', 'COMPLETED',
+] as const
+export type JobStatus = (typeof JOB_STATUSES)[number]
+
+export type Asset = {
+  asset_id: string
+  role: 'product' | 'reference'
+  original_filename: string
+  content_type: string
+  size_bytes: number
+  width: number
+  height: number
+  sha256: string
 }
 
-export type AdSettings = {
-  purpose: string
-  channel: string
-  tone: string
-  mood: string
+export type ArtifactKind = 'plan' | 'copy' | 'image' | 'final' | 'caption'
+export type Artifact = { kind: ArtifactKind; content_type: string; size_bytes: number; download_url: string }
+
+/** 레거시 mock/plan 결과 (실제 조사 아님) */
+export type LegacyPlan = {
+  mock: boolean
+  research_performed: boolean
+  brand_name: string
+  product_name: string
+  audience: string
+  direction: string
+  disclaimer: string
 }
 
-export type JobStatus = 'queued' | 'running' | 'needs_review' | 'done' | 'failed'
+/** 레거시 mock/copy 결과: 구조 없는 문구 1개, 규제 검수 없음 */
+export type LegacyCopy = { mock: boolean; text: string; compliance_checked: boolean; disclaimer: string }
 
-export type ProductAnalysis = {
-  product_type: string
-  container: string
-  colors: string[]
-  label_text: string
-  mood: string
-}
-
-export type AdCopy = {
-  purpose: string
-  target: string
-  concept: string
-  key_message: string
-  headline: string
-  subline: string
-  cta: string
-  caption: string
-  hashtags: string[]
-}
-
-export type ReviewIssue = {
-  expression: string
-  reason: string
-  suggestion: string
-  // 위치값 포함 여부 미확정 (김다혜 확인 필요)
-  start?: number
-  end?: number
-}
-
-// 정규화 좌표 [x, y, w, h], 0~1, 좌상단 원점 (픽셀 변환 규칙은 pi와 합의 필요)
-export type NormBox = [number, number, number, number]
-
-export type ImageResult = {
-  scene_underlay: string
-  product_rgba: string
-  composed_preview?: string
-  product_box: NormBox
-  text_safe_zone: NormBox
-  warnings: string[]
-  needs_manual_check: boolean
-}
-
-export type JobResult = {
-  analysis: ProductAnalysis
-  copy: AdCopy
-  review: ReviewIssue[]
-  image: ImageResult
+/** v2 제안은 asset_id·preservation_review, 레거시는 mock·source·size만 준다 */
+export type ImageCandidate = {
+  asset_id?: string
+  preservation_review?: string
+  mock?: boolean
 }
 
 export type Job = {
   job_id: string
   status: JobStatus
-  progress?: number
-  error?: { code: string; message: string }
-  result?: JobResult
+  assets?: Asset[]
+  artifacts?: Partial<Record<ArtifactKind, Artifact>>
+  // v0.2 제안 (MSW fixture 흐름)
+  product_analysis?: ProductAnalysis
+  research_result?: ResearchResult
+  copy_output?: AdCopyOutput
+  compliance_report?: ComplianceReport
+  // 레거시 구현
+  plan?: LegacyPlan
+  copy_candidate?: LegacyCopy
+  image_candidate?: ImageCandidate
+  final_output?: { mock: boolean; width: number; height: number; format: string }
 }
