@@ -2,10 +2,14 @@ import { useEffect, useState } from 'react'
 import App from '../App'
 import { useProjectStore } from '../store/projectStore'
 import DemoEvaluation from './DemoEvaluation'
+import DemoLiveConsole from './DemoLiveConsole'
+import { Link, useLocation } from 'react-router-dom'
 
 type Identity = { authenticated: true; evaluator_id: string; role: 'evaluator' | 'admin'; mode: 'MOCK' }
 
 export default function DemoGate() {
+  const { pathname } = useLocation()
+  const livePage = pathname === '/demo/live'
   const [identity, setIdentity] = useState<Identity | null>(null)
   const [checking, setChecking] = useState(true)
   const [invite, setInvite] = useState('')
@@ -58,7 +62,13 @@ export default function DemoGate() {
       <span><strong>IT-TEM DEMO — MOCK</strong> · AI 미호출 · 법률 검수 미수행 · 결과는 평가용</span>
       <span>{identity.evaluator_id} · <button type="button" onClick={() => void logout()}>로그아웃</button></span>
     </aside>
-    <App />
-    <DemoEvaluation identity={identity} />
+    <nav style={{padding:'10px 18px',display:'flex',gap:18}}>
+      <Link to="/">검증된 B0 Mock</Link>
+      <Link to="/demo/live">실제 AI Live (비용 승인 필요)</Link>
+    </nav>
+    {livePage ? <DemoLiveConsole /> : <>
+      <App />
+      <DemoEvaluation identity={identity} />
+    </>}
   </>
 }

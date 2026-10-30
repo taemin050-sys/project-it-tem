@@ -402,6 +402,10 @@ def make_demo_app(root: Path, invite_file: Path, frontend: Path,
         return {"mode":"MOCK","live_enabled":False,"replay_enabled":False,
                 "provider_calls":0,"contract_status":"STAGING_PROVISIONAL"}
 
+    # Provisional Live routes ONLY on independent staging. No official B0 routes edited.
+    from .live.http_api import register_live_api
+    register_live_api(app,ledger,root,cookie_name)
+
     frontend=Path(frontend)
     app.mount("/assets",StaticFiles(directory=frontend/"assets"),name="frontend-assets")
     @app.get("/{route:path}",include_in_schema=False)

@@ -58,7 +58,7 @@ class AttemptLedger:
                 pm_authorized=False):
         if not (self.live_enabled and pm_authorized and role=="live_operator"):
             raise LiveNotAuthorized("LIVE_DISABLED_OR_ROLE_NOT_AUTHORIZED")
-        if stage not in {"text","image"} or not actor or not job_id:
+        if stage not in {"text","vision","research","copy","image_prompt","image"} or not actor or not job_id:
             raise LiveNotAuthorized("INVALID_STAGE_OR_PRINCIPAL")
         cost=int(round(float(estimated_usd)*1_000_000))
         if cost<=0 or cost>self.budget_usd:
@@ -103,6 +103,28 @@ class AttemptLedger:
                 raise LiveNotAuthorized("UNSAFE_CONFIRMATION")
             db.execute("UPDATE attempts SET status='SUCCEEDED',cost_microusd=?,receipt=? WHERE id=?",
                        (cost,receipt,attempt_id))
+
+    def confirm_usage_unpriced(self,attempt_id,receipt:dict):
+        """Verified provider response, but no actual dollar invoice available.
+
+        Keep the full pre-call reservation held. Never record an estimated
+        amount as actual cost or permit a duplicate POST.
+        """
+        if not isinstance(receipt,dict) or receipt.get("billing_status")!="UNPRICED_RESERVATION_HELD":
+            raise LiveNotAuthorized("RECEIPT_MISSING_OR_INCOMPLETE")
+        if not isinstance(receipt.get("provider_response_id"),str):
+            raise LiveNotAuthorized("PROVIDER_RECEIPT_ID_MISSING")
+        raw=json.dumps(receipt,sort_keys=True,ensure_ascii=False)
+        if len(raw)>3000:
+            raise LiveNotAuthorized("PROVIDER_RECEIPT_TOO_LARGE")
+        with self.connect() as db:
+            db.execute("BEGIN IMMEDIATE")
+            old=db.execute("SELECT status FROM attempts WHERE id=?",(attempt_id,)).fetchone()
+            if not old or old["status"]!="DISPATCHED":
+                raise LiveNotAuthorized("UNSAFE_RECEIPT_STATE")
+            db.execute("""UPDATE attempts SET status='SUCCEEDED_USAGE_UNPRICED',
+                 receipt=?,cost_microusd=NULL,billing_unknown=0 WHERE id=?""",
+                 (raw,attempt_id))
 
     def mark_billing_unknown(self,attempt_id):
         with self.connect() as db:
