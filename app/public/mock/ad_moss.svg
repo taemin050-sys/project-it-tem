@@ -1,0 +1,58 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1080" height="1350" viewBox="0 0 1080 1350">
+  <defs>
+    <radialGradient id="bg" cx="0.5" cy="0.45" r="0.75">
+      <stop offset="0" stop-color="#5b5a38"/>
+      <stop offset="0.55" stop-color="#2d2b17"/>
+      <stop offset="1" stop-color="#13120a"/>
+    </radialGradient>
+    <linearGradient id="rock" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#4b4a34"/>
+      <stop offset="1" stop-color="#17170e"/>
+    </linearGradient>
+    <linearGradient id="moss" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#a9b546"/>
+      <stop offset="1" stop-color="#4f5a22"/>
+    </linearGradient>
+    <radialGradient id="spot" cx="0.5" cy="0.5" r="0.5">
+      <stop offset="0" stop-color="#e3ea7a" stop-opacity="0.5"/>
+      <stop offset="1" stop-color="#e3ea7a" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+  <rect width="1080" height="1350" fill="url(#bg)"/>
+  <path d="M0 980 C 150 915 290 886 420 880 C 560 872 700 872 820 892 C 940 912 1020 940 1080 962 L1080 1350 L0 1350 Z" fill="url(#rock)"/>
+  <path d="M280 896 C 390 862 690 858 820 892 C 700 908 410 912 280 896 Z" fill="url(#moss)"/>
+  <ellipse cx="540" cy="880" rx="320" ry="110" fill="url(#spot)"/>
+  <!-- mock: 생성 이미지 예시 (배경+제품 한 장) -->
+  <svg x="324" y="229.5" width="432" height="675" viewBox="0 0 432 675">
+  <defs>
+    <linearGradient id="glass" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#b48a45"/>
+      <stop offset="0.3" stop-color="#ecd29a"/>
+      <stop offset="0.55" stop-color="#f6e2b4"/>
+      <stop offset="0.8" stop-color="#d9b46f"/>
+      <stop offset="1" stop-color="#9c7434"/>
+    </linearGradient>
+    <linearGradient id="cap" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#121210"/>
+      <stop offset="0.45" stop-color="#46463f"/>
+      <stop offset="1" stop-color="#0e0e0c"/>
+    </linearGradient>
+    <radialGradient id="shadow" cx="0.5" cy="0.5" r="0.5">
+      <stop offset="0" stop-color="#000" stop-opacity="0.45"/>
+      <stop offset="1" stop-color="#000" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+  <ellipse cx="216" cy="646" rx="170" ry="22" fill="url(#shadow)"/>
+  <rect x="181" y="18" width="70" height="112" rx="35" fill="url(#cap)"/>
+  <rect x="150" y="118" width="132" height="74" rx="10" fill="url(#cap)"/>
+  <rect x="176" y="190" width="80" height="20" fill="#8a6a35"/>
+  <rect x="96" y="205" width="240" height="430" rx="58" fill="url(#glass)"/>
+  <rect x="116" y="232" width="20" height="372" rx="10" fill="#fff" opacity="0.35"/>
+  <rect x="306" y="250" width="8" height="320" rx="4" fill="#fff" opacity="0.18"/>
+  <rect x="132" y="350" width="168" height="168" fill="#fbf7ee"/>
+  <text x="216" y="412" font-family="Georgia, 'Times New Roman', serif" font-size="38" font-weight="700" text-anchor="middle" fill="#2b2711">GLOW</text>
+  <text x="216" y="446" font-family="Georgia, 'Times New Roman', serif" font-size="20" letter-spacing="6" text-anchor="middle" fill="#2b2711">SERUM</text>
+  <rect x="186" y="466" width="60" height="1.5" fill="#2b2711"/>
+  <text x="216" y="494" font-family="Helvetica, Arial, sans-serif" font-size="15" text-anchor="middle" fill="#5a5340">30 ml</text>
+</svg>
+</svg>
