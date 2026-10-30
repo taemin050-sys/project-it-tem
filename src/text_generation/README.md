@@ -18,7 +18,7 @@
 
 - 단계마다 OpenAI 호출 1회, 자동 재시도 없음
 - 타임아웃 300초, 최대 출력 1200토큰
-- 이미지 프롬프트는 카피 승인 후 생성 권장 (거절 시 호출 비용 절약)
+- 이미지 프롬프트는 카피 승인 후에만 생성 (`passed=False`면 승인할 수 없으므로 호출하지 않음, 거절 시 호출 비용 절약)
 
 ## 파일 구성
 
@@ -50,7 +50,9 @@ analysis = analysis_result.analysis
 research_result = research(product, analysis)      # product : ProductInput
 copy = generate_copy(product, analysis, research_result)
 report = review_copy(copy, product, analysis)      # report.passed가 False면 승인 차단
-image_prompt = generate_image_prompt(copy.plan, analysis)
+
+if report.passed:                                  # 실제 서비스는 사용자 카피 승인 후 호출
+    image_prompt = generate_image_prompt(copy.plan, analysis)
 ```
 
 - `analyze_product`, `research`, `generate_copy`, `generate_image_prompt`에 `model`, `reasoning_effort` 선택 인자 있음

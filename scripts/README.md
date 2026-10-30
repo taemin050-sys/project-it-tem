@@ -15,7 +15,7 @@
 | `test_researcher.py` | 기획 AI 조사 (제품 1종) | - |
 | `test_copy_generator.py` | 기획 + 카피 (저장된 조사 결과 사용) | `outputs/research/*.json` |
 | `test_image_prompt_generator.py` | 이미지 프롬프트 (저장된 카피 결과 사용) | `outputs/copy/*.json` |
-| `test_pipeline.py` | 조사 → 카피 → 1차 검수 → 이미지 프롬프트 전체 흐름 | `data/test_products/inputs.json`, `outputs/product_analysis/*.json` |
+| `test_pipeline.py` | 조사 → 카피 → 1차 검수 → 이미지 프롬프트 전체 흐름 (검수 차단 시 이미지 프롬프트 생략) | `data/test_products/inputs.json`, `outputs/product_analysis/*.json` |product_analysis/*.json` |
 | `test_compliance.py` | 1차 규제 검수 (위반 예시 + 저장된 카피), **비용 없음** | `data/test_products/inputs.json`, `outputs/product_analysis/*.json`, `outputs/pipeline/*.json` |
 | `test_failures.py` | 실패 처리 확인 (없는 모델·잘못된 키·연결 실패), **비용 없음** | - |
 | `test_highlight.py` | 검수 하이라이트 위치값 확인 + 위험도별 색 HTML 미리보기 (`outputs/highlight_preview.html`), **비용 없음** | - |
