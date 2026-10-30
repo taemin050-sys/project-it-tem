@@ -6,7 +6,7 @@ import logging
 
 from PIL import Image
 
-from .config import MODEL_VISION
+from .config import MODEL_VISION, REASONING_EFFORT
 from .llm_client import LLMError, call_structured
 from .schemas import ProductAnalysis, ProductAnalysisResult
 
@@ -52,7 +52,9 @@ def default_analysis() -> ProductAnalysis:
 
 
 def analyze_product(
-    images: list[bytes], model: str = MODEL_VISION
+    images: list[bytes],
+    model: str = MODEL_VISION,
+    reasoning_effort: str | None = REASONING_EFFORT,
 ) -> ProductAnalysisResult:
     """제품 사진 분석 (VLM) : 제품 사진 2~5장 → ProductAnalysisResult"""
     if not 2 <= len(images) <= 5:
@@ -62,7 +64,7 @@ def analyze_product(
         content = [
             {
                 "type": "input_text",
-                "text": f"제품 사진 {len(images)}장입니다. 분석해줘.",
+                "text": f"제품 사진 {len(images)}장이야. 분석해줘.",
             }
         ]
         content += [
@@ -73,6 +75,7 @@ def analyze_product(
             ProductAnalysis,
             instructions=INSTRUCTIONS,
             model=model,
+            reasoning_effort=reasoning_effort,
         )
         return ProductAnalysisResult(analysis=analysis, analysis_succeeded=True)
     except (LLMError, OSError) as e:
