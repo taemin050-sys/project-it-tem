@@ -31,7 +31,8 @@ const SOURCE_BADGE: Record<SourceType, { label: string; tone: string }> = {
 }
 
 const BACK = { to: '/create/product', label: '제품 정보' }
-const RESPONSIBILITY = '검수 결과는 참고용입니다. 게시 전 최종 확인 책임은 사용자에게 있습니다.'
+// 검수 리포트가 있으면 서버 notice를 그대로 쓴다. 이 문구는 리포트가 없는 레거시 mock 카피용 (텍스트 모듈 기본 notice와 같은 문장)
+const RESPONSIBILITY = '검수 결과는 참고용이며 법적 판단이 아닙니다. 게시 전 최종 확인 책임은 사용자에게 있습니다.'
 
 // 화면에 보여주는 순서. 해시태그는 공백으로 이어 붙인 한 줄로 보여줘야 위치값이 맞는다
 const REVIEW_FIELDS = ['headline', 'subline', 'cta', 'caption', 'hashtags'] as const
@@ -214,7 +215,7 @@ function ApprovalNote({ job }: { job: Job }) {
   const report = job.compliance_report
   if (report) {
     return report.passed
-      ? <p className="field-hint">{RESPONSIBILITY}</p>
+      ? <p className="field-hint">{report.notice}</p>
       : <p className="field-error">위반 의심 표현이 있어 이 카피는 승인할 수 없습니다. 카피 수정·재생성은 아직 지원하지 않습니다.</p>
   }
   return canApproveCopy(job)
@@ -263,7 +264,7 @@ function ReviewSummary({ report }: { report: ComplianceReport }) {
       <div className="notice notice-danger" role="alert">
         <p className="notice-title">위반 의심 표현 {danger}건{warning > 0 && ` · 근거 확인 필요 ${warning}건`}</p>
         <p>위반 의심 표현이 있는 카피는 승인할 수 없습니다. 아래 대체 제안을 참고해 주세요.</p>
-        <p>{RESPONSIBILITY}</p>
+        <p>{report.notice}</p>
       </div>
     )
   }
@@ -272,14 +273,14 @@ function ReviewSummary({ report }: { report: ComplianceReport }) {
       <div className="notice notice-warning">
         <p className="notice-title">근거 확인이 필요한 표현 {warning}건</p>
         <p>표현을 뒷받침하는 근거가 있는지 확인한 뒤 승인해 주세요.</p>
-        <p>{RESPONSIBILITY}</p>
+        <p>{report.notice}</p>
       </div>
     )
   }
   return (
     <div className="notice notice-success">
       <p className="notice-title">✓ 검수에서 주의할 표현을 찾지 못했습니다</p>
-      <p>자동 검수는 모든 위험을 찾아내지 못할 수 있습니다. {RESPONSIBILITY}</p>
+      <p>자동 검수는 모든 위험을 찾아내지 못할 수 있습니다. {report.notice}</p>
     </div>
   )
 }

@@ -19,7 +19,8 @@ export function copyFieldText(copy: AdCopyOutput, field: CopyField): string | un
 }
 
 // start/end는 Python str 위치(코드포인트, end 미포함)라 Array.from으로 자른다 — JS slice는 이모지 뒤부터 어긋난다.
-// 위치로 자른 글자가 issue.text와 다르면 issue.text로 다시 찾는다 (텍스트 담당 권장, 다른 표현을 칠하지 않기 위해)
+// 위치가 맞으면 그대로 쓰고(같은 표현이 여러 번 나와도 정확), 자른 글자가 issue.text와 다를 때만
+// issue.text가 나오는 곳 중 start에 가장 가까운 곳을 칠한다 (다른 표현을 칠하지 않기 위해)
 export function splitByIssues(text: string, issues: ComplianceIssue[]): Segment[] {
   const chars = Array.from(text)
   const segments: Segment[] = []
@@ -27,10 +28,15 @@ export function splitByIssues(text: string, issues: ComplianceIssue[]): Segment[
   for (const issue of [...issues].sort((a, b) => a.start - b.start)) {
     let { start, end } = issue
     if (chars.slice(start, end).join('') !== issue.text) {
-      const at = issue.text ? text.indexOf(issue.text, chars.slice(0, pos).join('').length) : -1
-      if (at < 0) continue
-      start = Array.from(text.slice(0, at)).length
-      end = start + Array.from(issue.text).length
+      const target = Array.from(issue.text)
+      let best = -1
+      for (let i = pos; target.length > 0 && i + target.length <= chars.length; i++) {
+        const match = target.every((c, k) => chars[i + k] === c)
+        if (match && (best < 0 || Math.abs(i - issue.start) < Math.abs(best - issue.start))) best = i
+      }
+      if (best < 0) continue
+      start = best
+      end = best + target.length
     }
     // 겹치거나 범위를 벗어난 위치값은 하이라이트하지 않는다 (검수 목록에는 그대로 나온다)
     if (start < pos || end > chars.length || start >= end) continue

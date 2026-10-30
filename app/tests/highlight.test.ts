@@ -28,6 +28,18 @@ test('위치값이 JS(UTF-16) 기준으로 어긋나 와도 issue.text로 다시
   assert.deepEqual(marked('caption', utf16), ['2주 만에', '20% 개선', '진정', '의사가 추천'])
 })
 
+test('같은 표현이 여러 번 나오면: 위치가 맞으면 그 자리, 어긋나면 start에 가장 가까운 자리', () => {
+  const text = '진정 효과 🌿 진정 케어 🌿 진정'
+  const issue = (start: number, end: number) => ({ ...report.issues[0], text: '진정', start, end })
+  const where = (i: ComplianceIssue) => {
+    const segs = splitByIssues(text, [i])
+    return Array.from(segs.slice(0, segs.findIndex((s) => s.issue)).map((s) => s.text).join('')).length
+  }
+  assert.equal(where(issue(8, 10)), 8)                   // 두 번째 '진정'(코드포인트 8) 그대로
+  assert.equal(where(issue(9, 11)), 8)                   // UTF-16 기준(이모지로 1칸 밀림) → 가장 가까운 8
+  assert.equal(where(issue(18, 20)), 16)                 // 세 번째(UTF-16 18, 이모지 2개로 2칸 밀림) → 16
+})
+
 test('겹치거나 찾을 수 없는 표현은 칠하지 않고 원문은 그대로 둔다', () => {
   const issue = (text: string, start: number, end: number) => ({ ...report.issues[0], text, start, end })
   const segs = splitByIssues('가나다라마', [issue('가나', 0, 2), issue('나다', 1, 3), issue('없음', 3, 5)])
