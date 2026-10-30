@@ -51,7 +51,8 @@ function Highlighted({ text, issues }: { text: string; issues: ComplianceIssue[]
   )
 }
 
-const charCount = (s: string) => `${Array.from(s).length}자`
+// 텍스트·이미지 담당 기준: 공백 포함, 줄바꿈 제외 (서브는 \n으로 최대 2줄)
+const charCount = (s: string) => `${Array.from(s.replace(/\n/g, '')).length}자`
 
 export default function CopyPage() {
   const navigate = useNavigate()

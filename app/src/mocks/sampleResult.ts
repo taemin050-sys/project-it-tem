@@ -54,7 +54,7 @@ const plan: AdCopyOutput['plan'] = {
   mood: ['내추럴', '미니멀'],
 }
 
-const adCopy: AdCopy = { headline: '하루 종일 촉촉하게 빛나는 피부결', subline: '가볍게 스며드는 데일리 보습 세럼', cta: '지금 만나보세요' }
+const adCopy: AdCopy = { headline: '하루 종일 촉촉하게 빛나는 피부결', subline: '가볍게 스며드는\n데일리 보습 세럼', cta: '지금 만나보세요' }
 const HASHTAGS = ['#보습세럼', '#데일리케어', '#신제품']
 
 // 카피 길이는 실험 중(10/26)이라 고정하지 않는다. 긴·짧은 한글이 화면에서 깨지지 않는지 보려는 예시
@@ -144,7 +144,7 @@ export function composeMockSvg(baseSvg: string, copy: AdCopy): string {
   const layer = `<foreignObject x="0" y="0" width="1080" height="1350"><div xmlns="http://www.w3.org/1999/xhtml" style="height:1350px;display:flex;flex-direction:column;justify-content:flex-end">`
     + `<div style="display:flex;flex-direction:column;align-items:flex-start;gap:20px;padding:180px 54px 67.5px;color:#fff;background:linear-gradient(rgba(0,0,0,0),rgba(0,0,0,.55) 180px);font-family:sans-serif;word-break:keep-all">`
     + `<p style="margin:0;font-size:72px;font-weight:800;line-height:1.25">${escapeXml(copy.headline)}</p>`
-    + `<p style="margin:0;font-size:38px;line-height:1.4">${escapeXml(copy.subline)}</p>`
+    + `<p style="margin:0;font-size:38px;line-height:1.4;white-space:pre-line">${escapeXml(copy.subline)}</p>`
     + `<span style="padding:14px 32px;border-radius:999px;background:#fff;color:#1f2328;font-size:32px;font-weight:700">${escapeXml(copy.cta)}</span>`
     + `</div></div></foreignObject>`
   return baseSvg.replace(/<\/svg>\s*$/, `${layer}</svg>`)

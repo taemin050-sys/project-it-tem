@@ -46,3 +46,10 @@ test('겹치거나 찾을 수 없는 표현은 칠하지 않고 원문은 그대
   assert.equal(segs.map((s) => s.text).join(''), '가나다라마')
   assert.deepEqual(segs.filter((s) => s.issue).map((s) => s.text), ['가나'])
 })
+
+test('서브 줄바꿈(\n)도 한 글자로 센 위치를 그대로 자르고, 줄바꿈은 원문에 남긴다', () => {
+  const text = '가볍게 스며드는\n피부 재생 세럼'
+  const segs = splitByIssues(text, [{ ...report.issues[0], field: 'subline', text: '피부 재생', start: 9, end: 14 }])
+  assert.deepEqual(segs.map((s) => s.text), ['가볍게 스며드는\n', '피부 재생', ' 세럼'])
+  assert.equal(segs[1].issue?.text, '피부 재생')
+})
