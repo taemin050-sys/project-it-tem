@@ -1,5 +1,7 @@
 """5종 전체 흐름 테스트 (조사 → 카피 → 1차 규제 검수 → 이미지 프롬프트)
 
+검수에서 승인 차단(passed=False)이면 이미지 프롬프트는 생성하지 않음 (실제 서비스 흐름과 동일)
+
 python -m scripts.test_pipeline                 # 전체
 python -m scripts.test_pipeline 롬앤글래스팅스프링피버   # 특정 제품만
 """
@@ -28,6 +30,8 @@ ANALYSIS_MODEL = "gpt-6-luna"  # 사진 분석 결과는 이 모델 것을 우�
 INPUTS_PATH = Path("data/test_products/inputs.json")
 ANALYSIS_DIR = Path("outputs/product_analysis")
 OUT_DIR = Path("outputs/pipeline")
+
+SKIP_REASON = "검수 승인 차단 (passed=False)"
 
 
 def load_analysis(name: str) -> tuple[ProductAnalysis, int]:
@@ -80,8 +84,14 @@ def run_one(
     record["copy_lengths"] = copy_lengths(copy)
 
     start = time.perf_counter()
-    record["compliance"] = review_copy(copy, product, analysis).model_dump()
+    report = review_copy(copy, product, analysis)
+    record["compliance"] = report.model_dump()
     times["compliance"] = round(time.perf_counter() - start, 3)
+
+    if not report.passed:
+        record["image_prompt_skipped"] = SKIP_REASON
+        record["times"] = times
+        return record
 
     start = time.perf_counter()
     try:
@@ -136,12 +146,22 @@ def print_record(r: dict) -> None:
             f"  [{i['risk_level']}] {i['field']} '{i['text']}' {i['category']} → {i['suggestion'] or '삭제 권장'}"
         )
 
-    if "image_prompt_error" in r:
+    if "image_prompt_skipped" in r:
+        print(f"이미지 프롬프트 생략 : {r['image_prompt_skipped']}")
+    elif "image_prompt_error" in r:
         print(f"이미지 프롬프트 실패 : {r['image_prompt_error']}")
     else:
         p = r["image_prompt"]["prompt"]
         print(f"이미지 프롬프트 ({len(p)}자) :\n{p}")
     print(f"시간 : {r['times']}")
+
+
+def prompt_summary(record: dict) -> str | int:
+    if "image_prompt" in record:
+        return len(record["image_prompt"]["prompt"])
+    if "image_prompt_skipped" in record:
+        return "생략"
+    return "-"
 
 
 def main():
@@ -180,9 +200,7 @@ def main():
                     + f"({len(record['compliance']['issues'])})"
                     if "compliance" in record
                     else "-",
-                    len(record["image_prompt"]["prompt"])
-                    if "image_prompt" in record
-                    else "-",
+                    prompt_summary(record),
                     round(sum(record["times"].values()), 1),
                 )
             )
