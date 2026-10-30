@@ -24,3 +24,9 @@ Status: OFFLINE_OWNER_E2E_PASS / LIVE_PROVIDER_DISABLED
 - React DemoLiveConsole restores the evaluator-scoped saved Job ID from sessionStorage and fetches the authorized server Job. If the image upload succeeded but the Live ProductInput write failed, the same uploaded Job is reused rather than POSTing the photos a second time. Polling does not overwrite edits in progress.
 - No Mock output is published under LIVE. Image generation access, provider spending and final acceptance remain explicitly unapproved.
 - Mac full Python suite: 655 PASS with licensed/local Korean font explicitly supplied as environment configuration, 24 Owner React unit tests PASS, lint 0 warnings/errors and Vite build PASS. All tests run without a real OpenAI key.
+- Live worker startup acquires an exclusive OS-level nonblocking file lock before
+  examining or reconciling RUNNING tasks. A second local worker cannot falsely
+  mark an active first attempt billing-unknown or start a concurrent paid call.
+  Process crash releases the lock, then one restarted worker holds uncertain
+  tasks for manual reconciliation. Single-host GCP VM only (not a distributed
+  multi-VM leader election mechanism).

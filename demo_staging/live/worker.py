@@ -7,6 +7,8 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
+from contextlib import contextmanager
+import fcntl
 
 from .pipeline import LivePipeline
 from .queue import LiveQueue
@@ -65,9 +67,39 @@ def live_image_adapter(runtime:Path,request):
     return BackendImageAdapter(processor,runtime/"image_bindings.sqlite",model=model)
 
 
+@contextmanager
+def exclusive_live_worker(root:Path):
+    """Cross-process single flight on one host, held throughout provider I/O.
+
+    The recovery scan must never run while another worker is active: doing
+    so would incorrectly mark its active submission as uncertain and permit
+    a second paid call.
+    """
+    lock_path=Path(root)/"live"/"worker.lock"
+    lock_path.parent.mkdir(parents=True,exist_ok=True,mode=0o700)
+    fd=os.open(lock_path,os.O_RDWR|os.O_CREAT,0o600)
+    acquired=False
+    try:
+        try:
+            fcntl.flock(fd,fcntl.LOCK_EX|fcntl.LOCK_NB)
+            acquired=True
+        except BlockingIOError:
+            raise LiveNotAuthorized("LIVE_WORKER_ALREADY_RUNNING") from None
+        yield
+    finally:
+        if acquired:
+            fcntl.flock(fd,fcntl.LOCK_UN)
+        os.close(fd)
+
+
 def run_once(root:Path)->str:
     # Must run BEFORE queue claim: disabled worker must NOT consume a task.
     flow=policy_from_env(root)
+    with exclusive_live_worker(root):
+        return _run_locked(root,flow)
+
+
+def _run_locked(root:Path,flow:LivePipeline)->str:
     queue=LiveQueue(root/"live"/"queue.sqlite")
     # Any previous RUNNING attempt has ambiguous provider billing; hold it.
     queue.reconcile_restart()
