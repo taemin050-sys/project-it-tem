@@ -8,13 +8,13 @@ import '@fontsource/noto-serif-kr/900.css'
 import 'pretendard/dist/web/variable/pretendardvariable.css'
 import './index.css'
 import { queryClient } from './api/queryClient'
-import App from './App.tsx'
+import DemoGate from './demo/DemoGate.tsx'
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <QueryClientProvider client={queryClient}>
       <BrowserRouter>
-        <App />
+        <DemoGate />
       </BrowserRouter>
     </QueryClientProvider>
   </StrictMode>,
