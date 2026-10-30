@@ -21,11 +21,19 @@ type Performance={timings:Array<{stage:string;state:string;server_elapsed_s:numb
   project_spend_status:string;application_cost_policy:string}
 type State = {live_enabled:boolean;mode:string;reason:string}
 const api='/demo/api/live'
+// Visual QA on actual OpenAI image output. Preserve center product/label;
+// subline is placed below product, not in the 46%-width left slot.
 const layout={text_regions:{
-  headline:{left:.06,top:.06,right:.94,bottom:.24},
-  subline:{left:.06,top:.30,right:.46,bottom:.65},
-  cta:{left:.06,top:.77,right:.46,bottom:.90},
-},protected_regions:[{left:.53,top:.30,right:.91,bottom:.92}]}
+  headline:{left:.07,top:.055,right:.93,bottom:.17,
+    min_font_size:44,max_font_size:62,padding:9,align:'center',
+    color:'#26352B',background:null},
+  subline:{left:.06,top:.835,right:.94,bottom:.905,
+    min_font_size:26,max_font_size:42,padding:9,align:'center',
+    color:'#25342C',background:'#F8F7F3'},
+  cta:{left:.62,top:.91,right:.94,bottom:.95,
+    min_font_size:19,max_font_size:26,padding:4,align:'center',
+    color:'#FFFFFF',background:'#305141'},
+},protected_regions:[{left:.31,top:.23,right:.73,bottom:.82}]}
 
 async function request<T>(url:string, method='GET', payload?:unknown):Promise<T>{
   const res=await fetch(url,{method,credentials:'same-origin',cache:'no-store',
