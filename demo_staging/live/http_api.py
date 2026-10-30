@@ -16,6 +16,8 @@ from pydantic import BaseModel,ConfigDict,Field
 from .contracts import LiveGateError
 from .pipeline import LivePipeline
 from .queue import LiveQueue
+from .reviews import LiveShares
+from demo_staging.app import ReviewBody
 from demo_staging.live_safety import LiveNotAuthorized
 
 
@@ -76,6 +78,7 @@ def register_live_api(app:FastAPI, ledger, runtime_root:Path, cookie_name:str):
         image_reservation_usd=policy.get("image",0),
         monitoring_only=policy["enabled"])
     queue=LiveQueue(Path(runtime_root)/"live"/"queue.sqlite")
+    shares=LiveShares(Path(runtime_root)/"live"/"shares.sqlite")
     app.state.live_pipeline=flow
     app.state.live_queue=queue
     prefix="/demo/api/live"
@@ -239,6 +242,121 @@ def register_live_api(app:FastAPI, ledger, runtime_root:Path, cookie_name:str):
                      "/usr/share/fonts/truetype/nanum/NanumGothic.ttf"))
             return visible(flow.compose(actor,job_id,layout=body.layout,font_path=font))
         except (LiveGateError,ValueError) as e:raise safe_error(e) from None
+
+    @app.get(prefix+"/jobs/{job_id}/performance")
+    def live_performance(job_id:str,request:Request):
+        actor=authorized(request,job_id)
+        flow.state.get(actor,job_id)
+        from datetime import datetime,timezone
+        timings=[]
+        with queue.db() as db:
+            records=db.execute("""SELECT stage,state,created_at,started_at,ended_at
+              FROM queued_ops WHERE job_id=? AND actor=? ORDER BY created_at""",
+              (job_id,actor)).fetchall()
+        for item in records:
+            started=item["started_at"]
+            ended=item["ended_at"]
+            delta=None
+            if started and ended:
+                try:
+                    a=datetime.fromisoformat(started).replace(tzinfo=timezone.utc)
+                    b=datetime.fromisoformat(ended).replace(tzinfo=timezone.utc)
+                    delta=max(0,(b-a).total_seconds())
+                except ValueError:pass
+            timings.append({"stage":item["stage"],"state":item["state"],
+              "queued_at":item["created_at"],"started_at":started,
+              "completed_at":ended,"server_elapsed_s":delta})
+        attempts=[]
+        with flow.cost.connect() as db:
+            for r in db.execute("""SELECT stage,status,receipt,billing_unknown,created_at
+                FROM attempts WHERE job_id=? AND actor=? ORDER BY created_at""",(job_id,actor)):
+                x=json.loads(r["receipt"]) if r["receipt"] else {}
+                attempts.append({"stage":r["stage"],"state":r["status"],
+                    "model":x.get("model"),"usage":x.get("usage"),
+                    "billing_unknown":bool(r["billing_unknown"]),
+                    "started_at":r["created_at"],
+                    "actual_cost_usd":None})
+        return {"mode":"LIVE","job_id":job_id,"timings":timings,
+          "provider_attempts":attempts,"project_spend_usd":None,
+          "project_spend_status":"사용액 확인 필요",
+          "application_cost_policy":"MONITOR_ONLY",
+          "project_budget_warning_usd":25,"project_reference_budget_usd":30}
+
+    @app.post(prefix+"/jobs/{job_id}/share")
+    def share_for_evaluation(job_id:str,request:Request):
+        actor=authorized(request,job_id)
+        j=flow.state.get(actor,job_id)
+        if j["state"]!="COMPLETED" or j["mode"]!="LIVE":
+            raise HTTPException(409,"ONLY_COMPLETED_LIVE_CAN_BE_SHARED")
+        import hashlib
+        d=flow.root/"outputs"/job_id
+        try:
+            if (hashlib.sha256((d/"final.png").read_bytes()).hexdigest()!=j["final_sha"]
+                or hashlib.sha256((d/"caption.txt").read_bytes()).hexdigest()!=j["caption_sha"]):
+                raise ValueError
+        except (OSError,ValueError):
+            raise HTTPException(503,"ARTIFACT_INTEGRITY_UNAVAILABLE") from None
+        try:
+            item=shares.publish(actor,job_id,j["final_sha"],j["caption_sha"])
+        except LiveGateError as e:raise safe_error(e) from None
+        return {"shared":True,"job_id":job_id,"final_sha":item["final_sha"],
+                "mode":"LIVE","raw_product_images_shared":False}
+
+    @app.get(prefix+"/shared")
+    def shared_board(request:Request):
+        authorized(request)
+        return {"mode":"LIVE","jobs":[{"job_id":x["job_id"],
+            "final_sha":x["final_sha"],"shared_at":x["shared_at"]}
+            for x in shares.all()]}
+
+    @app.get(prefix+"/shared/{job_id}/artifacts/{kind}")
+    def shared_file(job_id:str,kind:str,request:Request):
+        authorized(request)
+        x=shares.item(job_id)
+        if not x or kind not in ("final","caption"):
+            raise HTTPException(404,"Shared result unavailable")
+        if not ledger.owns(x["actor"],job_id):
+            raise HTTPException(404,"Shared result unavailable")
+        j=flow.state.get(x["actor"],job_id)
+        if (j["state"]!="COMPLETED" or j["mode"]!="LIVE" or
+            j["final_sha"]!=x["final_sha"] or j["caption_sha"]!=x["caption_sha"]):
+            raise HTTPException(409,"Shared result no longer current")
+        target=flow.root/"outputs"/job_id/("final.png" if kind=="final" else "caption.txt")
+        import hashlib
+        expected=x["final_sha"] if kind=="final" else x["caption_sha"]
+        if not target.is_file() or hashlib.sha256(target.read_bytes()).hexdigest()!=expected:
+            raise HTTPException(503,"Shared result integrity error")
+        return FileResponse(target,media_type="image/png" if kind=="final" else
+            "text/plain; charset=utf-8",headers={"Cache-Control":"private,no-store"})
+
+    @app.post(prefix+"/shared/{job_id}/evaluations")
+    def submit_shared_evaluation(job_id:str,data:ReviewBody,request:Request):
+        actor=authorized(request)
+        item=shares.item(job_id)
+        if (not item or data.job_id!=job_id or
+            data.category not in {"product_recognition","plan_copy_compliance",
+                "image_fidelity","final_layout_korean","speed_reliability","ui_ux"}):
+            raise HTTPException(404,"Shared evaluation unavailable")
+        if not ledger.owns(item["actor"],job_id):
+            raise HTTPException(404,"Shared evaluation unavailable")
+        j=flow.state.get(item["actor"],job_id)
+        if j["state"]!="COMPLETED" or j["mode"]!="LIVE" or j["final_sha"]!=item["final_sha"]:
+            raise HTTPException(409,"Shared artifact changed")
+        previous=[x for x in ledger.reviews(actor,job_id)
+                  if x["scenario_id"]==data.scenario_id and x["category"]==data.category]
+        rev=ledger.review(actor,job_id,data,item["final_sha"],
+                          "update" if previous else "submit")
+        return {"saved":True,"mode":"LIVE","revision":rev,
+                "artifact_sha256":item["final_sha"]}
+
+    @app.get(prefix+"/shared/{job_id}/evaluations")
+    def shared_evaluations(job_id:str,request:Request):
+        actor=authorized(request)
+        item=shares.item(job_id)
+        if not item:raise HTTPException(404,"Shared evaluation unavailable")
+        return {"mode":"LIVE","job_id":job_id,
+                "reviews":ledger.reviews(actor,job_id),
+                "final_sha":item["final_sha"]}
 
     @app.get(prefix+"/jobs/{job_id}/artifacts/candidate")
     def candidate(job_id:str,request:Request):
