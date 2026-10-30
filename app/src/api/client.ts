@@ -25,25 +25,40 @@ const STATUS_MESSAGES: Record<number, string> = {
 export const isUnreachable = (e: unknown) =>
   e instanceof ApiError && (e.status === 502 || e.status === 504 || (e.status === 0 && e.message.startsWith('서버에 연결할 수 없습니다')))
 
+// 개발 중에만 실제 예외를 덧붙여 원인을 바로 알 수 있게 한다 (사용자 화면에는 노출하지 않음)
+const devCause = (e: unknown) => (import.meta.env.DEV ? ` (원인: ${e instanceof Error ? `${e.name}: ${e.message}` : String(e)})` : '')
+
 type Options = RequestInit & { timeoutMs?: number }
 
 export async function send(path: string, { timeoutMs = REQUEST_TIMEOUT_MS, ...init }: Options = {}): Promise<Response> {
   let res: Response
-  try {
-    const url = `${API_BASE_URL}${path}`
-    const options = { ...init, signal: AbortSignal.timeout(timeoutMs) }
-    res = import.meta.env.DEV && useProjectStore.getState().mock
-      ? await (await import('../mocks/mockFetch')).mockFetch(url, options)
-      : await fetch(url, options)
-  } catch (e) {
-    if (e instanceof DOMException && e.name === 'TimeoutError') {
-      // 응답을 못 받았을 뿐 서버는 처리했을 수 있다 — 다시 보내기 전에 상태부터 확인하게 한다
-      throw new ApiError(0, '서버 응답을 받지 못했습니다. 서버에서는 처리 중이거나 이미 끝났을 수 있으니, 잠시 후 상태를 다시 확인해 주세요.')
+  const url = `${API_BASE_URL}${path}`
+  const options = { ...init, signal: AbortSignal.timeout(timeoutMs) }
+  if (import.meta.env.DEV && useProjectStore.getState().mock) {
+    try {
+      res = await (await import('../mocks/mockFetch')).mockFetch(url, options)
+    } catch (e) {
+      // mock 모듈·핸들러 오류는 서버 연결 문제가 아니다 — 원인을 그대로 보여준다
+      console.error('[mock]', e)
+      throw new ApiError(-1, `mock 응답을 만들지 못했습니다. 페이지를 새로고침(Ctrl+Shift+R)한 뒤 다시 시도해 주세요.${devCause(e)}`)
     }
-    throw new ApiError(0, '서버에 연결할 수 없습니다. 서빙 서버가 켜져 있는지, 네트워크 상태를 확인해 주세요.')
+  } else {
+    try {
+      res = await fetch(url, options)
+    } catch (e) {
+      if (e instanceof DOMException && e.name === 'TimeoutError') {
+        // 응답을 못 받았을 뿐 서버는 처리했을 수 있다 — 다시 보내기 전에 상태부터 확인하게 한다
+        throw new ApiError(0, '서버 응답을 받지 못했습니다. 서버에서는 처리 중이거나 이미 끝났을 수 있으니, 잠시 후 상태를 다시 확인해 주세요.')
+      }
+      if (import.meta.env.DEV) console.error('[api]', e)
+      throw new ApiError(0, `서버에 연결할 수 없습니다. 서빙 서버가 켜져 있는지, 네트워크 상태를 확인해 주세요.${devCause(e)}`)
+    }
   }
   if (!res.ok) {
-    throw new ApiError(res.status, STATUS_MESSAGES[res.status] ?? `요청에 실패했습니다. (오류 ${res.status})`)
+    // 개발 중에는 서버(FastAPI)·mock이 준 detail을 덧붙여 원인을 바로 보이게 한다
+    const detail = import.meta.env.DEV ? await res.clone().json().then((b: { detail?: unknown }) => b?.detail, () => undefined) : undefined
+    const cause = detail === undefined ? '' : ` (원인: ${typeof detail === 'string' ? detail : JSON.stringify(detail)})`
+    throw new ApiError(res.status, (STATUS_MESSAGES[res.status] ?? `요청에 실패했습니다. (오류 ${res.status})`) + cause)
   }
   return res
 }

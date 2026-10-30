@@ -21,6 +21,17 @@ const variant = ({ product_name, features }: ProductInput): CopyVariant =>
 const hex = () => crypto.randomUUID().replace(/-/g, '')
 const toJob = ({ input: _input, ...job }: Stored): Job => job
 
+// msw는 핸들러 예외를 'TypeError: Failed to fetch'(네트워크 오류)로 바꿔 원인이 사라진다 → 500 + detail로 돌려준다
+type Resolver = Parameters<typeof http.post>[1]
+const guard = (resolver: Resolver): Resolver => async (info) => {
+  try {
+    return await resolver(info)
+  } catch (e) {
+    console.error('[mock handler]', e)
+    return HttpResponse.json({ detail: `mock 처리 오류: ${e instanceof Error ? e.message : String(e)}` }, { status: 500 })
+  }
+}
+
 function artifact(job: Stored, kind: ArtifactKind, blob: Blob): Artifact {
   files.set(`${job.job_id}/${kind}`, blob)
   return { kind, content_type: blob.type, size_bytes: blob.size, download_url: `/api/v1/jobs/${job.job_id}/artifacts/${kind}` }
@@ -29,7 +40,7 @@ function artifact(job: Stored, kind: ArtifactKind, blob: Blob): Artifact {
 // 순서가 맞지 않는 요청은 레거시 서버처럼 409로 거절한다
 type Update = (job: Stored, body: { approved?: boolean }) => Partial<Job> | Promise<Partial<Job>>
 function step(path: string, allowed: (job: Stored, body: { approved?: boolean }) => boolean, update: Update) {
-  return http.post(`${BASE}/:jobId/${path}`, async ({ params, request }) => {
+  return http.post(`${BASE}/:jobId/${path}`, guard(async ({ params, request }) => {
     const job = jobs.get(String(params.jobId))
     if (!job) return new HttpResponse(null, { status: 404 })
     const body = request.headers.get('content-type')?.includes('json') ? await request.json() as { approved?: boolean } : {}
@@ -39,11 +50,11 @@ function step(path: string, allowed: (job: Stored, body: { approved?: boolean })
     await delay(STEP_DELAY_MS)
     Object.assign(job, await update(job, body))
     return HttpResponse.json(toJob(job))
-  })
+  }))
 }
 
 export const handlers = [
-  http.post(BASE, async ({ request }) => {
+  http.post(BASE, guard(async ({ request }) => {
     const form = await request.formData()
     const input = JSON.parse(String(form.get('product_input_json'))) as ProductInput
     const products = form.getAll('product_images') as File[]
@@ -63,7 +74,7 @@ export const handlers = [
     const job: Stored = { job_id: jobId, status: 'INPUTS_VALIDATED', assets, input }
     jobs.set(jobId, job)
     return HttpResponse.json(toJob(job), { status: 201 })
-  }),
+  })),
   http.get(`${BASE}/:jobId`, ({ params }) => {
     const job = jobs.get(String(params.jobId))
     return job ? HttpResponse.json(toJob(job)) : new HttpResponse(null, { status: 404 })
