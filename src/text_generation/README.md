@@ -24,7 +24,7 @@
 
 | 파일 | 역할 |
 | --- | --- |
-| `config.py` | `.env`에서 API 키·모델 이름 읽기 |
+| `config.py` | `.env`에서 API 키·모델 이름·추론 강도 읽기 |
 | `llm_client.py` | OpenAI 호출 공통 함수 `call_structured`, 오류 `LLMError` |
 | `schemas.py` | 입출력 스키마 (Pydantic) |
 | `product_analyzer.py` | 제품 사진 분석 (화장품 여부, 용기, 색, 라벨 글자) |
@@ -54,8 +54,9 @@ image_prompt = generate_image_prompt(copy.plan, analysis)
 ```
 
 - `analyze_product`, `research`, `generate_copy`, `generate_image_prompt`에 `model`, `reasoning_effort` 선택 인자 있음
-- 모델 기본값은 `.env`의 `OPENAI_MODEL_TEXT`, `OPENAI_MODEL_VISION`
-- `gpt-6-luna` 사용 시 `reasoning_effort="low"` 필요 (없으면 추론에 출력 토큰을 다 써서 응답이 잘림)
+- 기본 모델은 `gpt-6-luna` (`.env`의 `OPENAI_MODEL_TEXT`, `OPENAI_MODEL_VISION`으로 변경 가능)
+- `reasoning_effort` 기본값은 `"low"` (`.env`의 `OPENAI_REASONING_EFFORT`로 변경 가능)
+    - luna는 추론 강도를 지정하지 않으면 출력 토큰을 추론에 다 써서 응답이 잘림 → 기본값 유지 권장
 - 이 모듈은 유료 호출 허가 여부를 따로 확인하지 않음 → 호출 전 확인은 서빙에서
 
 ## 실패 처리
@@ -75,10 +76,12 @@ image_prompt = generate_image_prompt(copy.plan, analysis)
 ## 주요 처리
 
 **기획 AI 조사**
+- 웹 검색 최대 2회 (`max_tool_calls=2`)
 - 조사 내용마다 출처 표시 : 사용자 입력 / 검색 결과 / AI 추론
 - 출처 URL은 OpenAI 응답의 `url_citation`에서만 추출 (utm 추적값·중복 제거)
 - 인용이 없으면 "검색 결과" 표시를 "AI 추론"으로 바꿈
 - 조사 텍스트 안의 링크와 출처 이름은 제거
+- 제품 요약에는 사진 라벨에서 읽은 성분·효능을 넣지 않음 (카피로 넘어가지 않게)
 - 결과물(피드 이미지 1장)로 만들 수 없는 연출(영상, 모델, 사용 전후 비교 등)은 제안하지 않음
 
 **카피**
@@ -136,9 +139,12 @@ image_prompt = generate_image_prompt(copy.plan, analysis)
 
 ```
 OPENAI_API_KEY=...
-OPENAI_MODEL_TEXT=gpt-5.4-mini
-OPENAI_MODEL_VISION=gpt-5.4-mini
+OPENAI_MODEL_TEXT=gpt-6-luna
+OPENAI_MODEL_VISION=gpt-6-luna
+OPENAI_REASONING_EFFORT=low
 ```
+
+- 모델·추론 강도 줄은 생략해도 위 값이 기본으로 쓰임
 
 필요 패키지 : `openai`(3.37.0에서 테스트), `pydantic`, `python-dotenv`, `pyyaml`, `pillow`
 
