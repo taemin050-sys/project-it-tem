@@ -6,7 +6,7 @@ from datetime import date
 from typing import Any
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
-from .config import MODEL_TEXT
+from .config import MODEL_TEXT, REASONING_EFFORT
 from .llm_client import LLMError, call_structured
 from .schemas import (
     Citation,
@@ -39,7 +39,7 @@ INSTRUCTIONS = """너는 소상공인 화장품 브랜드의 인스타그램 피
 - 최근 자료를 우선해. 오래된 자료는 쓰지 마
 
 [출력 항목]
-- product_summary : 사용자 입력과 사진 분석을 합쳐 제품을 2문장으로 요약
+- product_summary : 사용자 입력을 바탕으로 제품을 2문장으로 요약. 사진 라벨에서 읽은 성분·효능은 넣지 마 (용기 모양·색은 써도 됨)
 - functional_notes : 기능성 여부에 따라 쓸 수 있는 효능 표현 범위 1문장
 - market_insights : 시장 트렌드 2~3개, 각 한 문장
 - similar_products : 유사 제품의 특징과 광고 방향 2~3개, 각 한 문장
@@ -181,7 +181,7 @@ def research(
     analysis: ProductAnalysis,
     model: str = MODEL_TEXT,
     max_tool_calls: int = DEFAULT_MAX_TOOL_CALLS,
-    reasoning_effort: str | None = None,
+    reasoning_effort: str | None = REASONING_EFFORT,
 ) -> ResearchResult:
     """기획 AI 사전 조사 (웹 검색 포함 1회 호출, 실패 시 재호출 없이 기본 조사)"""
     try:
