@@ -220,7 +220,11 @@ def test_http_failures_are_sanitized_and_never_retried(status, error, expected):
         call(OpenAIImagesAdapter(OpenAIImagesConfig(), httpx.MockTransport(handle)))
     assert found.value.code == expected and str(found.value) == expected
     assert found.value.provider_request_id == "req_safe" and len(seen) == 1
-    assert "private" not in "".join(traceback.format_exception(found.value))
+    # Match payload sentinels, not macOS /private/ traceback paths.
+    rendered = "".join(traceback.format_exception(found.value))
+    assert all(marker not in rendered for marker in (
+        "private-key", "private-prompt", "https://sensitive.invalid", "https://other.invalid",
+    ))
 
 
 @pytest.mark.parametrize("status,expected", [(401, "PROVIDER_AUTH"), (429, "PROVIDER_RATE_LIMIT")])
@@ -241,7 +245,11 @@ def test_lost_acknowledgement_stays_unknown_without_retry_or_cause_leak(error_ty
         call(OpenAIImagesAdapter(OpenAIImagesConfig(), httpx.MockTransport(handle)))
     assert found.value.code == "PROVIDER_SUBMISSION_UNKNOWN" and len(seen) == 1
     assert found.value.__cause__ is None
-    assert "private" not in "".join(traceback.format_exception(found.value))
+    # Match payload sentinels, not macOS /private/ traceback paths.
+    rendered = "".join(traceback.format_exception(found.value))
+    assert all(marker not in rendered for marker in (
+        "private-key", "private-prompt", "https://sensitive.invalid", "https://other.invalid",
+    ))
 
 
 @pytest.mark.parametrize("body", [None, [], {}, {"data": []}, {"data": [None]},
