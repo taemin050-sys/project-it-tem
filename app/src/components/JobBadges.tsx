@@ -1,5 +1,5 @@
-import { USE_MOCK } from '../config'
 import { isMockJob } from '../lib/pipeline'
+import { useProjectStore } from '../store/projectStore'
 import type { Job } from '../types/draft'
 
 type Badge = { label: string; value: string; tone: 'success' | 'warning' | 'danger' | 'neutral' }
@@ -8,8 +8,9 @@ const PRESERVATION: Record<string, string> = { pending: '검토 전', passed: '�
 
 // Mock/Live·조사 수행·검수 통과·제품 보존 검토를 서로 섞지 않고 각각 표시한다 (FRONTEND.md 4장)
 export default function JobBadges({ job }: { job: Job }) {
+  const mock = useProjectStore((s) => s.mock)
   const badges: Badge[] = []
-  badges.push(USE_MOCK || isMockJob(job)
+  badges.push(mock || isMockJob(job)
     ? { label: '생성', value: 'Mock · 실제 AI 아님', tone: 'warning' }
     : { label: '생성', value: 'Live', tone: 'neutral' })
 

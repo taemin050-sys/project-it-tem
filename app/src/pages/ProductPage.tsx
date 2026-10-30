@@ -1,8 +1,10 @@
 import { useState, type FormEvent } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { isUnreachable } from '../api/client'
 import { createJob } from '../api/jobs'
 import { advance } from '../api/useJob'
 import Field from '../components/Field'
+import MockFallback from '../components/MockFallback'
 import OptionGroup from '../components/OptionGroup'
 import PhotoDrop from '../components/PhotoDrop'
 import StepPage from '../components/StepPage'
@@ -30,7 +32,7 @@ export default function ProductPage() {
   const { images, references, product, run, setImages, setReferences, setProduct: saveProduct } = useProjectStore()
   const [errors, setErrors] = useState<ProductErrors>({})
   const [uploading, setUploading] = useState(false)
-  const [uploadError, setUploadError] = useState<string>()
+  const [uploadError, setUploadError] = useState<{ message: string; offline: boolean }>()
 
   // 사용자가 항목을 고치면 그 항목의 오류는 바로 지운다 (나머지는 다음 제출 때 다시 검사)
   const setError = (key: keyof ProductErrors, message?: string) => setErrors((e) => ({ ...e, [key]: message }))
@@ -66,7 +68,7 @@ export default function ProductPage() {
       navigate('/create/copy')
       void advance(async () => job)
     } catch (err) {
-      setUploadError(err instanceof Error ? err.message : '사진을 올리지 못했습니다.')
+      setUploadError({ message: err instanceof Error ? err.message : '사진을 올리지 못했습니다.', offline: isUnreachable(err) })
     } finally {
       setUploading(false)
     }
@@ -86,7 +88,12 @@ export default function ProductPage() {
       }
       actionsNote={
         uploadError
-          ? <p className="field-error" role="alert">{uploadError}</p>
+          ? (
+            <>
+              <p className="field-error" role="alert">{uploadError.message}</p>
+              {uploadError.offline && <MockFallback onSwitch={() => setUploadError(undefined)} />}
+            </>
+          )
           : Object.values(errors).some(Boolean) && <p className="field-error">입력하지 않았거나 확인이 필요한 항목이 있습니다.</p>
       }
     >

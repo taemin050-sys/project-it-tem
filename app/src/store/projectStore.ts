@@ -1,5 +1,6 @@
 import { create } from 'zustand'
 import { createJSONStorage, persist } from 'zustand/middleware'
+import { MOCK_DEFAULT } from '../config'
 import type { Step } from '../lib/pipeline'
 import { AD_PURPOSES, type ProductInput } from '../types/textSchema'
 
@@ -7,7 +8,7 @@ import { AD_PURPOSES, type ProductInput } from '../types/textSchema'
 export type ProductForm = Omit<ProductInput, 'product_image_count' | 'reference_image_count'>
 
 /** 지금 보내고 있는 요청과 마지막 실패. 화면 진행 표시는 이 값만 쓴다 (추정 진행률 없음) */
-export type RunState = { busy: boolean; step: Step | null; error: string | null }
+export type RunState = { busy: boolean; step: Step | null; error: string | null; offline?: boolean }
 
 type ProjectState = {
   images: File[]
@@ -15,11 +16,15 @@ type ProjectState = {
   product: ProductForm
   jobId: string | null
   run: RunState
+  /** 개발 중 mock 사용 여부. 서버가 없을 때 사용자가 직접 켠다 (조용히 mock으로 바꾸지 않음) */
+  mock: boolean
   setImages: (images: File[]) => void
   setReferences: (references: File[]) => void
   setProduct: (patch: Partial<ProductForm>) => void
   setJobId: (jobId: string | null) => void
   setRun: (patch: Partial<RunState>) => void
+  /** 서버가 바뀌면 이전 작업은 쓸 수 없어 작업·진행 상태를 비운다 (입력값·사진은 유지) */
+  setMock: (mock: boolean) => void
 }
 
 // 새로고침 뒤 서버 Job을 다시 읽을 수 있게 job_id와 입력 글자만 탭 세션에 둔다 (사진 파일은 저장 불가).
@@ -38,13 +43,15 @@ export const useProjectStore = create<ProjectState>()(persist((set) => ({
   },
   jobId: null,
   run: { busy: false, step: null, error: null },
+  mock: MOCK_DEFAULT,
   setImages: (images) => set({ images }),
   setReferences: (references) => set({ references }),
   setProduct: (patch) => set((s) => ({ product: { ...s.product, ...patch } })),
   setJobId: (jobId) => set({ jobId }),
   setRun: (patch) => set((s) => ({ run: { ...s.run, ...patch } })),
+  setMock: (mock) => set({ mock: import.meta.env.DEV && mock, jobId: null, run: { busy: false, step: null, error: null } }),
 }), {
   name: 'it-tem-project',
   storage: createJSONStorage(() => sessionStorage),
-  partialize: (s) => ({ jobId: s.jobId, product: s.product }),
+  partialize: (s) => ({ jobId: s.jobId, product: s.product, mock: s.mock }),
 }))

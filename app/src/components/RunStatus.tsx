@@ -1,14 +1,16 @@
 import { Link } from 'react-router-dom'
+import { isUnreachable } from '../api/client'
 import { getJob } from '../api/jobs'
-import { advance, refreshJob, useJob } from '../api/useJob'
-import { API_FLOW } from '../config'
+import { advance, flowOf, refreshJob, useJob } from '../api/useJob'
 import { nextStep, STEP_LABELS } from '../lib/pipeline'
 import { useProjectStore } from '../store/projectStore'
+import MockFallback from './MockFallback'
 
 // 지금 보내고 있는 요청, 마지막 실패, 멈춘 진행만 보여준다. 진행률은 서버가 주지 않아 표시하지 않는다
 export default function RunStatus() {
   const run = useProjectStore((s) => s.run)
   const jobId = useProjectStore((s) => s.jobId)
+  const mock = useProjectStore((s) => s.mock)
   const { data: job, error: loadError } = useJob()
 
   if (run.busy) {
@@ -27,6 +29,7 @@ export default function RunStatus() {
         <p className="notice-title">진행하지 못했습니다</p>
         <p>{run.error}</p>
         <button className="button secondary small" onClick={refreshJob}>상태 다시 확인</button>
+        {run.offline && <MockFallback />}
       </div>
     )
   }
@@ -39,11 +42,12 @@ export default function RunStatus() {
           <button className="button secondary small" onClick={refreshJob}>다시 불러오기</button>
           <Link className="button secondary small" to="/create/product">제품 정보에서 다시 시작</Link>
         </div>
+        {isUnreachable(loadError) && <MockFallback />}
       </div>
     )
   }
   // 새로고침·상태 확인 뒤 남은 단계가 있으면 사용자가 눌러야 이어서 보낸다
-  const step = job && nextStep(job, API_FLOW)
+  const step = job && nextStep(job, flowOf(mock))
   if (!jobId || !step) return null
   return (
     <div className="notice notice-warning" role="status">
