@@ -1,7 +1,7 @@
 import { Link, Navigate, useNavigate } from 'react-router-dom'
 import { review } from '../api/jobs'
 import { approveCopyAndCreateImage, rejectCopy } from '../api/liveFlow'
-import {editLiveCopy} from '../api/liveJobs'
+import {editLiveCopy,getLiveSnapshot} from '../api/liveJobs'
 import {queryClient} from '../api/queryClient'
 import { useState, useEffect, useRef } from 'react'
 import { advance, useJob, useLiveSnapshot, useLiveProgress } from '../api/useJob'
@@ -70,6 +70,7 @@ export default function CopyPage() {
   const [editError,setEditError]=useState('')
   const [saving,setSaving]=useState(false)
   const seenCopy=useRef<string|null>(null)
+  const approvalInFlight=useRef(false)
   const [draft,setDraft]=useState({headline:'',subline:'',cta:'',caption:'',hashtags:''})
   useEffect(()=>{
     if(live?.copy && seenCopy.current!==live.copy_sha){
@@ -94,19 +95,28 @@ export default function CopyPage() {
 
   function onApprove() {
     if(!mock){
-      if(!live)return
-      navigate('/create/draft')
-      void approveCopyAndCreateImage(live,evidenceAck).catch(()=>{})
+      if(!jobId || approvalInFlight.current)return
+      approvalInFlight.current=true
+      // Always read the current server review hash at the click boundary.
+      // Stale React Query data cannot silently discard approval clicks.
+      void getLiveSnapshot(jobId).then(current=>{
+        navigate('/create/draft')
+        return approveCopyAndCreateImage(current,evidenceAck)
+      }).catch(e=>useProjectStore.getState().setRun({
+        error:e instanceof Error?e.message:'승인 상태 조회 실패. 재호출하지 마세요.'
+      })).finally(()=>{approvalInFlight.current=false})
     }else{
       navigate('/create/draft')
       void advance(() => review(jobId!, 'copy', true))
     }
   }
   async function saveLiveCopy(){
-    if(!live?.copy)return
+    if(!jobId || !job?.copy_output)return
     setSaving(true);setEditError('')
     try{
-      await editLiveCopy(live.job_id,{...live.copy,
+      const current=await getLiveSnapshot(jobId)
+      if(!current.copy)throw Error('수정할 카피가 없습니다.')
+      await editLiveCopy(jobId,{...current.copy,
         ad_copy:{headline:draft.headline,subline:draft.subline,cta:draft.cta},
         caption:draft.caption,hashtags:draft.hashtags.split(/[\s,]+/).filter(Boolean)})
       await queryClient.invalidateQueries({queryKey:['live-snapshot',jobId]})
@@ -141,7 +151,8 @@ export default function CopyPage() {
             <div className="button-row">
               <button className="button secondary" disabled={!reviewing || busy} onClick={() => mock
                 ? void advance(() => review(jobId!, 'copy', false))
-                : live && void rejectCopy(live).catch(()=>{})}>
+                : jobId && void getLiveSnapshot(jobId).then(rejectCopy).catch(e=>
+                    useProjectStore.getState().setRun({error:String(e)}))}>
                 카피 거절
               </button>
               <button className="button" disabled={!canApprove || busy} onClick={onApprove}>이 카피로 이미지 만들기</button>
@@ -182,7 +193,7 @@ export default function CopyPage() {
                   onChange={e=>setDraft(x=>({...x,[k]:e.target.value}))}/>
               </label>)}
             <button type="button" className="button secondary"
-              disabled={saving||busy||!live?.copy}
+              disabled={saving||busy||!job?.copy_output}
               onClick={()=>void saveLiveCopy()}>{saving?'저장 중…':'수정하고 다시 검수'}</button>
             {editError&&<p role="alert" className="field-error">{editError}</p>}
           </section>}

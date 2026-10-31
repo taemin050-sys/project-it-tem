@@ -2,6 +2,7 @@ import { Link, useNavigate } from 'react-router-dom'
 import { review } from '../api/jobs'
 import { advance, useBlobUrl, useJob, useLiveSnapshot, useLiveProgress } from '../api/useJob'
 import {approveImageAndCompose,rejectImage,resumeImageFromApproved} from '../api/liveFlow'
+import {getLiveSnapshot} from '../api/liveJobs'
 import JobBadges from '../components/JobBadges'
 import RunStatus from '../components/RunStatus'
 import StepPage from '../components/StepPage'
@@ -34,9 +35,13 @@ export default function DraftPage() {
 
   function onApprove() {
     if(!mock){
-      if(!live)return
-      navigate('/create/export')
-      void approveImageAndCompose(live).catch(()=>{})
+      if(!jobId)return
+      void getLiveSnapshot(jobId).then(current=>{
+        navigate('/create/export')
+        return approveImageAndCompose(current)
+      }).catch(e=>useProjectStore.getState().setRun({
+        error:e instanceof Error?e.message:'이미지 승인 확인 실패'
+      }))
     }else{
       navigate('/create/export')
       void advance(() => review(jobId!, 'image', true))
@@ -56,7 +61,8 @@ export default function DraftPage() {
           : (
             <div className="button-row">
               <button className="button secondary" disabled={!reviewing || run.busy} onClick={() => mock ? void advance(() => review(jobId!, 'image', false))
-                : live && void rejectImage(live).catch(()=>{})}>
+                : jobId && void getLiveSnapshot(jobId).then(rejectImage).catch(e=>
+                  useProjectStore.getState().setRun({error:String(e)}))}>
                 이미지 거절
               </button>
               <button className="button" disabled={!reviewing || !imageUrl || run.busy} onClick={onApprove}>이 이미지로 광고 완성하기</button>
