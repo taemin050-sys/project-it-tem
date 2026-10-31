@@ -19,12 +19,18 @@ export const flowOf = (mock: boolean): Flow => (mock ? 'v2' : 'legacy')
 // 단계 POST가 Job을 돌려주므로 폴링하지 않는다. 새로고침 뒤에는 저장해 둔 job_id로 서버 상태를 다시 읽는다
 export function useJob() {
   const jobId = useProjectStore((s) => s.jobId)
+  const mock = useProjectStore((s) => s.mock)
+  const busy = useProjectStore((s) => s.run.busy)
   return useQuery({
     queryKey: jobKey(jobId),
-    queryFn: () => useProjectStore.getState().mock
-      ? getJob(jobId!) : getProductLiveJob(jobId!),
-    enabled: jobId !== null,
-    staleTime: Infinity,
+    queryFn: () => mock ? getJob(jobId!) : getProductLiveJob(jobId!),
+    // An uploaded B0 job exists before the Live input snapshot. Never GET the
+    // latter in the middle of the input transaction; busy also disables
+    // reads during explicitly approved POST transitions.
+    enabled: jobId !== null && (mock || !busy),
+    staleTime: mock ? Infinity : 0,
+    refetchInterval: mock ? false : 1800,
+    retry: false,
   })
 }
 

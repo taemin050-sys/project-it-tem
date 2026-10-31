@@ -163,7 +163,8 @@ def register_live_api(app:FastAPI, ledger, runtime_root:Path, cookie_name:str):
     @app.get(prefix+"/jobs/{job_id}/task-status")
     def latest_task_for_owner(job_id:str,request:Request):
         actor=authorized(request,job_id)
-        flow.state.get(actor,job_id)
+        try:flow.state.get(actor,job_id)
+        except LiveGateError as e:raise safe_error(e) from None
         with queue.db() as db:
             last=db.execute("""SELECT id,job_id,stage,state,error_code,mode
                 FROM queued_ops WHERE actor=? AND job_id=?
