@@ -3,6 +3,7 @@ import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import { getBlob } from '../api/jobs'
 import { useBlobUrl, useJob } from '../api/useJob'
+import {getLivePerformance,shareLive} from '../api/liveJobs'
 import JobBadges from '../components/JobBadges'
 import RunStatus from '../components/RunStatus'
 import StepPage from '../components/StepPage'
@@ -24,6 +25,23 @@ const approvedText = (job: Job) => job.copy_output?.caption ?? job.copy_candidat
 export default function ExportPage() {
   const run = useProjectStore((s) => s.run)
   const { data: job } = useJob()
+  const mock=useProjectStore(s=>s.mock)
+  const [shared,setShared]=useState(false)
+  const [sharing,setSharing]=useState(false)
+  const [shareError,setShareError]=useState('')
+  const perf=useQuery({
+    queryKey:['live-perf',job?.job_id],
+    queryFn:()=>getLivePerformance(job!.job_id),
+    enabled:!mock && !!job?.job_id,refetchInterval:job?.status==='COMPLETED'?false:3000,
+    retry:false
+  })
+  async function publish(){
+    if(!job || job.status!=='COMPLETED')return
+    setSharing(true);setShareError('')
+    try{await shareLive(job.job_id);setShared(true)}
+    catch(e){setShareError(e instanceof Error?e.message:'공유 실패')}
+    finally{setSharing(false)}
+  }
   const final = job?.artifacts?.final
   const captionPath = job?.artifacts?.caption?.download_url
   const finalUrl = useBlobUrl(final?.download_url)
@@ -81,6 +99,24 @@ export default function ExportPage() {
         </div>
       )}
 
+      {!mock && perf.data && <section className="panel">
+        <h2 className="panel-title">실제 AI 실행 기록</h2>
+        <p>비용 정책: {perf.data.application_cost_policy} ·
+          프로젝트 전체 사용액: {perf.data.project_spend_status}</p>
+        <ul className="plain-list">{perf.data.provider_attempts.map((a,i)=><li key={i}>
+          {a.stage} · {a.state} · {a.model||'모델 미확인'} ·
+          {a.usage ? JSON.stringify(a.usage) : '사용량 미확인'}
+        </li>)}</ul>
+        <p className="field-hint">실제 API 기록이며 Mock 처리시간이 아닙니다. 규칙 검수는 법적 적합성 확정이 아닙니다.</p>
+      </section>}
+      {!mock && ready && <section className="panel">
+        <h2 className="panel-title">팀 공동 품질 평가</h2>
+        <p>최종 광고 이미지와 Caption만 다른 인증된 팀원과 공유합니다. 원본 제품 사진와 비공개 Job 정보는 공유하지 않습니다.</p>
+        <button className="button secondary" type="button" disabled={sharing||shared}
+          onClick={()=>void publish()}>{shared?'공동 평가 공유 완료':'최종 광고를 팀원과 공유'}</button>
+        {shareError && <p role="alert" className="field-error">{shareError}</p>}
+        {shared && <Link className="button small" to="/team/evaluations">팀 평가 화면</Link>}
+      </section>}
       {ready && (
         <div className="export-layout">
           <div className="stack">

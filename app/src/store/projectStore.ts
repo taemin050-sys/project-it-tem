@@ -15,6 +15,10 @@ type ProjectState = {
   references: File[]
   product: ProductForm
   jobId: string | null
+  identityScope: string | null
+  liveTaskId: string | null
+  setIdentityScope: (scope: string | null) => void
+  setLiveTask: (task: string | null) => void
   run: RunState
   /** 개발 중 mock 사용 여부. 서버가 없을 때 사용자가 직접 켠다 (조용히 mock으로 바꾸지 않음) */
   mock: boolean
@@ -42,16 +46,22 @@ export const useProjectStore = create<ProjectState>()(persist((set) => ({
     photo_verified: false,
   },
   jobId: null,
+  identityScope: null,
+  liveTaskId: null,
+  setIdentityScope: (scope) => set((s)=>s.identityScope===scope?{}:
+    {identityScope:scope,jobId:null,liveTaskId:null,run:{busy:false,step:null,error:null}}),
+  setLiveTask: (liveTaskId) => set({liveTaskId}),
   run: { busy: false, step: null, error: null },
   mock: MOCK_DEFAULT,
   setImages: (images) => set({ images }),
   setReferences: (references) => set({ references }),
   setProduct: (patch) => set((s) => ({ product: { ...s.product, ...patch } })),
-  setJobId: (jobId) => set({ jobId }),
+  setJobId: (jobId) => set({ jobId,liveTaskId:null }),
   setRun: (patch) => set((s) => ({ run: { ...s.run, ...patch } })),
   setMock: (mock) => set({ mock: import.meta.env.DEV && mock, jobId: null, run: { busy: false, step: null, error: null } }),
 }), {
   name: 'it-tem-project',
   storage: createJSONStorage(() => sessionStorage),
-  partialize: (s) => ({ jobId: s.jobId, product: s.product, mock: s.mock }),
+  partialize: (s) => ({ jobId: s.jobId, product: s.product, mock: s.mock,
+    identityScope:s.identityScope,liveTaskId:s.liveTaskId }),
 }))

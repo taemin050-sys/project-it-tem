@@ -7,6 +7,8 @@ import type { Job } from '../types/draft'
 import { ApiError, isUnreachable } from './client'
 import { getBlob, getJob, runStep } from './jobs'
 import { queryClient } from './queryClient'
+import {getProductLiveJob,createLiveInput,queueLive,getLiveSnapshot,getLiveTask,latestLiveTask} from './liveJobs'
+import type {ProductInput} from '../types/textSchema'
 
 const jobKey = (jobId: string | null) => ['job', jobId]
 
@@ -19,7 +21,8 @@ export function useJob() {
   const jobId = useProjectStore((s) => s.jobId)
   return useQuery({
     queryKey: jobKey(jobId),
-    queryFn: () => getJob(jobId!),
+    queryFn: () => useProjectStore.getState().mock
+      ? getJob(jobId!) : getProductLiveJob(jobId!),
     enabled: jobId !== null,
     staleTime: Infinity,
   })
@@ -61,6 +64,25 @@ export async function advance(first: () => Promise<Job>) {
     let job = await first()
     jobId = job.job_id
     setJobId(jobId)
+    if(!mock){
+      const {product}=useProjectStore.getState()
+      const imageCount=job.assets?.filter(a=>a.role==='product').length
+      const refCount=job.assets?.filter(a=>a.role==='reference').length
+      if(imageCount===undefined || refCount===undefined)throw Error('원본 사진 메타데이터를 확인하지 못했습니다.')
+      const input:ProductInput={...product,brand_name:product.brand_name?.trim()||null,
+        product_image_count:imageCount,reference_image_count:refCount}
+      const current=await createLiveInput(job,input)
+      if(current.state==='INPUT_STORED'){
+        setRun({step:'ai/analyze'})
+        const task=await queueLive(jobId,'text')
+        useProjectStore.getState().setLiveTask(task.task_id)
+      } else if(current.state!=='COPY_REVIEW_REQUIRED'){
+        throw Error('기존 Live Job이 다른 단계입니다. 작업 상태부터 확인해 주세요.')
+      }
+      await queryClient.invalidateQueries({queryKey:jobKey(jobId)})
+      setRun({busy:false,step:null})
+      return
+    }
     queryClient.setQueryData(jobKey(jobId), job)
     for (let step = nextStep(job, flow); step; step = nextStep(job, flow)) {
       setRun({ step })
@@ -79,4 +101,55 @@ export async function advance(first: () => Promise<Job>) {
 function legacyPlanBody() {
   const { brand_name, product_name } = useProjectStore.getState().product
   return { brand_name: brand_name?.trim() || '브랜드 미입력', product_name: product_name.trim() }
+}
+
+/** Recover a committed B0 upload without uploading photos or resubmitting a provider call. */
+export async function recoverLiveInput(){
+  const {jobId,product,setRun}=useProjectStore.getState()
+  if(!jobId)throw Error('복구할 작업이 없습니다.')
+  setRun({busy:true,error:null})
+  try{
+    const original=await getJob(jobId)
+    const product_image_count=original.assets?.filter(a=>a.role==='product').length
+    const reference_image_count=original.assets?.filter(a=>a.role==='reference').length
+    if(product_image_count===undefined||reference_image_count===undefined)
+      throw Error('기존 사진 기록이 없습니다.')
+    const current=await createLiveInput(original,{...product,product_image_count,reference_image_count})
+    if(current.state==='INPUT_STORED'){
+      const s=await getLiveSnapshot(jobId)
+      if(s.state==='INPUT_STORED'){
+        const task=await queueLive(jobId,'text')
+        useProjectStore.getState().setLiveTask(task.task_id)
+      }
+    }
+    await queryClient.invalidateQueries({queryKey:jobKey(jobId)})
+  }catch(e){setRun({error:e instanceof Error?e.message:'Live 입력 복구 실패'});throw e}
+  finally{setRun({busy:false,step:null})}
+}
+
+/** GET-only realtime status for a queued paid attempt. Reloads never POST. */
+export function useLiveProgress(){
+  const id=useProjectStore(s=>s.jobId)
+  const mock=useProjectStore(s=>s.mock)
+  const taskId=useProjectStore(s=>s.liveTaskId)
+  return useQuery({
+    queryKey:['live-task',id,taskId],
+    queryFn:async()=>{
+      // Only read a saved task; never POST from polling or component effects.
+      if(taskId){
+        try{return await getLiveTask(taskId)}
+        catch{return (await latestLiveTask(id!)).task}
+      }
+      return (await latestLiveTask(id!)).task
+    },
+    enabled:!mock && !!id,refetchInterval:!mock?1800:false,retry:false,
+  })
+}
+export function useLiveSnapshot(){
+  const id=useProjectStore(s=>s.jobId)
+  const mock=useProjectStore(s=>s.mock)
+  return useQuery({
+    queryKey:['live-snapshot',id],queryFn:()=>getLiveSnapshot(id!),
+    enabled:!mock && !!id,refetchInterval:!mock?1800:false,retry:false,
+  })
 }

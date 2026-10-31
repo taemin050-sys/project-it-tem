@@ -160,6 +160,20 @@ def register_live_api(app:FastAPI, ledger, runtime_root:Path, cookie_name:str):
         return JSONResponse({"task_id":task["id"],"state":task["state"],
                              "new":new},status_code=202)
 
+    @app.get(prefix+"/jobs/{job_id}/task-status")
+    def latest_task_for_owner(job_id:str,request:Request):
+        actor=authorized(request,job_id)
+        flow.state.get(actor,job_id)
+        with queue.db() as db:
+            last=db.execute("""SELECT id,job_id,stage,state,error_code,mode
+                FROM queued_ops WHERE actor=? AND job_id=?
+                ORDER BY created_at DESC,rowid DESC LIMIT 1""",
+                (actor,job_id)).fetchone()
+        return {"task":({"task_id":last["id"],"job_id":last["job_id"],
+                         "stage":last["stage"],"state":last["state"],
+                         "mode":last["mode"],"error_code":last["error_code"]}
+                        if last is not None else None)}
+
     @app.post(prefix+"/jobs/{job_id}/copy")
     def edit_copy(job_id:str,body:CopyUpdate,request:Request):
         actor=authorized(request,job_id)

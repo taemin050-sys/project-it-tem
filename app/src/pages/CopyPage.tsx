@@ -1,6 +1,10 @@
 import { Link, Navigate, useNavigate } from 'react-router-dom'
 import { review } from '../api/jobs'
-import { advance, useJob } from '../api/useJob'
+import { approveCopyAndCreateImage, rejectCopy } from '../api/liveFlow'
+import {editLiveCopy} from '../api/liveJobs'
+import {queryClient} from '../api/queryClient'
+import { useState, useEffect, useRef } from 'react'
+import { advance, useJob, useLiveSnapshot, useLiveProgress } from '../api/useJob'
 import JobBadges from '../components/JobBadges'
 import RunStatus from '../components/RunStatus'
 import StepPage from '../components/StepPage'
@@ -59,6 +63,23 @@ export default function CopyPage() {
   const jobId = useProjectStore((s) => s.jobId)
   const busy = useProjectStore((s) => s.run.busy)
   const { data: job } = useJob()
+  const mock=useProjectStore(s=>s.mock)
+  const {data:live}=useLiveSnapshot()
+  const {data:task}=useLiveProgress()
+  const [evidenceAck,setEvidenceAck]=useState(false)
+  const [editError,setEditError]=useState('')
+  const [saving,setSaving]=useState(false)
+  const seenCopy=useRef<string|null>(null)
+  const [draft,setDraft]=useState({headline:'',subline:'',cta:'',caption:'',hashtags:''})
+  useEffect(()=>{
+    if(live?.copy && seenCopy.current!==live.copy_sha){
+      seenCopy.current=live.copy_sha
+      setDraft({headline:live.copy.ad_copy.headline,subline:live.copy.ad_copy.subline,
+        cta:live.copy.ad_copy.cta,caption:live.copy.caption,
+        hashtags:live.copy.hashtags.join(' ')})
+      setEvidenceAck(false)
+    }
+  },[live])
 
   if (jobId === null && !busy) return <Navigate to="/create/product" replace />
 
@@ -72,8 +93,26 @@ export default function CopyPage() {
   const canApprove = job !== undefined && canApproveCopy(job)
 
   function onApprove() {
-    navigate('/create/draft')
-    void advance(() => review(jobId!, 'copy', true))
+    if(!mock){
+      if(!live)return
+      navigate('/create/draft')
+      void approveCopyAndCreateImage(live,evidenceAck).catch(()=>{})
+    }else{
+      navigate('/create/draft')
+      void advance(() => review(jobId!, 'copy', true))
+    }
+  }
+  async function saveLiveCopy(){
+    if(!live?.copy)return
+    setSaving(true);setEditError('')
+    try{
+      await editLiveCopy(live.job_id,{...live.copy,
+        ad_copy:{headline:draft.headline,subline:draft.subline,cta:draft.cta},
+        caption:draft.caption,hashtags:draft.hashtags.split(/[\s,]+/).filter(Boolean)})
+      await queryClient.invalidateQueries({queryKey:['live-snapshot',jobId]})
+      await queryClient.invalidateQueries({queryKey:['job',jobId]})
+    }catch(e){setEditError(e instanceof Error?e.message:'카피 수정 실패')}
+    finally{setSaving(false)}
   }
 
   if (analysis && !analysis.is_cosmetic) {
@@ -100,13 +139,25 @@ export default function CopyPage() {
           ? <Link className="button" to="/create/product">제품 정보에서 다시 시작</Link>
           : (
             <div className="button-row">
-              <button className="button secondary" disabled={!reviewing || busy} onClick={() => advance(() => review(jobId!, 'copy', false))}>
+              <button className="button secondary" disabled={!reviewing || busy} onClick={() => mock
+                ? void advance(() => review(jobId!, 'copy', false))
+                : live && void rejectCopy(live).catch(()=>{})}>
                 카피 거절
               </button>
               <button className="button" disabled={!canApprove || busy} onClick={onApprove}>이 카피로 이미지 만들기</button>
             </div>
           )}
-      actionsNote={reviewing && job && <ApprovalNote job={job} />}
+      actionsNote={<>
+        {reviewing && job && <ApprovalNote job={job} />}
+        {!mock && reviewing && <label className="field-hint">
+          <input type="checkbox" checked={evidenceAck}
+            onChange={e=>setEvidenceAck(e.target.checked)}/>
+          근거 확인 필요 표현과 제품 정보의 근거를 직접 확인하겠습니다.
+          (1차 규칙 검수는 법적 적합성 확정이 아닙니다)
+        </label>}
+        {!mock && task && <p role="status">실제 AI 작업: {task.stage} · {task.state}
+          {task.state==='BILLING_UNKNOWN'?' — 청구 불확실, 자동 재시도 금지':''}</p>}
+      </>}
     >
       {job && <JobBadges job={job} />}
       <RunStatus />
@@ -120,6 +171,21 @@ export default function CopyPage() {
 
       {copy && report && (
         <div className="stack">
+          {!mock && reviewing && <section className="panel">
+            <h2 className="panel-title">카피 수정·재검수</h2>
+            <p className="field-hint">수정하면 서버에서 새 Revision으로 재검수합니다.
+              원문으로 되돌려도 이전 승인은 재활성화되지 않습니다.</p>
+            {(['headline','subline','cta','caption','hashtags'] as const).map(k=>
+              <label key={k} className="field">
+                <span className="copy-label">{k}</span>
+                <textarea rows={k==='caption'?3:2} value={draft[k]}
+                  onChange={e=>setDraft(x=>({...x,[k]:e.target.value}))}/>
+              </label>)}
+            <button type="button" className="button secondary"
+              disabled={saving||busy||!live?.copy}
+              onClick={()=>void saveLiveCopy()}>{saving?'저장 중…':'수정하고 다시 검수'}</button>
+            {editError&&<p role="alert" className="field-error">{editError}</p>}
+          </section>}
           <ReviewSummary report={report} />
 
           <div className="copy-layout">

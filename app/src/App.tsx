@@ -5,6 +5,7 @@ import DraftPage from './pages/DraftPage'
 import ExportPage from './pages/ExportPage'
 import LandingPage from './pages/LandingPage'
 import ProductPage from './pages/ProductPage'
+import LiveEvaluationBoard from './demo/LiveEvaluationBoard'
 
 export default function App() {
   return (
@@ -17,6 +18,7 @@ export default function App() {
         <Route path="draft" element={<DraftPage />} />
         <Route path="export" element={<ExportPage />} />
       </Route>
+      <Route path="team/evaluations" element={<LiveEvaluationBoard />} />
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
   )

@@ -2,7 +2,7 @@ import { useState, type FormEvent } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { isUnreachable } from '../api/client'
 import { createJob } from '../api/jobs'
-import { advance } from '../api/useJob'
+import { advance,recoverLiveInput } from '../api/useJob'
 import Field from '../components/Field'
 import MockFallback from '../components/MockFallback'
 import OptionGroup from '../components/OptionGroup'
@@ -29,7 +29,7 @@ const describedBy = (...ids: (string | false | undefined)[]) => ids.filter(Boole
 
 export default function ProductPage() {
   const navigate = useNavigate()
-  const { images, references, product, run, setImages, setReferences, setProduct: saveProduct } = useProjectStore()
+  const { images, references, product, run, jobId, setImages, setReferences, setProduct: saveProduct } = useProjectStore()
   const [errors, setErrors] = useState<ProductErrors>({})
   const [uploading, setUploading] = useState(false)
   const [uploadError, setUploadError] = useState<{ message: string; offline: boolean }>()
@@ -87,14 +87,22 @@ export default function ProductPage() {
         </button>
       }
       actionsNote={
-        uploadError
+        <>
+        {!import.meta.env.DEV && jobId && !run.busy &&
+          <button type="button" className="button secondary small"
+            onClick={()=>void recoverLiveInput().then(()=>navigate('/create/copy')).catch(()=>{})}>
+            기존 업로드 이어서 처리하기 (재업로드 없음)
+          </button>}
+        {uploadError
           ? (
             <>
               <p className="field-error" role="alert">{uploadError.message}</p>
-              {uploadError.offline && <MockFallback onSwitch={() => setUploadError(undefined)} />}
+              {import.meta.env.DEV && uploadError.offline && <MockFallback onSwitch={() => setUploadError(undefined)} />}
             </>
           )
-          : Object.values(errors).some(Boolean) && <p className="field-error">입력하지 않았거나 확인이 필요한 항목이 있습니다.</p>
+          : Object.values(errors).some(Boolean) && <p className="field-error">입력하지 않았거나 확인이 필요한 항목이 있습니다.</p>}
+        {run.error && <p className="field-error" role="alert">{run.error}</p>}
+        </>
       }
     >
       {/* noValidate: 브라우저 기본 말풍선 대신 각 항목 아래에 한국어 오류를 보여준다 */}
