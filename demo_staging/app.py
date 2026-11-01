@@ -408,6 +408,14 @@ def make_demo_app(root: Path, invite_file: Path, frontend: Path,
 
     frontend=Path(frontend)
     app.mount("/assets",StaticFiles(directory=frontend/"assets"),name="frontend-assets")
+    @app.get("/favicon.svg",include_in_schema=False)
+    def favicon():
+        icon=frontend/"favicon.svg"
+        if not icon.is_file():
+            raise HTTPException(404,"Not found")
+        return FileResponse(icon,media_type="image/svg+xml",
+                            headers={"Cache-Control":"public,max-age=86400"})
+
     @app.get("/{route:path}",include_in_schema=False)
     def spa(route: str):
         if route.startswith(("api/","demo/api/")) or "." in route:

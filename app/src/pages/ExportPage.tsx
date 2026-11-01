@@ -2,8 +2,10 @@ import { useQuery } from '@tanstack/react-query'
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import { getBlob } from '../api/jobs'
-import { useBlobUrl, useJob } from '../api/useJob'
-import {getLivePerformance,shareLive} from '../api/liveJobs'
+import { useBlobUrl, useJob, useLiveSnapshot } from '../api/useJob'
+import {getLivePerformance,shareLive,listPublishedLive} from '../api/liveJobs'
+import {isPublishedFinal} from '../api/liveMapping'
+import {queryClient} from '../api/queryClient'
 import JobBadges from '../components/JobBadges'
 import RunStatus from '../components/RunStatus'
 import StepPage from '../components/StepPage'
@@ -29,6 +31,14 @@ export default function ExportPage() {
   const [shared,setShared]=useState(false)
   const [sharing,setSharing]=useState(false)
   const [shareError,setShareError]=useState('')
+  const live=useLiveSnapshot()
+  const publications=useQuery({
+    queryKey:['live-shared-results'],
+    queryFn:listPublishedLive,
+    enabled:!mock && job?.status==='COMPLETED',
+    staleTime:0,retry:false
+  })
+  const alreadyShared=shared||isPublishedFinal(live.data,publications.data?.jobs??[])
   const perf=useQuery({
     queryKey:['live-perf',job?.job_id],
     queryFn:()=>getLivePerformance(job!.job_id),
@@ -38,7 +48,11 @@ export default function ExportPage() {
   async function publish(){
     if(!job || job.status!=='COMPLETED')return
     setSharing(true);setShareError('')
-    try{await shareLive(job.job_id);setShared(true)}
+    try{
+      await shareLive(job.job_id)
+      setShared(true)
+      await queryClient.invalidateQueries({queryKey:['live-shared-results']})
+    }
     catch(e){setShareError(e instanceof Error?e.message:'공유 실패')}
     finally{setSharing(false)}
   }
@@ -111,11 +125,12 @@ export default function ExportPage() {
       </section>}
       {!mock && ready && <section className="panel">
         <h2 className="panel-title">팀 공동 품질 평가</h2>
-        <p>최종 광고 이미지와 Caption만 다른 인증된 팀원과 공유합니다. 원본 제품 사진와 비공개 Job 정보는 공유하지 않습니다.</p>
-        <button className="button secondary" type="button" disabled={sharing||shared}
-          onClick={()=>void publish()}>{shared?'공동 평가 공유 완료':'최종 광고를 팀원과 공유'}</button>
+        <p>최종 광고 이미지와 Caption만 다른 인증된 팀원과 공유합니다. 원본 제품 사진과 비공개 Job 정보는 공유하지 않습니다.</p>
+        <button className="button secondary" type="button" disabled={sharing||alreadyShared||publications.isLoading}
+          onClick={()=>void publish()}>{alreadyShared?'공동 평가 공유 완료':
+            publications.isLoading?'공유 상태 확인 중…':'최종 광고를 팀원과 공유'}</button>
         {shareError && <p role="alert" className="field-error">{shareError}</p>}
-        {shared && <Link className="button small" to="/team/evaluations">팀 평가 화면</Link>}
+        {alreadyShared && <Link className="button small" to="/team/evaluations">팀 평가 화면</Link>}
       </section>}
       {ready && (
         <div className="export-layout">

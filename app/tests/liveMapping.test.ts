@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import {asProductJob,guardCopyApproval,guardImageApproval,type LiveSnapshot} from '../src/api/liveMapping.ts'
+import {asProductJob,guardCopyApproval,guardImageApproval,isPublishedFinal,type LiveSnapshot} from '../src/api/liveMapping.ts'
 import type {Job} from '../src/types/draft.ts'
 const raw:Job={job_id:'a'.repeat(32),status:'INPUTS_VALIDATED',assets:[{
   asset_id:'A',role:'product',original_filename:'a.png',content_type:'image/png',
@@ -42,4 +42,13 @@ test('real final download maps to the owner-scoped server, no offline artifacts'
 test('offline fixture and cross-job DTOs never pass as live',()=>{
   assert.throws(()=>asProductJob({...example,mode:'OFFLINE_FIXTURE'},raw))
   assert.throws(()=>asProductJob({...example,job_id:'other'},raw))
+})
+
+test('published status is bound to completed immutable file sha, not job id alone',()=>{
+ const s={...example,state:'COMPLETED' as const,final_sha:'a'.repeat(64)}
+ const entries=[{job_id:raw.job_id,final_sha:'a'.repeat(64)}]
+ assert.equal(isPublishedFinal(s,entries),true)
+ assert.equal(isPublishedFinal({...s,final_sha:'f'.repeat(64)},entries),false)
+ assert.equal(isPublishedFinal({...s,state:'IMAGE_APPROVED'},entries),false)
+ assert.equal(isPublishedFinal(s,[{job_id:'other',final_sha:'a'.repeat(64)}]),false)
 })
