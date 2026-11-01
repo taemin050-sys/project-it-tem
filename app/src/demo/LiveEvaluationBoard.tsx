@@ -1,76 +1,193 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
+import './LiveEvaluationBoard.css'
 
-type Shared={job_id:string;final_sha:string;shared_at:string}
-type Rated={score:number;comment:string;category:string;artifact_sha256:string;revision:number}
-const categories=[
-  ['product_recognition','제품 분석 정확도'],
-  ['plan_copy_compliance','기획·카피·규제 적절성'],
-  ['image_fidelity','제품 이미지 보존'],
-  ['final_layout_korean','한국어 합성·가독성'],
-  ['speed_reliability','속도·안정성'],
-  ['ui_ux','UI/UX'],
-]
-const api='/demo/api/live'
-async function json<T>(url:string, method='GET',body?:unknown):Promise<T>{
-  const r=await fetch(url,{method,credentials:'same-origin',cache:'no-store',
-    ...(body===undefined?{}:{headers:{'Content-Type':'application/json'},body:JSON.stringify(body)})})
-  if(!r.ok)throw new Error('HTTP '+r.status)
-  return r.json() as Promise<T>
+type Shared = {job_id: string; final_sha: string; shared_at: string}
+type Rated = {score: number; comment: string; category: string; artifact_sha256: string; revision: number}
+const categories = [
+  ['product_recognition', '제품 분석 정확도'],
+  ['plan_copy_compliance', '기획·카피·규제 적절성'],
+  ['image_fidelity', '제품 이미지 보존'],
+  ['final_layout_korean', '한국어 합성·가독성'],
+  ['speed_reliability', '속도·안정성'],
+  ['ui_ux', 'UI/UX'],
+] as const
+const api = '/demo/api/live'
+
+async function json<T>(url: string, method = 'GET', body?: unknown): Promise<T> {
+  const response = await fetch(url, {
+    method,
+    credentials: 'same-origin',
+    cache: 'no-store',
+    ...(body === undefined ? {} : {
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    }),
+  })
+  if (!response.ok) throw new Error('요청에 실패했습니다. (HTTP ' + response.status + ')')
+  return response.json() as Promise<T>
 }
-export default function LiveEvaluationBoard(){
-  const [items,setItems]=useState<Shared[]>([])
-  const [selected,setSelected]=useState<string|null>(null)
-  const [category,setCategory]=useState(categories[0][0])
-  const [score,setScore]=useState(3)
-  const [comment,setComment]=useState('')
-  const [reviews,setReviews]=useState<Rated[]>([])
-  const [error,setError]=useState('')
-  const [message,setMessage]=useState('')
-  const refresh=async()=>setItems((await json<{jobs:Shared[]}>(api+'/shared')).jobs)
-  useEffect(()=>{void Promise.resolve().then(refresh).catch(()=>{})},[])
-  async function choose(jid:string){
-    setSelected(jid);setError('')
-    try{setReviews((await json<{reviews:Rated[]}>(api+'/shared/'+jid+'/evaluations')).reviews)}
-    catch{setReviews([])}
+
+const categoryLabel = (category: string) =>
+  categories.find(([key]) => key === category)?.[1] ?? category
+
+export default function LiveEvaluationBoard() {
+  const [items, setItems] = useState<Shared[]>([])
+  const [selected, setSelected] = useState<string | null>(null)
+  const [category, setCategory] = useState<string>(categories[0][0])
+  const [score, setScore] = useState(3)
+  const [comment, setComment] = useState('')
+  const [reviews, setReviews] = useState<Rated[]>([])
+  const [error, setError] = useState('')
+  const [message, setMessage] = useState('')
+  const [loading, setLoading] = useState(true)
+  const [saving, setSaving] = useState(false)
+
+  const refresh = useCallback(async () => {
+    const data = await json<{jobs: Shared[]}>(api + '/shared')
+    setItems(data.jobs)
+  }, [])
+
+  useEffect(() => {
+    let active = true
+    void json<{jobs: Shared[]}>(api + '/shared')
+      .then(data => { if (active) setItems(data.jobs) })
+      .catch(() => { if (active) setError('공유 광고 목록을 불러오지 못했습니다.') })
+      .finally(() => { if (active) setLoading(false) })
+    return () => { active = false }
+  }, [])
+
+  async function choose(jobId: string) {
+    setSelected(jobId)
+    setReviews([])
+    setMessage('')
+    setError('')
+    try {
+      const data = await json<{reviews: Rated[]}>(api + '/shared/' + jobId + '/evaluations')
+      setReviews(data.reviews)
+    } catch {
+      setError('본인 평가 기록을 불러오지 못했습니다. 다시 선택해 주세요.')
+    }
   }
-  async function submit(){
-    if(!selected)return
-    setError('');setMessage('')
-    try{
-      const x=await json<{saved:boolean}>(api+'/shared/'+selected+'/evaluations','POST',{
-        job_id:selected,scenario_id:'UC-01',category,score,comment,needs_improvement:score<=2})
-      if(x.saved){setMessage('검토 결과가 광고 파일 SHA에 결속되어 저장됐습니다.');await choose(selected)}
-    }catch(e){setError(String(e))}
+
+  async function submit(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    if (!selected || saving || !Number.isInteger(score) || score < 1 || score > 5) return
+    setSaving(true)
+    setMessage('')
+    setError('')
+    try {
+      const result = await json<{saved: boolean}>(api + '/shared/' + selected + '/evaluations', 'POST', {
+        job_id: selected,
+        scenario_id: 'UC-01',
+        category,
+        score,
+        comment,
+        needs_improvement: score <= 2,
+      })
+      if (result.saved) {
+        setMessage('이 광고의 최종 파일 버전에 평가가 저장됐습니다.')
+        const data = await json<{reviews: Rated[]}>(api + '/shared/' + selected + '/evaluations')
+        setReviews(data.reviews)
+      } else {
+        setError('평가가 저장되지 않았습니다. 다시 확인해 주세요.')
+      }
+    } catch {
+      setError('평가 저장에 실패했습니다. 로그인 및 네트워크 연결을 확인해 주세요.')
+    } finally {
+      setSaving(false)
+    }
   }
-  return <section style={{marginTop:32,paddingTop:20,borderTop:'2px solid #bbb'}}>
-    <h2>팀 공동 Live 품질 평가</h2>
-    <p>광고 작성자가 명시적으로 공유한 최종 광고만 표시됩니다. 원본 제품 사진과 다른 작업 내역은 공개되지 않습니다.</p>
-    <button type="button" onClick={()=>void refresh().catch(()=>setError('목록 조회 실패'))}>공유 광고 새로고침</button>
-    <ul>{items.map(x=><li key={x.job_id}>
-      <button onClick={()=>void choose(x.job_id)}>{x.shared_at} · {x.job_id.slice(0,8)} · 실제 AI 광고</button>
-    </li>)}</ul>
-    {selected&&<section>
-      <h3>평가 광고 — {selected.slice(0,8)}</h3>
-      <img alt="팀 공유 최종 광고 이미지" src={api+'/shared/'+selected+'/artifacts/final'}
-        style={{width:'100%',maxWidth:360}}/>
-      <p><a href={api+'/shared/'+selected+'/artifacts/caption'}>Caption 확인</a></p>
-      <label>평가 영역
-        <select value={category} onChange={e=>setCategory(e.target.value)}>
-          {categories.map(x=><option key={x[0]} value={x[0]}>{x[1]}</option>)}
-        </select>
-      </label>
-      <label>평가 점수 (1~5)
-        <input type="number" min={1} max={5} value={score} onChange={e=>setScore(Number(e.target.value))}/>
-      </label>
-      <label>개선 의견
-        <textarea rows={3} maxLength={1800} value={comment} onChange={e=>setComment(e.target.value)}/>
-      </label>
-      <button disabled={score<1||score>5||!Number.isInteger(score)}
-        onClick={()=>void submit()}>평가 저장</button>
-      <h4>본인 평가 기록</h4>
-      <ul>{reviews.map((r,i)=><li key={i}>{r.category} · {r.score}점 · Revision {r.revision} · {r.comment}</li>)}</ul>
-    </section>}
-    {error&&<p role="alert">{error}</p>}
-    {message&&<p role="status">{message}</p>}
-  </section>
+
+  const chosen = items.find(item => item.job_id === selected)
+
+  return (
+    <main className="live-eval">
+      <div className="step-width wide live-eval-wrap">
+        <header className="live-eval-intro">
+          <p className="eyebrow">TEAM REVIEW / LIVE AI</p>
+          <h1>팀 공동 품질 평가</h1>
+          <p className="step-desc">실제 AI로 완성한 광고를 함께 검토해 주세요. 작성자가 공개를 승인한 최종 이미지와 Caption만 보이며, 원본 제품 사진과 개별 작업 기록은 공유되지 않습니다.</p>
+          <div className="notice notice-info" role="note">
+            <p>평가는 실제 사람의 독립적인 판단으로 진행합니다. 1점은 개선 필요, 5점은 매우 우수입니다. AI가 표시한 1차 규칙 검수 통과는 법률 적합성 확정을 의미하지 않습니다.</p>
+          </div>
+        </header>
+
+        <section className="panel live-eval-list" aria-labelledby="live-eval-list-title">
+          <div className="panel-head">
+            <h2 id="live-eval-list-title" className="panel-title">공유된 광고</h2>
+            <button type="button" className="button secondary small" onClick={() => void refresh().then(() => setError('')).catch(() => setError('목록 갱신 실패'))}>
+              목록 새로고침
+            </button>
+          </div>
+          {loading && <p className="muted" role="status">평가 대상을 불러오는 중입니다…</p>}
+          {!loading && items.length === 0 && <div className="empty"><p className="empty-title">아직 공유된 광고가 없습니다.</p><p>광고 작성자가 최종 결과 화면에서 ‘팀 품질 평가에 명시적으로 공유’를 선택하면 여기에 표시됩니다.</p></div>}
+          <ul className="live-eval-items">
+            {items.map((item, i) => (
+              <li key={item.job_id}>
+                <button type="button" className={'live-eval-item' + (selected === item.job_id ? ' is-active' : '')}
+                  aria-pressed={selected === item.job_id}
+                  onClick={() => void choose(item.job_id)}>
+                  <span className="live-eval-index">{String(i + 1).padStart(2, '0')}</span>
+                  <span className="live-eval-item-details"><strong>실제 AI 광고 · {item.job_id.slice(0, 8)}</strong><small>공유 시각: {item.shared_at}</small></span>
+                  <span className="live-eval-item-action">{selected === item.job_id ? '선택됨' : '평가하기'}</span>
+                </button>
+              </li>
+            ))}
+          </ul>
+        </section>
+
+        {selected && (
+          <div className="live-eval-grid">
+            <section className="panel live-eval-artwork" aria-labelledby="live-eval-artwork-title">
+              <p className="eyebrow">CREATIVE / 4:5</p>
+              <h2 id="live-eval-artwork-title" className="panel-title">평가 광고 · {selected.slice(0, 8)}</h2>
+              <img src={api + '/shared/' + selected + '/artifacts/final'} alt="팀에 명시적으로 공유된 실제 AI 광고 시안" />
+              <a className="text-link" href={api + '/shared/' + selected + '/artifacts/caption'} target="_blank" rel="noopener noreferrer">Caption 확인</a>
+              {chosen && <p className="field-hint">광고 파일 버전: {chosen.final_sha.slice(0, 12)}…</p>}
+            </section>
+
+            <section className="panel live-eval-review" aria-labelledby="live-eval-review-title">
+              <p className="eyebrow">YOUR INDEPENDENT REVIEW</p>
+              <h2 id="live-eval-review-title" className="panel-title">평가 작성</h2>
+              <p className="field-hint">평가 항목별로 점수와 개선 의견을 제출할 수 있습니다.</p>
+              <form className="stack live-eval-form" onSubmit={event => void submit(event)}>
+                <label className="field" htmlFor="live-eval-category">
+                  <span className="field-label">평가 영역</span>
+                  <select id="live-eval-category" value={category} onChange={event => setCategory(event.target.value)}>
+                    {categories.map(([key, label]) => <option key={key} value={key}>{label}</option>)}
+                  </select>
+                </label>
+                <label className="field" htmlFor="live-eval-score">
+                  <span className="field-label">평가 점수 (1~5)</span>
+                  <select id="live-eval-score" value={score} onChange={event => setScore(Number(event.target.value))}>
+                    {[1, 2, 3, 4, 5].map(value => <option key={value} value={value}>{value}점{value === 1 ? ' · 개선 필요' : value === 5 ? ' · 매우 우수' : ''}</option>)}
+                  </select>
+                </label>
+                <label className="field" htmlFor="live-eval-comment">
+                  <span className="field-label">개선 의견 <span className="field-tag">선택</span></span>
+                  <textarea id="live-eval-comment" rows={5} maxLength={1800} value={comment} onChange={event => setComment(event.target.value)} placeholder="좋았던 점, 수정이 필요한 표현 또는 이미지 요소를 적어 주세요." />
+                  <span className="field-hint">{comment.length} / 1800자</span>
+                </label>
+                <button type="submit" className="button" disabled={saving}>{saving ? '평가 저장 중…' : '평가 저장'}</button>
+              </form>
+              {message && <div className="notice notice-success" role="status"><p>{message}</p></div>}
+              {error && <div className="notice notice-danger" role="alert"><p>{error}</p></div>}
+              <div className="live-eval-records">
+                <h3>본인 평가 기록</h3>
+                {reviews.length === 0 ? <p className="field-hint">이 광고에 저장한 평가 기록이 아직 없습니다.</p> : (
+                  <ul>{reviews.map((review, i) => (
+                    <li key={i}>
+                      <div><strong>{categoryLabel(review.category)}</strong><span className="badge badge-neutral">{review.score}점</span></div>
+                      {review.comment && <p>{review.comment}</p>}
+                      <small>Revision {review.revision}</small>
+                    </li>
+                  ))}</ul>
+                )}
+              </div>
+            </section>
+          </div>
+        )}
+      </div>
+    </main>
+  )
 }
