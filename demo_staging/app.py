@@ -408,6 +408,10 @@ def make_demo_app(root: Path, invite_file: Path, frontend: Path,
 
     frontend=Path(frontend)
     app.mount("/assets",StaticFiles(directory=frontend/"assets"),name="frontend-assets")
+    # Official React Owner's published landing previews. Static files only;
+    # no Mock job/provider API, no directory listing or private artifacts.
+    if (frontend/"mock").is_dir():
+        app.mount("/mock",StaticFiles(directory=frontend/"mock"),name="frontend-preview-assets")
     @app.get("/favicon.svg",include_in_schema=False)
     def favicon():
         icon=frontend/"favicon.svg"
