@@ -1,6 +1,8 @@
 import { Link, useNavigate } from 'react-router-dom'
 import { review } from '../api/jobs'
-import { advance, useBlobUrl, useJob } from '../api/useJob'
+import { advance, useBlobUrl, useJob, useLiveSnapshot, useLiveProgress } from '../api/useJob'
+import {approveImageAndCompose,rejectImage,resumeImageFromApproved} from '../api/liveFlow'
+import {getLiveSnapshot} from '../api/liveJobs'
 import JobBadges from '../components/JobBadges'
 import RunStatus from '../components/RunStatus'
 import StepPage from '../components/StepPage'
@@ -21,6 +23,9 @@ export default function DraftPage() {
   const jobId = useProjectStore((s) => s.jobId)
   const run = useProjectStore((s) => s.run)
   const { data: job } = useJob()
+  const mock=useProjectStore(s=>s.mock)
+  const {data:live}=useLiveSnapshot()
+  const {data:task}=useLiveProgress()
   const imageUrl = useBlobUrl(job && imagePath(job))
 
   const reviewing = job?.status === 'IMAGE_REVIEW_REQUIRED'
@@ -29,8 +34,18 @@ export default function DraftPage() {
   const products = job?.assets?.filter((a) => a.role === 'product') ?? []
 
   function onApprove() {
-    navigate('/create/export')
-    void advance(() => review(jobId!, 'image', true))
+    if(!mock){
+      if(!jobId)return
+      void getLiveSnapshot(jobId).then(current=>{
+        navigate('/create/export')
+        return approveImageAndCompose(current)
+      }).catch(e=>useProjectStore.getState().setRun({
+        error:e instanceof Error?e.message:'이미지 승인 확인 실패'
+      }))
+    }else{
+      navigate('/create/export')
+      void advance(() => review(jobId!, 'image', true))
+    }
   }
 
   return (
@@ -45,13 +60,25 @@ export default function DraftPage() {
           ? <Link className="button" to="/create/product">제품 정보에서 다시 시작</Link>
           : (
             <div className="button-row">
-              <button className="button secondary" disabled={!reviewing || run.busy} onClick={() => advance(() => review(jobId!, 'image', false))}>
+              <button className="button secondary" disabled={!reviewing || run.busy} onClick={() => mock ? void advance(() => review(jobId!, 'image', false))
+                : jobId && void getLiveSnapshot(jobId).then(rejectImage).catch(e=>
+                  useProjectStore.getState().setRun({error:String(e)}))}>
                 이미지 거절
               </button>
               <button className="button" disabled={!reviewing || !imageUrl || run.busy} onClick={onApprove}>이 이미지로 광고 완성하기</button>
             </div>
           )}
-      actionsNote={reviewing && <p className="field-hint">이미지 다시 만들기·부분 수정은 아직 지원하지 않습니다.</p>}
+      actionsNote={<>
+        {reviewing && <p className="field-hint">원본 제품·브랜드·라벨 보존을 직접 확인하세요. 거절하면 자동 유료 재생성은 하지 않습니다.</p>}
+        {!mock && live && ['COPY_APPROVED','PROMPT_READY'].includes(live.state) &&
+        <button type="button" className="button secondary small"
+          disabled={run.busy || (task?.state==='RUNNING'||task?.state==='QUEUED')}
+          onClick={()=>void resumeImageFromApproved(live.job_id).catch(()=>{})}>
+          저장된 승인 상태에서 이미지 생성 진행
+        </button>}
+        {!mock && task && <p role="status">실제 AI 작업: {task.stage} · {task.state}
+          {task.state==='BILLING_UNKNOWN'?' — 청구 상태 확인 전 재호출 금지':''}</p>}
+      </>}
     >
       {job && <JobBadges job={job} />}
       <RunStatus />
