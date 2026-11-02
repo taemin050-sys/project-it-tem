@@ -46,9 +46,12 @@ test('offline fixture and cross-job DTOs never pass as live',()=>{
 
 test('published status is bound to completed immutable file sha, not job id alone',()=>{
  const s={...example,state:'COMPLETED' as const,final_sha:'a'.repeat(64)}
- const entries=[{job_id:raw.job_id,final_sha:'a'.repeat(64)}]
+ const entries=[{job_id:raw.job_id,final_sha:'a'.repeat(64),integrity_status:'VERIFIED' as const}]
  assert.equal(isPublishedFinal(s,entries),true)
  assert.equal(isPublishedFinal({...s,final_sha:'f'.repeat(64)},entries),false)
  assert.equal(isPublishedFinal({...s,state:'IMAGE_APPROVED'},entries),false)
- assert.equal(isPublishedFinal(s,[{job_id:'other',final_sha:'a'.repeat(64)}]),false)
+ assert.equal(isPublishedFinal(s,[{job_id:'other',final_sha:'a'.repeat(64),integrity_status:'VERIFIED'}]),false)
+ assert.equal(isPublishedFinal(s,[{...entries[0],integrity_status:'UNAVAILABLE'}]),false)
+ assert.equal(isPublishedFinal(s,[{job_id:raw.job_id,final_sha:'a'.repeat(64),
+   integrity_status:'UNAVAILABLE'}]),false)
 })

@@ -46,7 +46,8 @@ export const composeLive=(id:string,layout?:unknown)=>request<LiveSnapshot>(
   url(id)+'/compose',json(layout===undefined?{}:{layout}))
 export const shareLive=(id:string)=>request<{shared:boolean}>(url(id)+'/share',{method:'POST'})
 export const listPublishedLive=()=>request<{mode:string;jobs:Array<{
-  job_id:string;final_sha:string;shared_at:string}>}>(prefix+'/shared')
+  job_id:string;final_sha:string;shared_at:string;
+  integrity_status:'VERIFIED'|'UNAVAILABLE'}>}>(prefix+'/shared')
 export const getLivePerformance=(id:string)=>request<LivePerformance>(url(id)+'/performance')
 export async function waitLiveTask(id:string,taskId:string,success:LiveStateExpected,
   maxPoll=180):Promise<LiveSnapshot>{

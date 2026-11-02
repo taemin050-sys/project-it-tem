@@ -29,7 +29,6 @@ export default function ExportPage() {
   const run = useProjectStore((s) => s.run)
   const { data: job } = useJob()
   const mock=useProjectStore(s=>s.mock)
-  const [shared,setShared]=useState(false)
   const [sharing,setSharing]=useState(false)
   const [shareError,setShareError]=useState('')
   const live=useLiveSnapshot()
@@ -39,7 +38,7 @@ export default function ExportPage() {
     enabled:!mock && job?.status==='COMPLETED',
     staleTime:0,retry:false
   })
-  const alreadyShared=shared||isPublishedFinal(live.data,publications.data?.jobs??[])
+  const alreadyShared=isPublishedFinal(live.data,publications.data?.jobs??[])
   const perf=useQuery({
     queryKey:['live-perf',job?.job_id],
     queryFn:()=>getLivePerformance(job!.job_id),
@@ -51,7 +50,6 @@ export default function ExportPage() {
     setSharing(true);setShareError('')
     try{
       await shareLive(job.job_id)
-      setShared(true)
       await queryClient.invalidateQueries({queryKey:['live-shared-results']})
     }
     catch(e){setShareError(e instanceof Error?e.message:'공유 실패')}

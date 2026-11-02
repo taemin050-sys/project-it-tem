@@ -60,7 +60,8 @@ export function guardImageApproval(s:LiveSnapshot){
 }
 
 /** Verify the exact published final file, not merely a reused Job ID. */
-export function isPublishedFinal(snapshot:LiveSnapshot|undefined,items:Array<{job_id:string;final_sha:string}>):boolean{
+export function isPublishedFinal(snapshot:LiveSnapshot|undefined,items:Array<{job_id:string;final_sha:string;integrity_status:'VERIFIED'|'UNAVAILABLE'}>):boolean{
   if(!snapshot?.final_sha || snapshot.state!=='COMPLETED')return false
-  return items.some(x=>x.job_id===snapshot.job_id && x.final_sha===snapshot.final_sha)
+  return items.some(x=>x.integrity_status==='VERIFIED' &&
+    x.job_id===snapshot.job_id && x.final_sha===snapshot.final_sha)
 }
