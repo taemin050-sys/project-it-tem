@@ -212,6 +212,9 @@ def test_old_job_with_no_a_is_not_mutated_and_old_completed_readable(tmp_path):
     with pipe.state.db() as c:
         c.execute("DELETE FROM live_compose_manifests WHERE job_id=?",(jid,))
         c.execute("DELETE FROM live_job_templates WHERE job_id=?",(jid,))
+        # Reproduce a genuinely pre-policy historical completion; an old row
+        # must have no durable compose-contract-frozen event.
+        c.execute("DELETE FROM live_events WHERE job_id=? AND event='compose_contract_frozen_v1'",(jid,))
     assert pipe.state.template("alice",jid) is None
     assert pipe.state.read_manifest("alice",jid) is None
     assert pipe.validate_final_artifacts("alice",jid)["state"]=="COMPLETED"
@@ -371,3 +374,126 @@ def test_pre_policy_image_approved_without_persisted_layout_is_manual_hold(tmp_p
         pipe.compose("alice",jid,layout=layout(),font_path=FONT)
     assert pipe.state.get("alice",jid)["state"]=="IMAGE_APPROVED"
     assert pipe.state.template("alice",jid) is None
+
+@pytest.mark.parametrize("profile",["A","LEGACY"])
+def test_auditor_p0_deleted_manifest_must_not_downgrade_managed_complete(tmp_path,profile):
+    pipe,jid,_,_=staged(tmp_path,profile=profile)
+    pipe.compose("alice",jid,layout=layout() if profile=="LEGACY" else None,font_path=FONT)
+    assert pipe.validate_final_artifacts("alice",jid)["state"]=="COMPLETED"
+    with pipe.state.db() as c:
+        c.execute("DELETE FROM live_compose_manifests WHERE job_id=?",(jid,))
+    assert pipe.state.get("alice",jid)["state"]=="COMPLETED"
+    assert pipe.state.template("alice",jid) is not None
+    with pytest.raises(LiveGateError,match="COMPOSITION_MANIFEST_REQUIRED"):
+        pipe.state.read_manifest("alice",jid)
+    with pytest.raises(LiveGateError,match="COMPOSITION_MANIFEST_REQUIRED"):
+        pipe.validate_final_artifacts("alice",jid)
+
+
+@pytest.mark.parametrize("profile",["A","LEGACY"])
+def test_auditor_policy_and_manifest_both_deleted_still_fail_closed(tmp_path,profile):
+    pipe,jid,_,_=staged(tmp_path,profile=profile)
+    pipe.compose("alice",jid,layout=layout() if profile=="LEGACY" else None,font_path=FONT)
+    with pipe.state.db() as c:
+        c.execute("DELETE FROM live_compose_manifests WHERE job_id=?",(jid,))
+        c.execute("DELETE FROM live_job_templates WHERE job_id=?",(jid,))
+    # Append-only policy/compose events survived metadata deletion.
+    assert pipe.state.template("alice",jid) is None
+    with pytest.raises(LiveGateError,match="COMPOSITION_MANIFEST_REQUIRED"):
+        pipe.validate_final_artifacts("alice",jid)
+
+
+@pytest.mark.parametrize("file",["receipt.json","final.png","caption.txt"])
+def test_auditor_missing_artifact_file_fails_closed(tmp_path,file):
+    pipe,jid,_,_=staged(tmp_path)
+    pipe.compose("alice",jid,font_path=FONT)
+    (pipe.root/"outputs"/jid/file).unlink()
+    with pytest.raises(LiveGateError,match="INTEGRITY|FAILED"):
+        pipe.validate_final_artifacts("alice",jid)
+
+
+def test_auditor_true_pre_policy_completed_without_contract_still_replays(tmp_path):
+    pipe,jid,_,_=staged(tmp_path,profile="LEGACY")
+    # Truly legacy: state.composed was the old implementation path, with
+    # final/Caption only, no template and no compose receipt manifest.
+    from demo_staging.live.pipeline import atomic_write
+    final=png((80,90,100),size=(1080,1350))
+    caption="과거 완료 Job의 한국어 캡션\n#보습".encode("utf8")
+    d=pipe.root/"outputs"/jid
+    atomic_write(d/"final.png",final)
+    atomic_write(d/"caption.txt",caption)
+    pipe.state.composed("alice",jid,hashlib.sha256(final).hexdigest(),
+                        hashlib.sha256(caption).hexdigest())
+    assert pipe.state.template("alice",jid) is None
+    assert pipe.state.read_manifest("alice",jid) is None
+    assert pipe.validate_final_artifacts("alice",jid)["state"]=="COMPLETED"
+
+
+def test_auditor_historical_a_v1_recovery_ignores_current_owner_factory(tmp_path,monkeypatch):
+    from demo_staging.live import template_contract as tc
+    pipe,jid,_,_=staged(tmp_path)
+    pipe.compose("alice",jid,font_path=FONT)
+    saved=pipe.state.template("alice",jid)
+    def changed_owner():
+        zone,ly=make_a_template()
+        changed=zone.model_copy(update={"left":.07})
+        return changed,ly
+    monkeypatch.setattr(tc,"make_a_template",changed_owner)
+    # Old frozen owner-a-v1 is valid even after a future Owner default changes.
+    assert pipe.state.template("alice",jid)==saved
+    assert pipe.validate_final_artifacts("alice",jid)["state"]=="COMPLETED"
+    with pytest.raises(LiveGateError,match="A_TEMPLATE_VERSION_DRIFT"):
+        pipe.state.create("alice","a"*32,sample_input(),assets(),template_profile="A")
+
+
+def test_http_deleted_manifest_denies_get_download_share_and_shared_file(tmp_path):
+    from fastapi.testclient import TestClient
+    from tests.demo_live.test_http_gateway import setup,login,photo
+    app,codes=setup(tmp_path)
+    with TestClient(app) as user, TestClient(app) as peer:
+        login(user,codes["alice"]);login(peer,codes["bob"])
+        r=user.post("/api/v1/jobs",files=[
+            ("product_images",("p1.png",photo((120,130,140)),"image/png")),
+            ("product_images",("p2.png",photo((150,160,170)),"image/png"))],
+            headers={"Origin":"http://testserver"})
+        assert r.status_code==201
+        jid=r.json()["job_id"]
+        prefix=f"/demo/api/live/jobs/{jid}"
+        response=user.post(prefix+"/input",json=sample_input(),
+                           headers={"Origin":"http://testserver"})
+        assert response.status_code==200
+        pipe=app.state.live_pipeline
+        fake=FakeOwner()
+        text=pipe.text("alice",jid,fake,offline=True)
+        pipe.state.approve_copy("alice",jid,text["generation"],text["review_sha"])
+        pipe.prompt("alice",jid,fake,offline=True)
+        data=png((220,230,235),size=(1152,1440))
+        output=BackendGeneratedImage(image_bytes=data,mime_type="image/png",
+            width=1152,height=1440,sha256=hashlib.sha256(data).hexdigest(),
+            job_id=jid,copy_revision=text["generation"],copy_hash=text["copy_sha"],
+            mock=True,receipt={"mode":"SYNTHETIC_FIXTURE","provider_calls":0})
+        pipe.accept_image_result("alice",jid,output,offline=True)
+        pipe.state.approve_image("alice",jid,output.sha256)
+        pipe.compose("alice",jid,font_path=FONT)
+        # Synthetic test-only mode bit permits checking HTTP Live sharing ACL.
+        # There was no real Provider call and no real model billing.
+        with pipe.state.db() as c:
+            c.execute("UPDATE live_jobs SET mode='LIVE' WHERE job_id=?",(jid,))
+        assert user.get(prefix).status_code==200
+        assert user.get(prefix+"/artifacts/final").status_code==200
+        assert user.get(prefix+"/artifacts/caption").status_code==200
+        assert peer.get(prefix+"/artifacts/final").status_code==404
+        shared=user.post(prefix+"/share",headers={"Origin":"http://testserver"})
+        assert shared.status_code==200,shared.text
+        url=f"/demo/api/live/shared/{jid}/artifacts/final"
+        assert peer.get(url).status_code==200
+        with pipe.state.db() as c:
+            c.execute("DELETE FROM live_compose_manifests WHERE job_id=?",(jid,))
+        assert user.get(prefix).status_code==503
+        assert user.get(prefix+"/artifacts/final").status_code==503
+        assert user.get(prefix+"/artifacts/caption").status_code==503
+        assert user.post(prefix+"/share",headers={"Origin":"http://testserver"}).status_code==503
+        assert peer.get(url).status_code==503
+        assert peer.get(f"/demo/api/live/shared/{jid}/artifacts/caption").status_code==503
+        assert peer.get(f"/demo/api/live/shared/{jid}/evaluations").status_code==503
+        assert peer.get(prefix).status_code==404

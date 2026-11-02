@@ -148,8 +148,17 @@ def register_live_api(app:FastAPI, ledger, runtime_root:Path, cookie_name:str):
     def get_job(job_id:str,request:Request):
         actor=authorized(request,job_id)
         try:
-            return visible(flow.state.get(actor,job_id))
+            job=flow.state.get(actor,job_id)
+            if job["state"]=="COMPLETED":
+                # Avoid advertising a corrupted finished Job as downloadable.
+                flow.validate_final_artifacts(actor,job_id)
+            return visible(job)
         except LiveGateError as e:
+            if e.code.startswith(("COMPOSITION_MANIFEST_",
+                                  "COMPOSITION_RECEIPT_",
+                                  "FINAL_ARTIFACT_",
+                                  "TEMPLATE_POLICY_")):
+                raise HTTPException(503,detail="Artifact integrity unavailable") from None
             raise safe_error(e) from None
 
     @app.post(prefix+"/jobs/{job_id}/queue-text")
@@ -371,6 +380,9 @@ def register_live_api(app:FastAPI, ledger, runtime_root:Path, cookie_name:str):
         j=flow.state.get(item["actor"],job_id)
         if j["state"]!="COMPLETED" or j["mode"]!="LIVE" or j["final_sha"]!=item["final_sha"]:
             raise HTTPException(409,"Shared artifact changed")
+        try:flow.validate_final_artifacts(item["actor"],job_id)
+        except LiveGateError:
+            raise HTTPException(503,"Shared result integrity error") from None
         previous=[x for x in ledger.reviews(actor,job_id)
                   if x["scenario_id"]==data.scenario_id and x["category"]==data.category]
         rev=ledger.review(actor,job_id,data,item["final_sha"],
@@ -383,6 +395,9 @@ def register_live_api(app:FastAPI, ledger, runtime_root:Path, cookie_name:str):
         actor=authorized(request)
         item=shares.item(job_id)
         if not item:raise HTTPException(404,"Shared evaluation unavailable")
+        try:flow.validate_final_artifacts(item["actor"],job_id)
+        except LiveGateError:
+            raise HTTPException(503,"Shared result integrity error") from None
         return {"mode":"LIVE","job_id":job_id,
                 "reviews":ledger.reviews(actor,job_id),
                 "final_sha":item["final_sha"]}

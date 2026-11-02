@@ -7,6 +7,10 @@ from .contracts import LiveGateError, digest
 
 A_ID="A_CENTERED"
 A_VERSION="owner-a-v1"
+# Pinned from the released Owner A v1 DTO (SHA of canonical JSON).
+# NEVER derive these historical digests from a future mutable factory.
+A_V1_SAFE_ZONE_SHA="c0fed10c854d6c8483d782f8721d60df7e6b975ceabeaab23dfb5ebe0861f4ce"
+A_V1_LAYOUT_SHA="c9fe0d76a35e8171cbfca2b23ae1eafc2bd4d60e9ad7cb8164098b6f420d43e1"
 LEGACY_ID="LEGACY_PINNED"
 LEGACY_VERSION="legacy-layout-v1"
 
@@ -15,9 +19,15 @@ def canonical(value):
 
 def owner_a_policy():
     zone,layout=make_a_template()  # ALWAYS unverified, protected_regions=[]
+    zone_json=zone.model_dump(mode="json")
+    layout_json=layout.model_dump(mode="json")
+    # If Owner releases new A defaults, require a new explicit version instead
+    # of silently rewriting the historical owner-a-v1 schema.
+    if (digest(zone_json)!=A_V1_SAFE_ZONE_SHA or
+            digest(layout_json)!=A_V1_LAYOUT_SHA):
+        raise LiveGateError("A_TEMPLATE_VERSION_DRIFT")
     return {"profile_id":A_ID,"profile_version":A_VERSION,
-            "safe_zone":zone.model_dump(mode="json"),
-            "layout":layout.model_dump(mode="json")}
+            "safe_zone":zone_json,"layout":layout_json}
 
 def normalize_layout(value):
     try:
@@ -34,10 +44,12 @@ def verify_policy(row):
             raise ValueError("hash")
         normalize_layout(layout)
         if row["profile_id"]==A_ID:
-            expected=owner_a_policy()
-            if (row["profile_version"]!=A_VERSION or zone!=expected["safe_zone"] or
-                    layout!=expected["layout"]):
-                raise ValueError("A owner mismatch")
+            # Restore historical v1 from its stored snapshot and frozen SHA,
+            # without asking the *current* Owner factory for old coordinates.
+            if (row["profile_version"]!=A_VERSION or
+                    row["safe_zone_sha"]!=A_V1_SAFE_ZONE_SHA or
+                    row["layout_sha"]!=A_V1_LAYOUT_SHA):
+                raise ValueError("A owner v1 version mismatch")
         elif row["profile_id"]!=LEGACY_ID or zone is not None:
             raise ValueError("unknown profile")
         return {"profile_id":row["profile_id"],"profile_version":row["profile_version"],

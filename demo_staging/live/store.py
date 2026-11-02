@@ -108,6 +108,13 @@ class LiveStore:
                      canonical(layout),digest(layout)))
             r=self._read(c,job_id,actor)
             self._event(c,r,"input_committed",r["state"],sha)
+            if template_profile=="A":
+                # Durable ingress provenance in the existing append-only event log.
+                # A deleted template row must not disguise an A Job as old legacy.
+                self._event(c,r,"template_a_ingress_contract_v1",r["state"],digest({
+                    "profile_id":A_ID,"profile_version":A_VERSION,
+                    "input_sha":sha,"safe_zone_sha":digest(zone),
+                    "layout_sha":digest(layout)}))
             if template_profile=="LEGACY":
                 # Distinguish known new internal legacy fixtures from old,
                 # pre-policy IMAGE_APPROVED jobs whose original compose layout
@@ -377,6 +384,8 @@ class LiveStore:
                 c.execute("""UPDATE live_job_templates
                     SET bound_font_sha=?,bound_context_sha=? WHERE job_id=?""",
                     (font_sha,context_sha,job_id))
+                # A separate event remains when a policy/manifest record is lost.
+                self._event(c,job,"compose_contract_frozen_v1",job["state"],context_sha)
             c.commit()
             return {"layout":layout,"layout_sha":policy["layout_sha"],
                     "font_sha":font_sha,"context_sha":context_sha,
@@ -424,13 +433,24 @@ class LiveStore:
             job=self._read(c,job_id,actor)
             r=c.execute("SELECT * FROM live_compose_manifests WHERE job_id=?",
                         (job_id,)).fetchone()
-            if r is None:return None  # Prior completed jobs have no synthetic receipts.
+            policy_row=c.execute("SELECT * FROM live_job_templates WHERE job_id=?",
+                                 (job_id,)).fetchone()
+            managed_marker=c.execute("""SELECT 1 FROM live_events WHERE job_id=?
+                AND event IN ('template_a_ingress_contract_v1',
+                              'compose_contract_frozen_v1') LIMIT 1""",
+                (job_id,)).fetchone()
+            if r is None:
+                # A/LEGACY_PINNED finalized with this contract always requires its
+                # durable receipt; only true pre-policy COMPLETED rows may omit it.
+                # Retained events also catch a policy row deleted along with receipt.
+                if job["state"]=="COMPLETED" and (
+                        policy_row is not None or managed_marker is not None):
+                    raise LiveGateError("COMPOSITION_MANIFEST_REQUIRED")
+                return None
             try:
                 receipt=json.loads(r["receipt_json"])
                 envelope=json.loads(r["envelope_json"])
-                profile=verify_policy(c.execute(
-                    "SELECT * FROM live_job_templates WHERE job_id=?",
-                    (job_id,)).fetchone())
+                profile=verify_policy(policy_row)
                 if (not profile or digest(receipt)!=r["receipt_sha"] or
                     digest(envelope)!=r["envelope_sha"] or
                     envelope["job_id"]!=job_id or
