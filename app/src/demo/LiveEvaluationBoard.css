@@ -1,0 +1,46 @@
+/* IT-TEM team evaluation: uses the official Owner FE design tokens.
+   Scoped to the page; does not alter the Owner's product flow/style. */
+.live-eval { min-height: calc(100vh - 116px); }
+.live-eval-wrap { padding-block: clamp(32px, 5vw, 72px) 96px; }
+.live-eval-intro { max-width: 920px; margin-bottom: 32px; }
+.live-eval-intro h1 { margin: 10px 0 12px; font: 700 clamp(30px, 4vw, 44px)/1.24 var(--serif); letter-spacing: -0.015em; }
+.live-eval-intro .notice { margin-top: 24px; max-width: 880px; }
+.live-eval-list { margin-bottom: 24px; }
+.live-eval-list .panel-head { align-items: center; }
+.live-eval-list .panel-title { margin: 0; }
+.live-eval-items { list-style: none; padding: 0; margin: 0; display: grid; gap: 8px; }
+.live-eval-item { width: 100%; display: flex; align-items: center; gap: 16px; text-align: left;
+  padding: 15px 18px; background: var(--bg); color: var(--text); border: 1px solid var(--border);
+  border-radius: var(--radius); font: inherit; cursor: pointer; }
+.live-eval-item:hover, .live-eval-item.is-active { border-color: var(--text); background: #fff; }
+.live-eval-item.is-active { box-shadow: inset 4px 0 var(--accent); }
+.live-eval-index { font: 500 15px/1 var(--mono); color: var(--text-2); }
+.live-eval-item-details { display: grid; flex: 1; min-width: 0; gap: 3px; }
+.live-eval-item-details strong { font-size: 16px; }
+.live-eval-item-details small { font-size: 13px; color: var(--text-2); overflow-wrap: anywhere; }
+.live-eval-item-action { font-size: 14px; font-weight: 700; white-space: nowrap; }
+.live-eval-grid { display: grid; grid-template-columns: minmax(0, 5fr) minmax(0, 6fr); gap: 24px; align-items: start; }
+.live-eval-grid > .panel { min-width: 0; }
+.live-eval-artwork .panel-title, .live-eval-review .panel-title { margin-top: 8px; }
+.live-eval-artwork img { width: 100%; height: auto; max-width: 480px; aspect-ratio: 4/5; object-fit: contain; background: var(--bg); display: block; margin: 18px 0; }
+.live-eval-artwork .field-hint { margin-top: 6px; overflow-wrap: anywhere; }
+.live-eval-form { margin-top: 26px; gap: 20px; }
+.live-eval-review .notice { margin-top: 18px; }
+.live-eval-records { border-top: 1px solid var(--border); margin-top: 28px; padding-top: 22px; }
+.live-eval-records h3 { font-size: 17px; font-weight: 700; margin-bottom: 14px; }
+.live-eval-records ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; }
+.live-eval-records li { padding: 15px; border: 1px solid var(--border); border-radius: var(--radius); }
+.live-eval-records li > div { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.live-eval-records li p { margin: 8px 0; font-size: 14px; white-space: pre-wrap; }
+.live-eval-records li small { color: var(--text-2); }
+@media (max-width: 900px) { .live-eval-grid { grid-template-columns: 1fr; } .live-eval-artwork img { max-width: 480px; } }
+@media (max-width: 559px) {
+ .live-eval-wrap { padding-block: 28px 72px; }
+ .live-eval-list .panel-head { align-items: stretch; flex-direction: column; }
+ .live-eval-list .panel-head .button { align-self: flex-start; }
+ .live-eval-item { padding: 12px; gap: 10px; }
+ .live-eval-item-action { font-size: 12px; }
+ .live-eval-item-details strong { font-size: 14px; }
+ .live-eval-grid { gap: 14px; }
+ .live-eval-artwork img { max-width: 100%; }
+}

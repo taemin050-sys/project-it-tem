@@ -74,6 +74,16 @@ def call_structured(
         ) from e
 
     body = raw.http_response.json()
+    # Isolated Serving integration: record only sanitized usage/response ID,
+    # never raw user content or secret. No change to Owner function signature.
+    # This integration hook requires Owner review before canonical merge.
+    try:
+        from demo_staging.live.provider_receipts import record_owner_response
+        record_owner_response(body, getattr(raw.http_response, "headers", {}).get("x-request-id"))
+    except (ImportError, AttributeError, ValueError, TypeError):
+        # The Serving guard rejects calls without a verifiable receipt; a
+        # telemetry formatting problem must not expose provider internals.
+        pass
     status = body.get("status")
     reason = (body.get("incomplete_details") or {}).get("reason")
     tokens = _usage_text(body.get("usage"))
