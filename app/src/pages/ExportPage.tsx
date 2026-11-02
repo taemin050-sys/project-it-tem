@@ -1,0 +1,130 @@
+import { useQuery } from '@tanstack/react-query'
+import { useState } from 'react'
+import { Link } from 'react-router-dom'
+import { getBlob } from '../api/jobs'
+import { useBlobUrl, useJob } from '../api/useJob'
+import JobBadges from '../components/JobBadges'
+import RunStatus from '../components/RunStatus'
+import StepPage from '../components/StepPage'
+import { CANVAS } from '../config'
+import { useProjectStore } from '../store/projectStore'
+import type { Job } from '../types/draft'
+
+function download(href: string, filename: string) {
+  const a = document.createElement('a')
+  a.href = href
+  a.download = filename
+  a.click()
+}
+
+// 승인한 카피가 서버 본문 파일에 그대로 들어갔는지 (v0.5는 caption, 레거시는 문구 1개)
+const approvedText = (job: Job) => job.copy_output?.caption ?? job.copy_candidate?.text
+
+// 최종 결과: 서버가 합성한 광고 PNG(artifacts/final) + 게시글 본문·해시태그(artifacts/caption)
+export default function ExportPage() {
+  const run = useProjectStore((s) => s.run)
+  const { data: job } = useJob()
+  const final = job?.artifacts?.final
+  const captionPath = job?.artifacts?.caption?.download_url
+  const finalUrl = useBlobUrl(final?.download_url)
+  const { data: caption } = useQuery({
+    queryKey: ['text', captionPath],
+    queryFn: async () => (await getBlob(captionPath!)).text(),
+    enabled: captionPath !== undefined,
+    staleTime: Infinity,
+  })
+  const [size, setSize] = useState<{ width: number; height: number }>()
+  const [copied, setCopied] = useState<'idle' | 'done' | 'error'>('idle')
+
+  const ready = job?.status === 'COMPLETED' && finalUrl !== undefined && caption !== undefined
+  const sizeOk = size?.width === CANVAS.width && size?.height === CANVAS.height
+  const expected = job && approvedText(job)
+  const captionOk = caption !== undefined && expected !== undefined && caption.includes(expected)
+  const ext = final?.content_type.includes('svg') ? 'svg' : 'png'
+
+  async function copyPost() {
+    try {
+      await navigator.clipboard.writeText(caption!)
+      setCopied('done')
+    } catch {
+      setCopied('error')
+    }
+  }
+
+  function saveCaption() {
+    const url = URL.createObjectURL(new Blob([caption!], { type: 'text/plain;charset=utf-8' }))
+    download(url, 'caption.txt')
+    // 바로 해제하면 일부 브라우저에서 다운로드가 시작되기 전에 끊긴다
+    setTimeout(() => URL.revokeObjectURL(url), 1000)
+  }
+
+  return (
+    <StepPage
+      title="최종 결과"
+      description="완성된 광고 이미지와 게시글 본문·해시태그를 확인하고 저장하세요."
+      wide
+      back={{ to: '/create/draft', label: '이미지 검토' }}
+      actions={
+        <button className="button" disabled={!ready} onClick={() => download(finalUrl!, `ad_${CANVAS.width}x${CANVAS.height}.${ext}`)}>
+          광고 이미지 저장 ({ext.toUpperCase()})
+        </button>
+      }
+    >
+      {job && <JobBadges job={job} />}
+      <RunStatus />
+
+      {job?.status !== 'COMPLETED' && !run.busy && !run.error && (
+        <div className="empty">
+          <p className="empty-title">아직 완성된 광고가 없습니다</p>
+          <p>이미지 검토에서 이미지를 승인하면 최종 광고를 만듭니다.</p>
+          <Link className="button small" to="/create/draft">이미지 검토로 가기</Link>
+        </div>
+      )}
+
+      {ready && (
+        <div className="export-layout">
+          <div className="stack">
+            <section className="panel" aria-labelledby="post-title">
+              <h2 id="post-title" className="panel-title">게시글 본문·해시태그</h2>
+              <p className="post-text">{caption}</p>
+              {!captionOk && <p className="field-error">본문 파일에 승인한 카피가 그대로 들어 있지 않습니다. 게시 전에 확인해 주세요.</p>}
+              <div className="button-row">
+                <button className="button secondary small" onClick={copyPost}>본문 복사</button>
+                <button className="button secondary small" onClick={saveCaption}>텍스트 저장 (.txt)</button>
+              </div>
+              <p className="field-hint" role="status">
+                {copied === 'done' ? '✓ 본문과 해시태그를 복사했습니다.' : copied === 'error' ? '복사하지 못했습니다. 텍스트를 직접 선택해 복사해 주세요.' : ''}
+              </p>
+            </section>
+
+            {job.compliance_report && (
+              <section className="panel" aria-labelledby="final-check-title">
+                <h2 id="final-check-title" className="panel-title">게시 전 확인</h2>
+                {job.compliance_report.checklist.length > 0 && (
+                  <ul className="plain-list">{job.compliance_report.checklist.map((c) => <li key={c}>{c}</li>)}</ul>
+                )}
+                <p className="field-hint panel-footnote">{job.compliance_report.notice}</p>
+              </section>
+            )}
+          </div>
+
+          <aside>
+            <figure className="export-preview">
+              <img
+                className="result-image"
+                src={finalUrl}
+                alt="최종 광고 이미지"
+                onLoad={(e) => setSize({ width: e.currentTarget.naturalWidth, height: e.currentTarget.naturalHeight })}
+              />
+              <figcaption>
+                {!size ? '크기 확인 중…' : sizeOk
+                  ? `✓ ${size.width}×${size.height}px (4:5)`
+                  : <span className="field-error">크기가 {size.width}×{size.height}px입니다 (기대값 {CANVAS.width}×{CANVAS.height})</span>}
+              </figcaption>
+            </figure>
+          </aside>
+        </div>
+      )}
+    </StepPage>
+  )
+}
