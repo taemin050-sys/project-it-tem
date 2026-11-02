@@ -485,10 +485,20 @@ def test_http_deleted_manifest_denies_get_download_share_and_shared_file(tmp_pat
         assert peer.get(prefix+"/artifacts/final").status_code==404
         shared=user.post(prefix+"/share",headers={"Origin":"http://testserver"})
         assert shared.status_code==200,shared.text
+        board_before=peer.get("/demo/api/live/shared")
+        assert board_before.status_code==200
+        assert board_before.json()["jobs"][0]["integrity_status"]=="VERIFIED"
         url=f"/demo/api/live/shared/{jid}/artifacts/final"
         assert peer.get(url).status_code==200
         with pipe.state.db() as c:
             c.execute("DELETE FROM live_compose_manifests WHERE job_id=?",(jid,))
+        board_after=peer.get("/demo/api/live/shared")
+        assert board_after.status_code==200
+        assert len(board_after.json()["jobs"])==1
+        assert board_after.json()["jobs"][0]["integrity_status"]=="UNAVAILABLE"
+        # Existing author publication record remains untouched.
+        from demo_staging.live.reviews import LiveShares
+        assert LiveShares(tmp_path/"runtime/live/shares.sqlite").item(jid)["final_sha"]==shared.json()["final_sha"]
         assert user.get(prefix).status_code==503
         assert user.get(prefix+"/artifacts/final").status_code==503
         assert user.get(prefix+"/artifacts/caption").status_code==503

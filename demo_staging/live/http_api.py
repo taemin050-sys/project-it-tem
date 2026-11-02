@@ -340,9 +340,23 @@ def register_live_api(app:FastAPI, ledger, runtime_root:Path, cookie_name:str):
     @app.get(prefix+"/shared")
     def shared_board(request:Request):
         authorized(request)
-        return {"mode":"LIVE","jobs":[{"job_id":x["job_id"],
-            "final_sha":x["final_sha"],"shared_at":x["shared_at"]}
-            for x in shares.all()]}
+        results=[]
+        for item in shares.all():
+            # Explicit publication history is preserved. A damaged artifact
+            # cannot silently become an eligible evaluation target.
+            valid=False
+            if ledger.owns(item["actor"],item["job_id"]):
+                try:
+                    job=flow.validate_final_artifacts(item["actor"],item["job_id"])
+                    valid=(job["mode"]=="LIVE" and
+                        job["final_sha"]==item["final_sha"] and
+                        job["caption_sha"]==item["caption_sha"])
+                except (LiveGateError,OSError,ValueError,KeyError):
+                    valid=False
+            results.append({"job_id":item["job_id"],"final_sha":item["final_sha"],
+                "shared_at":item["shared_at"],
+                "integrity_status":"VERIFIED" if valid else "UNAVAILABLE"})
+        return {"mode":"LIVE","jobs":results}
 
     @app.get(prefix+"/shared/{job_id}/artifacts/{kind}")
     def shared_file(job_id:str,kind:str,request:Request):
