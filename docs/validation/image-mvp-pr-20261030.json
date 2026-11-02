@@ -1,0 +1,152 @@
+{
+  "recorded_date": "2026-10-30",
+  "timezone": "Asia/Seoul",
+  "repository": "taemin050-sys/project-it-tem",
+  "base_branch": "dev",
+  "base_commit": "cfb5bc5f5ba225680f4ab841c3065155ecbc602a",
+  "runtime_code_commit": "b0cf72e889aa0b975021bccdd6d5eaca6934bc44",
+  "test_fix_commit": "d4a06fff49ea82576ebc5ec68a60fec621d8bc57",
+  "test_file_sha256": "ab25474b5c9a1925769cc1dfa6c59da78289f6e0bf3a12eb88c8f033cb63888c",
+  "method": "dev와 이미지 HEAD의 충돌 없는 합성 트리를 임시 사본으로 내보냈다. 테스트 오탐 수정 파일을 같은 사본에 반영했다. 실제 dev 브랜치는 변경하지 않았다.",
+  "environment": {
+    "platform": "macOS 26.6.2 arm64",
+    "python": "3.11.15",
+    "packages": {
+      "pydantic": "2.14.1",
+      "httpx": "0.28.1",
+      "Pillow": "13.0.0",
+      "fonttools": "4.68.0",
+      "pytest": "9.2.0",
+      "fastapi": "0.161.1",
+      "starlette": "1.7.0",
+      "python-multipart": "0.0.32"
+    }
+  },
+  "checks": [
+    {
+      "name": "image_module",
+      "status": "PASS",
+      "passed": 348,
+      "failed": 0,
+      "seconds": 7.06,
+      "command": "python -B -m pytest -p no:cacheprovider -c tests/image_generation/pytest.ini tests/image_generation -q",
+      "scope": "이미지 모듈 단위·Mock·로컬 합성. 외부 네트워크를 시험에서 차단한다."
+    },
+    {
+      "name": "dev_b0_http_contract",
+      "status": "PASS",
+      "passed": 19,
+      "failed": 0,
+      "warnings": 1,
+      "seconds": 0.35,
+      "command": "IT_TEM_KOREAN_FONT=<repo>/tests/image_generation/fixtures/fonts/NanumGothic-Regular.ttf python -B -m pytest -p no:cacheprovider tests/test_api_list_contract.py tests/test_b0_s3b2_http_contract.py -q",
+      "scope": "기존 dev의 HTTP 11개 동작 및 Mock 결과 파일. 새 이미지 실서비스 연결은 아니다.",
+      "warning": "Starlette TestClient가 HTTPX 사용 중단 예고 경고 1건을 출력했다."
+    },
+    {
+      "name": "team_contract_package",
+      "status": "PASS",
+      "synthetic_fixtures": 8,
+      "markdown_documents": 13,
+      "command": "python -B docs/contracts/validate_package.py",
+      "scope": "합성 계약 자료·필수 문서·상대 링크·코드 블록 검사. 텍스트 담당 실제 전체 파이프라인 검증은 아니다."
+    },
+    {
+      "name": "dev_merge_check",
+      "status": "PASS",
+      "merge_tree": "e01d50c2cd5da5732ffc83b19880fd6cae7421bb",
+      "scope": "기능 코드 b0cf72e와 dev 기준 충돌 없음. 최종 문서 커밋 뒤에도 별도 확인한다."
+    }
+  ],
+  "corrected_findings": [
+    {
+      "finding": "기존 오류 노출 시험이 macOS /private/ 경로를 민감 데이터로 오인했다.",
+      "before": "이미지 334 passed, 14 failed",
+      "change": "시험용 키·프롬프트·URL 문자열을 정확히 비교한다. 런타임 코드는 유지한다.",
+      "after": "동일 경로에서 이미지 348 passed"
+    },
+    {
+      "finding": "이미지 전용 가상환경에는 FastAPI가 없어 dev 시험을 수집하지 못했다.",
+      "change": "기존 환경을 유지하고 별도 통합 가상환경을 만들었다."
+    },
+    {
+      "finding": "기존 dev Mock 합성 시험의 한글 폰트 미설정으로 503이 발생했다.",
+      "change": "기존 IT_TEM_KOREAN_FONT 설정으로 bundled OFL 폰트를 지정했다. 서빙 코드는 바꾸지 않았다.",
+      "after": "dev 계약 19 passed"
+    }
+  ],
+  "copy_fit": {
+    "status": "PROVISIONAL_GUIDANCE",
+    "font": "tests/image_generation/fixtures/fonts/NanumGothic-Regular.ttf",
+    "font_sha256": "76f45ef4a6bcff344c837c95a7dcc26e017e38b5846d5ae0cdcb5b86be2e2d31",
+    "canvas": [
+      1080,
+      1350
+    ],
+    "samples": [
+      {
+        "field": "headline",
+        "sample": "한글 15자 반복",
+        "font_size": 62,
+        "line_char_counts": [
+          15
+        ]
+      },
+      {
+        "field": "headline",
+        "sample": "W 15자 반복",
+        "font_size": 56,
+        "line_char_counts": [
+          15
+        ]
+      },
+      {
+        "field": "subline",
+        "sample": "한글 25자 반복",
+        "font_size": 48,
+        "line_char_counts": [
+          19,
+          6
+        ]
+      },
+      {
+        "field": "subline",
+        "sample": "W 25자 반복",
+        "font_size": 48,
+        "line_char_counts": [
+          17,
+          8
+        ]
+      },
+      {
+        "field": "subline",
+        "sample": "한글 15자와 10자 사이 명시 줄바꿈",
+        "font_size": 48,
+        "line_char_counts": [
+          15,
+          10
+        ]
+      },
+      {
+        "field": "cta",
+        "sample": "한글 또는 W 10자 반복",
+        "font_size": 54,
+        "line_char_counts": [
+          10
+        ]
+      }
+    ],
+    "limitation": "작성안은 총15/25/10자와1/2/1줄이다. 서브 줄당15자는 여유를 둔 가이드다. 코드가 문자수·줄수 정책을 새로 강제하지 않는다. 운영 폰트·실제 카피·모바일 가독성·전달 경로의 줄바꿈 보존은 미확인이다."
+  },
+  "new_paid_image_calls": 0,
+  "not_run": [
+    "실제 Windows 런타임",
+    "다혜님 원본 MPO와 전체 입력 JSON을 사용한 실제 웹 업로드",
+    "이번 코드 버전의 새 유료 생성",
+    "제품 원본 대비 품질 합격",
+    "실서비스 사용자 승인 및 최종 PNG·캡션 UI 다운로드",
+    "GCP Python3.10/Pillow12.3 조합의 이미지 전체 시험",
+    "실제 수집 worker의 기록 재처리",
+    "모델·단가 기반 비용 추정과 청구액 대조"
+  ]
+}
