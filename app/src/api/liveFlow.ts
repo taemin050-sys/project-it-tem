@@ -61,10 +61,24 @@ export async function approveImageAndCompose(s:LiveSnapshot){
   guardImageApproval(s)
   await run(s.job_id,'compose',async()=>{
     await approveLiveImage(s)
-    await composeLive(s.job_id,approvedLayout)
+    // A uses the server-owned immutable Owner layout. Old Jobs use their
+    // legacy layout only; never retroactively assign them template A.
+    await composeLive(s.job_id,s.template_profile==='A_CENTERED'?undefined:approvedLayout)
   })
 }
 export async function rejectImage(s:LiveSnapshot){
   guardImageApproval(s)
   await run(s.job_id,'ai/image',async()=>{await rejectLiveImage(s)})
+}
+
+/** Explicit, cost-free retry only for a previously approved candidate.
+ * No image/prompt queue, no Provider attempt, same pinned server policy.
+ */
+export async function retryApprovedComposition(id:string){
+  await run(id,'compose',async()=>{
+    const current=await getLiveSnapshot(id)
+    if(current.state!=='IMAGE_APPROVED'||!current.image_sha||!current.approval_current)
+      throw Error('IMAGE_APPROVAL_STALE_OR_COMPLETED')
+    await composeLive(id,current.template_profile==='A_CENTERED'?undefined:approvedLayout)
+  })
 }

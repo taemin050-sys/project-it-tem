@@ -60,11 +60,25 @@ class OfficialTextProvider:
 
 def atomic_write(path:Path,data:bytes):
     path.parent.mkdir(parents=True,exist_ok=True,mode=0o700)
-    with tempfile.NamedTemporaryFile(dir=path.parent,delete=False) as f:
-        os.chmod(f.name,0o600)
-        f.write(data);f.flush();os.fsync(f.fileno())
-        tmp=f.name
-    os.replace(tmp,path)
+    tmp=None
+    try:
+        with tempfile.NamedTemporaryFile(dir=path.parent,delete=False) as f:
+            tmp=f.name
+            os.chmod(tmp,0o600)
+            f.write(data);f.flush();os.fsync(f.fileno())
+        os.replace(tmp,path)
+    finally:
+        if tmp is not None and os.path.exists(tmp):
+            os.unlink(tmp)
+    # Durably commit the rename itself, not just the staged file bytes.
+    if hasattr(os, "O_DIRECTORY"):
+        try:
+            descriptor=os.open(path.parent,os.O_RDONLY | os.O_DIRECTORY)
+        except OSError:
+            pass
+        else:
+            try:os.fsync(descriptor)
+            finally:os.close(descriptor)
 
 
 class LivePipeline:
@@ -106,11 +120,12 @@ class LivePipeline:
             raise LiveGateError("INPUT_PHOTO_COUNTS_INVALID")
         return product,refs
 
-    def prepare(self,actor,job_id,payload):
+    def prepare(self,actor,job_id,payload,*,template_profile="LEGACY"):
         job=self.jobs.get_job(job_id)
         if job["status"]!="INPUTS_VALIDATED":
             raise LiveGateError("B0_JOB_NOT_INPUT_READY")
-        return self.state.create(actor,job_id,payload,job["assets"])
+        return self.state.create(actor,job_id,payload,job["assets"],
+                                 template_profile=template_profile)
 
     def _guarded(self,actor,job_id,stage,payload,action,*,image=False):
         # No key/client/import/provider even attempted before this transaction.
@@ -262,29 +277,95 @@ class LivePipeline:
             raise LiveGateError("JOB_ID_INVALID")
         return self.root/"outputs"/job_id/"image.png"
 
-    def compose(self,actor,job_id,*,layout,font_path):
-        from src.image_generation import compose_ad_png,CompositionInput
+    def validate_final_artifacts(self,actor,job_id):
+        """Owner-scoped fail-closed GET validation including manifest if present."""
         job=self.state.get(actor,job_id)
-        if job["state"]!="IMAGE_APPROVED":
-            raise LiveGateError("FINAL_REQUIRES_IMAGE_APPROVAL")
-        self.state._approved(job)
-        path=self.image_path(job_id)
-        raw=path.read_bytes()
-        image_sha=hashlib.sha256(raw).hexdigest()
-        if image_sha!=job["image_sha"]:
-            raise LiveGateError("IMAGE_BYTES_CHANGED")
-        cp=json.loads(job["copy_json"])
-        input_obj=CompositionInput(
-            job_id=job_id,image_bytes=raw,image_sha256=image_sha,
-            copy_revision=job["generation"],copy_hash=job["copy_sha"],
-            copy_output=cp,layout=layout)
-        result=compose_ad_png(input_obj,font_path=Path(font_path))
-        if (result.copy_hash!=job["copy_sha"] or result.copy_revision!=job["generation"]
-            or result.source_image_sha256!=image_sha
-            or hashlib.sha256(result.image_bytes).hexdigest()!=result.sha256
-            or (result.width,result.height)!=(1080,1350)):
-            raise LiveGateError("COMPOSED_RESULT_BINDING_FAILED")
+        if job["state"]!="COMPLETED":
+            raise LiveGateError("LIVE_OUTPUT_NOT_COMPLETED")
+        files=self.root/"outputs"/job_id
+        if not job["final_sha"] or not job["caption_sha"]:
+            raise LiveGateError("FINAL_IDENTITY_MISSING")
+        for filename,expected in (("final.png",job["final_sha"]),
+                                  ("caption.txt",job["caption_sha"])):
+            path=files/filename
+            try:
+                if hashlib.sha256(path.read_bytes()).hexdigest()!=expected:
+                    raise ValueError
+            except (OSError,ValueError):
+                raise LiveGateError("FINAL_ARTIFACT_INTEGRITY_FAILED") from None
+        manifest=self.state.read_manifest(actor,job_id)
+        if manifest is not None:
+            path=files/"receipt.json"
+            try:
+                data=path.read_bytes()
+                if hashlib.sha256(data).hexdigest()!=manifest["receipt_sha"]:
+                    raise ValueError
+                if json.loads(data)!=manifest["receipt"]:
+                    raise ValueError
+            except (OSError,ValueError):
+                raise LiveGateError("COMPOSITION_RECEIPT_INTEGRITY_FAILED") from None
+        return job
+
+    def compose(self,actor,job_id,*,layout=None,font_path):
+        from src.image_generation import compose_ad_png,CompositionInput
+        from .template_contract import canonical
+        font=Path(font_path)
+        try:
+            font_hash=hashlib.sha256(font.read_bytes()).hexdigest()
+        except OSError:
+            raise LiveGateError("COMPOSITION_FONT_UNAVAILABLE") from None
         directory=self.root/"outputs"/job_id
-        atomic_write(directory/"final.png",result.image_bytes)
-        atomic_write(directory/"caption.txt",result.caption_bytes)
-        return self.state.composed(actor,job_id,result.sha256,hashlib.sha256(result.caption_bytes).hexdigest())
+        plan=self.state.plan_compose(actor,job_id,layout,font_hash,has_prior_files=any(
+            (directory/name).exists() for name in ("final.png","caption.txt","receipt.json")))
+        # Only this Job may complete while the SQLite write transaction is held.
+        # A competing call waits, then observes the COMPLETED state and cannot overwrite.
+        with self.state.db() as c:
+            c.execute("BEGIN IMMEDIATE")
+            job=self.state._read(c,job_id,actor)
+            if job["state"]!="IMAGE_APPROVED":
+                raise LiveGateError("FINAL_REQUIRES_IMAGE_APPROVAL")
+            self.state._approved(job)
+            snapshot=self.state.template(actor,job_id)
+            if (not snapshot or snapshot["layout_sha"]!=plan["layout_sha"] or
+                snapshot["bound_context_sha"]!=plan["context_sha"] or
+                snapshot["bound_font_sha"]!=font_hash):
+                raise LiveGateError("COMPOSITION_FROZEN_INPUT_CONFLICT")
+            path=self.image_path(job_id)
+            try:
+                raw=path.read_bytes()
+            except OSError:
+                raise LiveGateError("IMAGE_BYTES_UNAVAILABLE") from None
+            image_sha=hashlib.sha256(raw).hexdigest()
+            if image_sha!=job["image_sha"]:
+                raise LiveGateError("IMAGE_BYTES_CHANGED")
+            cp=json.loads(job["copy_json"])
+            input_obj=CompositionInput(
+                job_id=job_id,image_bytes=raw,image_sha256=image_sha,
+                copy_revision=job["generation"],copy_hash=job["copy_sha"],
+                copy_output=cp,layout=plan["layout"])
+            from src.image_generation.errors import GatewayError
+            try:
+                result=compose_ad_png(input_obj,font_path=font)
+            except (GatewayError,ValueError):
+                # Owner detail stays in controlled logs, not public HTTP.
+                # No Provider attempt occurs and IMAGE_APPROVED is preserved.
+                raise LiveGateError("COMPOSITION_RENDER_FAILED") from None
+            receipt=result.receipt
+            if (result.copy_hash!=job["copy_sha"] or
+                result.copy_revision!=job["generation"] or
+                result.source_image_sha256!=image_sha or
+                hashlib.sha256(result.image_bytes).hexdigest()!=result.sha256 or
+                (result.width,result.height)!=(1080,1350) or
+                not isinstance(receipt,dict) or
+                receipt.get("font_sha256")!=font_hash or
+                receipt.get("provider_calls")!=0):
+                raise LiveGateError("COMPOSED_RESULT_BINDING_FAILED")
+            caption_sha=hashlib.sha256(result.caption_bytes).hexdigest()
+            receipt_bytes=canonical(receipt).encode("utf-8")
+            # All three are safely prepared; DB COMPLETED is only committed
+            # AFTER files are fsync'ed and atomically moved into place.
+            atomic_write(directory/"final.png",result.image_bytes)
+            atomic_write(directory/"caption.txt",result.caption_bytes)
+            atomic_write(directory/"receipt.json",receipt_bytes)
+            return self.state.commit_composition(c,actor,job_id,plan,receipt,
+                                                 result.sha256,caption_sha)

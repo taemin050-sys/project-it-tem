@@ -11,6 +11,8 @@ export type LiveSnapshot={
   approval_current:boolean;analysis?:{analysis:ProductAnalysis;analysis_succeeded:boolean;error?:string|null};
   research_display?:ResearchResult;copy?:AdCopyOutput;compliance?:ComplianceReport;
   image_prompt?:unknown
+  template_profile?:'A_CENTERED'|'LEGACY_PINNED'|'PRE_POLICY_LEGACY'
+  product_protection_status?:'MANUAL_REVIEW_REQUIRED'|'NOT_REVIEWED'
 }
 export type LiveTask={task_id:string;job_id:string;stage:string;state:
   'QUEUED'|'RUNNING'|'SUCCEEDED'|'BILLING_UNKNOWN';error_code?:string|null}

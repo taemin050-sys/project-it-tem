@@ -81,6 +81,11 @@ export default function DraftPage() {
       </>}
     >
       {job && <JobBadges job={job} />}
+      {!mock && live?.template_profile==='A_CENTERED' && <div className="notice notice-warning" role="status">
+        <p className="notice-title">제품 보호 영역 미확인 · 수동 검토 필요</p>
+        <p>Owner A의 안전 영역은 카피 배치용입니다. 실제 제품·라벨을 보호한다는 의미가 아닙니다.
+          원본 사진과 생성 후보를 직접 비교하여 확인해 주세요.</p>
+      </div>}
       <RunStatus />
       {rejected && (
         <div className="notice notice-warning" role="status">

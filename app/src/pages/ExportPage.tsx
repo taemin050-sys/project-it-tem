@@ -4,6 +4,7 @@ import { Link } from 'react-router-dom'
 import { getBlob } from '../api/jobs'
 import { useBlobUrl, useJob, useLiveSnapshot } from '../api/useJob'
 import {getLivePerformance,shareLive,listPublishedLive} from '../api/liveJobs'
+import {retryApprovedComposition} from '../api/liveFlow'
 import {isPublishedFinal} from '../api/liveMapping'
 import {queryClient} from '../api/queryClient'
 import JobBadges from '../components/JobBadges'
@@ -103,6 +104,11 @@ export default function ExportPage() {
       }
     >
       {job && <JobBadges job={job} />}
+      {!mock && live.data?.template_profile==='A_CENTERED' && <div className="notice notice-warning" role="status">
+        <p className="notice-title">제품 보호·게시 적합성: 수동 검토 필요</p>
+        <p>A 템플릿의 합성 완료는 제품 보호 검증 PASS가 아닙니다.
+          원본 제품·라벨·법률 표시사항을 사람 검토 후 게시해 주세요.</p>
+      </div>}
       <RunStatus />
 
       {job?.status !== 'COMPLETED' && !run.busy && !run.error && (
@@ -113,6 +119,15 @@ export default function ExportPage() {
         </div>
       )}
 
+      {!mock && live.data?.state==='IMAGE_APPROVED' && <section className="panel">
+        <h2 className="panel-title">승인된 이미지 합성 복구</h2>
+        <p>승인된 이미지·카피·서버에 저장된 레이아웃만으로 합성을 다시 시도합니다.
+          Image AI 추가 호출이나 자동 과금 재시도는 하지 않습니다.</p>
+        <button type="button" className="button secondary" disabled={run.busy}
+          onClick={()=>void retryApprovedComposition(live.data!.job_id).catch(()=>{})}>
+          기존 승인 이미지로 합성 복구
+        </button>
+      </section>}
       {!mock && perf.data && <section className="panel">
         <h2 className="panel-title">실제 AI 실행 기록</h2>
         <p>비용 정책: {perf.data.application_cost_policy} ·

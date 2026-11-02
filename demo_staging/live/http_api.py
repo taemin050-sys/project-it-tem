@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import json
 import os
+import sqlite3
 from pathlib import Path
 
 from fastapi import FastAPI,HTTPException,Request
@@ -46,7 +47,7 @@ class ImageApproval(BaseModel):
 
 class ComposeRequest(BaseModel):
     model_config=ConfigDict(extra="forbid",strict=True)
-    layout:dict
+    layout:dict|None=None
 
 
 def web_queue_policy() -> dict:
@@ -104,13 +105,17 @@ def register_live_api(app:FastAPI, ledger, runtime_root:Path, cookie_name:str):
         return HTTPException(status_code=503,detail="LIVE_GATE_UNAVAILABLE")
 
     def visible(job):
+        profile=flow.state.template(job["actor"],job["job_id"])
         # Never return internal Provider errors, signed URLs, input file paths
         # or private reference image contents to the browser.
         out={"job_id":job["job_id"],"state":job["state"],"mode":job["mode"],
              "generation":job["generation"],"input_sha":job["input_sha"],
              "copy_sha":job["copy_sha"],"review_sha":job["review_sha"],
              "image_sha":job["image_sha"],"final_sha":job["final_sha"],"caption_sha":job["caption_sha"],
-             "approval_current":bool(job["approval_sha"])}
+             "approval_current":bool(job["approval_sha"]),
+             "template_profile":profile["profile_id"] if profile else "PRE_POLICY_LEGACY",
+             "product_protection_status":"MANUAL_REVIEW_REQUIRED"
+                if job["state"]=="COMPLETED" else "NOT_REVIEWED"}
         for stored,key in (("research_display_json","research_display"),
                            ("analysis_json","analysis"),
                            ("copy_json","copy"),
@@ -134,7 +139,8 @@ def register_live_api(app:FastAPI, ledger, runtime_root:Path, cookie_name:str):
     def create_input(job_id:str,body:InputPayload,request:Request):
         actor=authorized(request,job_id)
         try:
-            return visible(flow.prepare(actor,job_id,body.model_dump(mode="json")))
+            return visible(flow.prepare(actor,job_id,body.model_dump(mode="json"),
+                                        template_profile="A"))
         except (LiveGateError,ValueError) as e:
             raise safe_error(e) from None
 
@@ -257,6 +263,10 @@ def register_live_api(app:FastAPI, ledger, runtime_root:Path, cookie_name:str):
                      "/usr/share/fonts/truetype/nanum/NanumGothic.ttf"))
             return visible(flow.compose(actor,job_id,layout=body.layout,font_path=font))
         except (LiveGateError,ValueError) as e:raise safe_error(e) from None
+        except (OSError,sqlite3.Error):
+            # A failed file/DB commit never signals COMPLETED; operator can
+            # inspect the immutable compose identity and retry from IMAGE_APPROVED.
+            raise HTTPException(503,detail="COMPOSITION_STORAGE_UNAVAILABLE") from None
 
     @app.get(prefix+"/jobs/{job_id}/performance")
     def live_performance(job_id:str,request:Request):
@@ -306,10 +316,11 @@ def register_live_api(app:FastAPI, ledger, runtime_root:Path, cookie_name:str):
         import hashlib
         d=flow.root/"outputs"/job_id
         try:
+            flow.validate_final_artifacts(actor,job_id)
             if (hashlib.sha256((d/"final.png").read_bytes()).hexdigest()!=j["final_sha"]
                 or hashlib.sha256((d/"caption.txt").read_bytes()).hexdigest()!=j["caption_sha"]):
                 raise ValueError
-        except (OSError,ValueError):
+        except (OSError,ValueError,LiveGateError):
             raise HTTPException(503,"ARTIFACT_INTEGRITY_UNAVAILABLE") from None
         try:
             item=shares.publish(actor,job_id,j["final_sha"],j["caption_sha"])
@@ -336,6 +347,9 @@ def register_live_api(app:FastAPI, ledger, runtime_root:Path, cookie_name:str):
         if (j["state"]!="COMPLETED" or j["mode"]!="LIVE" or
             j["final_sha"]!=x["final_sha"] or j["caption_sha"]!=x["caption_sha"]):
             raise HTTPException(409,"Shared result no longer current")
+        try:flow.validate_final_artifacts(x["actor"],job_id)
+        except LiveGateError:
+            raise HTTPException(503,"Shared result integrity error") from None
         target=flow.root/"outputs"/job_id/("final.png" if kind=="final" else "caption.txt")
         import hashlib
         expected=x["final_sha"] if kind=="final" else x["caption_sha"]
@@ -394,6 +408,9 @@ def register_live_api(app:FastAPI, ledger, runtime_root:Path, cookie_name:str):
             raise HTTPException(status_code=409,detail="LIVE_OUTPUT_NOT_COMPLETED")
         if kind not in ("final","caption"):
             raise HTTPException(status_code=404,detail="Artifact not found")
+        try:flow.validate_final_artifacts(actor,job_id)
+        except LiveGateError:
+            raise HTTPException(status_code=503,detail="Artifact integrity unavailable") from None
         target=flow.root/"outputs"/job_id/("final.png" if kind=="final" else "caption.txt")
         import hashlib
         if not target.is_file():
