@@ -10,7 +10,7 @@ import {queryClient} from '../api/queryClient'
 import JobBadges from '../components/JobBadges'
 import RunStatus from '../components/RunStatus'
 import StepPage from '../components/StepPage'
-import { CANVAS } from '../config'
+import { CANVAS,QA_OFFLINE_FIXTURE } from '../config'
 import { useProjectStore } from '../store/projectStore'
 import type { Job } from '../types/draft'
 
@@ -46,7 +46,7 @@ export default function ExportPage() {
     retry:false
   })
   async function publish(){
-    if(!job || job.status!=='COMPLETED')return
+    if(QA_OFFLINE_FIXTURE || !job || job.status!=='COMPLETED')return
     setSharing(true);setShareError('')
     try{
       await shareLive(job.job_id)
@@ -126,7 +126,7 @@ export default function ExportPage() {
           기존 승인 이미지로 합성 복구
         </button>
       </section>}
-      {!mock && perf.data && <section className="panel">
+      {!mock && !QA_OFFLINE_FIXTURE && perf.data && <section className="panel">
         <h2 className="panel-title">실제 AI 실행 기록</h2>
         <p>비용 정책: {perf.data.application_cost_policy} ·
           프로젝트 전체 사용액: {perf.data.project_spend_status}</p>
@@ -136,7 +136,7 @@ export default function ExportPage() {
         </li>)}</ul>
         <p className="field-hint">실제 API 기록이며 Mock 처리시간이 아닙니다. 규칙 검수는 법적 적합성 확정이 아닙니다.</p>
       </section>}
-      {!mock && ready && <section className="panel">
+      {!mock && !QA_OFFLINE_FIXTURE && ready && <section className="panel">
         <h2 className="panel-title">팀 공동 품질 평가</h2>
         <p>최종 광고 이미지와 Caption만 다른 인증된 팀원과 공유합니다. 원본 제품 사진과 비공개 Job 정보는 공유하지 않습니다.</p>
         <button className="button secondary" type="button" disabled={sharing||alreadyShared||publications.isLoading}

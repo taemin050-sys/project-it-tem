@@ -1,5 +1,6 @@
 /** Explicit official-Owner DTO -> B0 view-model boundary; never cast a Live state to B0 status. */
 import type { Job, JobStatus } from '../types/draft'
+const QA_OFFLINE_FIXTURE=import.meta.env?.VITE_QA_OFFLINE_FIXTURE==='YES'
 import type { AdCopyOutput, ComplianceReport, ProductAnalysis, ResearchResult } from '../types/textSchema'
 
 export type LiveState='INPUT_STORED'|'COPY_REVIEW_REQUIRED'|'COPY_APPROVED'|'COPY_REJECTED'|
@@ -30,9 +31,11 @@ const stateMap:Record<LiveState,JobStatus>={
 }
 export function asProductJob(snapshot:LiveSnapshot,b0:Job):Job{
   if(snapshot.job_id!==b0.job_id)throw Error('LIVE_JOB_ID_MISMATCH')
-  if(snapshot.mode==='OFFLINE_FIXTURE')throw Error('LIVE_PROVENANCE_NOT_VERIFIED')
-  const base='/demo/api/live/jobs/'+encodeURIComponent(snapshot.job_id)
-  const candidate=snapshot.image_sha?{mock:false}:undefined
+  if(snapshot.mode==='OFFLINE_FIXTURE'&&!QA_OFFLINE_FIXTURE)
+    throw Error('LIVE_PROVENANCE_NOT_VERIFIED')
+  const base=(snapshot.mode==='OFFLINE_FIXTURE' && QA_OFFLINE_FIXTURE
+    ? '/demo/api/qa/jobs/' : '/demo/api/live/jobs/')+encodeURIComponent(snapshot.job_id)
+  const candidate=snapshot.image_sha?{mock:snapshot.mode==='OFFLINE_FIXTURE'}:undefined
   const artifacts={...b0.artifacts,
     ...(snapshot.image_sha?{image:{kind:'image' as const,content_type:'image/png',
       size_bytes:0,download_url:base+'/artifacts/candidate'}}:{}),
@@ -46,7 +49,8 @@ export function asProductJob(snapshot:LiveSnapshot,b0:Job):Job{
     ...(snapshot.analysis?.analysis_succeeded?{product_analysis:snapshot.analysis.analysis}:{}),
     research_result:snapshot.research_display,copy_output:snapshot.copy,
     compliance_report:snapshot.compliance,image_candidate:candidate,
-    final_output:snapshot.state==='COMPLETED'?{mock:false,width:1080,height:1350,format:'png'}:undefined
+    final_output:snapshot.state==='COMPLETED'?{mock:snapshot.mode==='OFFLINE_FIXTURE',
+      width:1080,height:1350,format:'png'}:undefined
   }
 }
 export function guardCopyApproval(s:LiveSnapshot){

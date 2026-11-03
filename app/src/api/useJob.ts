@@ -7,7 +7,8 @@ import type { Job } from '../types/draft'
 import { ApiError, isUnreachable } from './client'
 import { getBlob, getJob, runStep } from './jobs'
 import { queryClient } from './queryClient'
-import {getProductLiveJob,createLiveInput,queueLive,getLiveSnapshot,getLiveTask,latestLiveTask} from './liveJobs'
+import {getProductLiveJob,createLiveInput,queueLive,getLiveSnapshot,getLiveTask,latestLiveTask,qaText} from './liveJobs'
+import {QA_OFFLINE_FIXTURE} from '../config'
 import type {ProductInput} from '../types/textSchema'
 
 const jobKey = (jobId: string | null) => ['job', jobId]
@@ -80,8 +81,12 @@ export async function advance(first: () => Promise<Job>) {
       const current=await createLiveInput(job,input)
       if(current.state==='INPUT_STORED'){
         setRun({step:'ai/analyze'})
-        const task=await queueLive(jobId,'text')
-        useProjectStore.getState().setLiveTask(task.task_id)
+        if(QA_OFFLINE_FIXTURE){
+          await qaText(jobId)
+        }else{
+          const task=await queueLive(jobId,'text')
+          useProjectStore.getState().setLiveTask(task.task_id)
+        }
       } else if(current.state!=='COPY_REVIEW_REQUIRED'){
         throw Error('기존 Live Job이 다른 단계입니다. 작업 상태부터 확인해 주세요.')
       }
@@ -124,8 +129,11 @@ export async function recoverLiveInput(){
     if(current.state==='INPUT_STORED'){
       const s=await getLiveSnapshot(jobId)
       if(s.state==='INPUT_STORED'){
-        const task=await queueLive(jobId,'text')
-        useProjectStore.getState().setLiveTask(task.task_id)
+        if(QA_OFFLINE_FIXTURE) await qaText(jobId)
+        else{
+          const task=await queueLive(jobId,'text')
+          useProjectStore.getState().setLiveTask(task.task_id)
+        }
       }
     }
     await queryClient.invalidateQueries({queryKey:jobKey(jobId)})

@@ -20,3 +20,8 @@ export const AI_REQUEST_TIMEOUT_MS = 330_000
 export const CANVAS = { width: 1080, height: 1350 } as const
 // 카피는 바깥쪽 5% 여백 안이면 어디든 배치 가능 (10/26 결정)
 export const SAFE_MARGIN = 0.05
+
+
+// This QA bundle must only be served through an isolated loopback staging.
+// The backend independently requires its own explicit fixture gate.
+export const QA_OFFLINE_FIXTURE = import.meta.env?.VITE_QA_OFFLINE_FIXTURE === 'YES'

@@ -125,6 +125,113 @@ def register_live_api(app:FastAPI, ledger, runtime_root:Path, cookie_name:str):
                 out[key]=json.loads(job[stored])
         return out
 
+    # Isolated developer QA fixture path. NOT a Live Provider substitute:
+    # requires an explicit process permit, loopback-only request, and a QA
+    # identity. It is never enabled by the team's normal serving process.
+    qa_enabled=(os.environ.get("IT_TEM_QA_FIXTURE_ENABLED")=="YES"
+                and os.environ.get("IT_TEM_LIVE_ENABLED")=="NO"
+                and os.environ.get("IT_TEM_LIVE_EXECUTION_APPROVED")=="NO"
+                and os.environ.get("IT_TEM_DEMO_SECURE_COOKIE")=="NO")
+    qa_actors=frozenset(x.strip() for x in
+          os.environ.get("IT_TEM_QA_ALLOWED_ACTORS","").split(",") if x.strip())
+
+    def qa_access(request,job_id):
+        if not qa_enabled or not qa_actors:
+            raise HTTPException(404,"QA fixture endpoint disabled")
+        if not request.client or request.client.host not in ("127.0.0.1","::1"):
+            raise HTTPException(404,"QA fixture endpoint unavailable")
+        actor=authorized(request,job_id)
+        if actor not in qa_actors:
+            raise HTTPException(404,"QA fixture actor unavailable")
+        return actor
+
+    @app.post("/demo/api/qa/jobs/{job_id}/text")
+    def qa_text(job_id:str,request:Request):
+        actor=qa_access(request,job_id)
+        try:
+            from tests.demo_live.test_pipeline import FakeOwner
+            current=flow.state.get(actor,job_id)
+            if current["state"]!="INPUT_STORED":
+                raise LiveGateError("QA_TEXT_STATE_CONFLICT")
+            product=json.loads(current["input_json"])["product"]
+            if product.get("brand_name")!="라움":
+                raise LiveGateError("QA_FIXTURE_REQUIRES_RAUM_TEST_BRAND")
+            # Existing official DTOs, real compliance, no external provider.
+            return visible(flow.text(actor,job_id,FakeOwner(),offline=True))
+        except (LiveGateError,ValueError) as e:raise safe_error(e) from None
+
+    @app.post("/demo/api/qa/jobs/{job_id}/prompt-image")
+    def qa_prompt_image(job_id:str,request:Request):
+        actor=qa_access(request,job_id)
+        try:
+            from tests.demo_live.test_pipeline import FakeOwner,png
+            from src.image_generation.backend_adapter import BackendGeneratedImage
+            import hashlib
+            job=flow.state.get(actor,job_id)
+            if job["state"]=="COPY_APPROVED":
+                flow.prompt(actor,job_id,FakeOwner(),offline=True)
+            owner_request=flow.image_input(actor,job_id)
+            if owner_request.safe_zone is None:
+                raise LiveGateError("QA_A_SAFE_ZONE_REQUIRED")
+            # Synthetic pixel image, not an OpenAI result. Immutable copy and
+            # candidate SHA still go through the real Serving binding gate.
+            img=png((215,225,235),size=(1152,1440))
+            candidate=BackendGeneratedImage(
+                image_bytes=img,mime_type="image/png",width=1152,height=1440,
+                sha256=hashlib.sha256(img).hexdigest(),job_id=job_id,
+                copy_revision=owner_request.copy_revision,
+                copy_hash=owner_request.copy_hash,mock=True,
+                receipt={"mode":"OFFLINE_FIXTURE","provider_calls":0})
+            return visible(flow.accept_image_result(actor,job_id,candidate,offline=True))
+        except (LiveGateError,ValueError) as e:raise safe_error(e) from None
+
+    @app.post("/demo/api/qa/jobs/{job_id}/compose")
+    def qa_compose(job_id:str,body:ComposeRequest,request:Request):
+        actor=qa_access(request,job_id)
+        j=flow.state.get(actor,job_id)
+        if j["mode"]!="OFFLINE_FIXTURE":
+            raise HTTPException(409,"QA_REQUIRES_OFFLINE_FIXTURE")
+        try:
+            font=Path(os.environ.get("IT_TEM_LIVE_KOREAN_FONT",
+                "/usr/share/fonts/truetype/nanum/NanumGothic.ttf"))
+            return visible(flow.compose(actor,job_id,layout=body.layout,font_path=font))
+        except (LiveGateError,ValueError) as e:raise safe_error(e) from None
+        except (OSError,sqlite3.Error):
+            raise HTTPException(503,"QA_COMPOSITION_STORAGE_UNAVAILABLE") from None
+
+    @app.get("/demo/api/qa/jobs/{job_id}/artifacts/{kind}")
+    def qa_artifact(job_id:str,kind:str,request:Request):
+        actor=qa_access(request,job_id)
+        j=flow.state.get(actor,job_id)
+        if j["mode"]!="OFFLINE_FIXTURE":
+            raise HTTPException(409,"QA_REQUIRES_OFFLINE_FIXTURE")
+        import hashlib
+        if kind=="candidate":
+            if j["state"] not in ("IMAGE_REVIEW_REQUIRED","IMAGE_APPROVED"):
+                raise HTTPException(409,"QA_IMAGE_NOT_READY")
+            target=flow.image_path(job_id)
+            expected=j["image_sha"]
+            media="image/png"
+        elif kind in ("final","caption"):
+            if j["state"]!="COMPLETED":
+                raise HTTPException(409,"QA_COMPOSITION_NOT_COMPLETED")
+            try:flow.validate_final_artifacts(actor,job_id)
+            except LiveGateError:
+                raise HTTPException(503,"QA_ARTIFACT_INTEGRITY_ERROR") from None
+            target=flow.root/"outputs"/job_id/("final.png" if kind=="final" else "caption.txt")
+            expected=j["final_sha"] if kind=="final" else j["caption_sha"]
+            media="image/png" if kind=="final" else "text/plain; charset=utf-8"
+        else:
+            raise HTTPException(404,"QA_ARTIFACT_NOT_FOUND")
+        try:
+            if not expected or hashlib.sha256(target.read_bytes()).hexdigest()!=expected:
+                raise ValueError
+        except (OSError,ValueError):
+            raise HTTPException(503,"QA_ARTIFACT_INTEGRITY_ERROR") from None
+        return FileResponse(target,media_type=media,filename=target.name,
+            headers={"Cache-Control":"private,no-store",
+                     "X-IT-TEM-Provenance":"OFFLINE_FIXTURE"})
+
     @app.get(prefix+"/capabilities")
     def capabilities(request:Request):
         actor=authorized(request)

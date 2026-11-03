@@ -1,4 +1,5 @@
 import { isMockJob } from '../lib/pipeline'
+import { QA_OFFLINE_FIXTURE } from '../config'
 import { useProjectStore } from '../store/projectStore'
 import type { Job } from '../types/draft'
 
@@ -10,8 +11,8 @@ const PRESERVATION: Record<string, string> = { pending: '검토 전', passed: '�
 export default function JobBadges({ job }: { job: Job }) {
   const mock = useProjectStore((s) => s.mock)
   const badges: Badge[] = []
-  badges.push(mock || isMockJob(job)
-    ? { label: '생성', value: 'Mock · 실제 AI 아님', tone: 'warning' }
+  badges.push(QA_OFFLINE_FIXTURE || mock || isMockJob(job)
+    ? { label: '생성', value: 'OFFLINE_FIXTURE · 실제 AI 아님', tone: 'warning' }
     : { label: '생성', value: 'Live', tone: 'neutral' })
 
   const searched = job.research_result?.research_performed ?? job.plan?.research_performed

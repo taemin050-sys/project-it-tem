@@ -2,7 +2,8 @@
 import {queryClient} from './queryClient'
 import {useProjectStore} from '../store/projectStore'
 import {approveLiveCopy,rejectLiveCopy,queueLive,waitLiveTask,approveLiveImage,
-  rejectLiveImage,composeLive,getLiveSnapshot} from './liveJobs'
+  rejectLiveImage,composeLive,getLiveSnapshot,qaPromptImage,qaCompose} from './liveJobs'
+import { QA_OFFLINE_FIXTURE } from '../config'
 import {guardCopyApproval,guardImageApproval,type LiveSnapshot} from './liveMapping'
 export const approvedLayout={text_regions:{
   headline:{left:.07,top:.055,right:.93,bottom:.17,min_font_size:44,max_font_size:62,
@@ -28,6 +29,10 @@ async function run(id:string,step:'ai/image'|'compose',action:()=>Promise<unknow
   }finally{setRun({busy:false,step:null})}
 }
 async function queuePromptAndImage(id:string){
+  if(QA_OFFLINE_FIXTURE){
+    await qaPromptImage(id)
+    return
+  }
   const task=await queueLive(id,'prompt')
   useProjectStore.getState().setLiveTask(task.task_id)
   await waitLiveTask(id,task.task_id,'PROMPT_READY')
@@ -63,7 +68,8 @@ export async function approveImageAndCompose(s:LiveSnapshot){
     await approveLiveImage(s)
     // A uses the server-owned immutable Owner layout. Old Jobs use their
     // legacy layout only; never retroactively assign them template A.
-    await composeLive(s.job_id,s.template_profile==='A_CENTERED'?undefined:approvedLayout)
+    if(QA_OFFLINE_FIXTURE) await qaCompose(s.job_id)
+    else await composeLive(s.job_id,s.template_profile==='A_CENTERED'?undefined:approvedLayout)
   })
 }
 export async function rejectImage(s:LiveSnapshot){
@@ -79,6 +85,7 @@ export async function retryApprovedComposition(id:string){
     const current=await getLiveSnapshot(id)
     if(current.state!=='IMAGE_APPROVED'||!current.image_sha||!current.approval_current)
       throw Error('IMAGE_APPROVAL_STALE_OR_COMPLETED')
-    await composeLive(id,current.template_profile==='A_CENTERED'?undefined:approvedLayout)
+    if(QA_OFFLINE_FIXTURE) await qaCompose(id)
+    else await composeLive(id,current.template_profile==='A_CENTERED'?undefined:approvedLayout)
   })
 }

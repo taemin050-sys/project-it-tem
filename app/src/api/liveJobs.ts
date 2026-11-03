@@ -65,3 +65,12 @@ export async function waitLiveTask(id:string,taskId:string,success:LiveStateExpe
   throw Error('AI 작업 대기 시간이 길어졌습니다. 재호출하지 말고 새로고침 후 작업 상태를 확인하세요.')
 }
 type LiveStateExpected='COPY_REVIEW_REQUIRED'|'PROMPT_READY'|'IMAGE_REVIEW_REQUIRED'
+
+// Never expose these QA operations in a normal production FE bundle.
+export const qaText=(id:string)=>request<LiveSnapshot>(
+  '/demo/api/qa/jobs/'+encodeURIComponent(id)+'/text',{method:'POST'})
+export const qaPromptImage=(id:string)=>request<LiveSnapshot>(
+  '/demo/api/qa/jobs/'+encodeURIComponent(id)+'/prompt-image',{method:'POST'})
+
+export const qaCompose=(id:string)=>request<LiveSnapshot>(
+  '/demo/api/qa/jobs/'+encodeURIComponent(id)+'/compose',json({}))
