@@ -73,15 +73,30 @@ export default function CopyPage() {
   const copyFormRef=useRef<HTMLElement|null>(null)
   const approvalInFlight=useRef(false)
   const [draft,setDraft]=useState({headline:'',subline:'',cta:'',caption:'',hashtags:''})
+  const [draftDirty,setDraftDirty]=useState(false)
+  const [editorHydratedKey,setEditorHydratedKey]=useState<string|null>(null)
+  // A server GET may arrive AFTER the review screen has mounted. Until
+  // the exact (job, copy SHA) is hydrated, no editing or approval is offered.
+  const editorKey=jobId && live?.copy_sha ? jobId+':'+live.copy_sha : null
+  const copyConflict=Boolean(draftDirty && editorHydratedKey && editorKey!==editorHydratedKey)
+  const editorReady=Boolean(editorKey && editorHydratedKey===editorKey && !copyConflict)
   useEffect(()=>{
-    if(live?.copy && seenCopy.current!==live.copy_sha){
-      seenCopy.current=live.copy_sha
-      setDraft({headline:live.copy.ad_copy.headline,subline:live.copy.ad_copy.subline,
-        cta:live.copy.ad_copy.cta,caption:live.copy.caption,
-        hashtags:live.copy.hashtags.join(' ')})
-      setEvidenceAck(false)
-    }
-  },[live])
+    if(!live?.copy || !editorKey || seenCopy.current===editorKey)return
+    // Do not erase unsaved text when another session revises the same Job.
+    if(draftDirty)return
+    seenCopy.current=editorKey
+    setDraft({headline:live.copy.ad_copy.headline,subline:live.copy.ad_copy.subline,
+      cta:live.copy.ad_copy.cta,caption:live.copy.caption,
+      hashtags:live.copy.hashtags.join(' ')})
+    setEditorHydratedKey(editorKey)
+    setEvidenceAck(false)
+  },[live,editorKey,draftDirty])
+  function discardDraftAndLoadCurrent(){
+    setDraftDirty(false)
+    setEditorHydratedKey(null)
+    seenCopy.current=null
+    setEditError('')
+  }
 
   if (jobId === null && !busy) return <Navigate to="/create/product" replace />
 
@@ -92,15 +107,21 @@ export default function CopyPage() {
   const reviewing = job?.status === 'COPY_REVIEW_REQUIRED'
   const rejected = job?.status === 'COPY_REJECTED'
   const approved = job !== undefined && ['COPY_APPROVED', 'IMAGE_REVIEW_REQUIRED', 'IMAGE_APPROVED', 'IMAGE_REJECTED', 'COMPLETED'].includes(job.status)
-  const canApprove = job !== undefined && canApproveCopy(job)
+  const canApprove = job !== undefined && canApproveCopy(job) &&
+    (mock || (editorReady && !draftDirty && !copyConflict && !saving &&
+      live?.state===job.status && live?.compliance?.passed===job.compliance_report?.passed))
 
   function onApprove() {
     if(!mock){
-      if(!jobId || approvalInFlight.current)return
+      if(!jobId || approvalInFlight.current || !canApprove || !editorReady ||
+          draftDirty || copyConflict || saving)return
       approvalInFlight.current=true
       // Always read the current server review hash at the click boundary.
       // Stale React Query data cannot silently discard approval clicks.
       void getLiveSnapshot(jobId).then(current=>{
+        if(current.copy_sha!==live?.copy_sha || current.review_sha!==live?.review_sha ||
+            current.state!=='COPY_REVIEW_REQUIRED' || current.compliance?.passed!==true)
+          throw Error('COPY_APPROVAL_SERVER_REVISION_CHANGED')
         navigate('/create/draft')
         return approveCopyAndCreateImage(current,evidenceAck)
       }).catch(e=>useProjectStore.getState().setRun({
@@ -112,26 +133,36 @@ export default function CopyPage() {
     }
   }
   async function saveLiveCopy(){
-    if(!jobId || !job?.copy_output)return
+    if(!jobId || !job?.copy_output || !editorReady || !draftDirty ||
+        copyConflict || saving)return
+    // Snapshot the actual visible values synchronously at the save click.
+    const submitted={...draft}
+    for(const key of ['headline','subline','cta','caption','hashtags'] as const){
+      const area=copyFormRef.current?.querySelector<HTMLTextAreaElement>(
+        'textarea[data-copy-field="'+key+'"]')
+      if(!area) {
+        setEditError('COPY_EDIT_VISIBLE_INPUT_UNAVAILABLE')
+        return
+      }
+      submitted[key]=area.value
+    }
     setSaving(true);setEditError('')
     try{
       const current=await getLiveSnapshot(jobId)
-      if(!current.copy)throw Error('수정할 카피가 없습니다.')
-      // Read the actual visible form at the explicit save click.
-      // A concurrently refreshed Live snapshot must never turn an edited
-      // textarea into the stale pre-edit copy sent to the compliance gate.
-      const submitted={...draft}
-      for(const key of ['headline','subline','cta','caption','hashtags'] as const){
-        const area=copyFormRef.current?.querySelector<HTMLTextAreaElement>(
-          'textarea[data-copy-field="'+key+'"]')
-        if(!area)throw Error('COPY_EDIT_VISIBLE_INPUT_UNAVAILABLE')
-        submitted[key]=area.value
-      }
-      await editLiveCopy(jobId,{...current.copy,
+      if(!current.copy || !current.copy_sha || editorKey!==jobId+':'+current.copy_sha ||
+          current.state!=='COPY_REVIEW_REQUIRED')
+        throw Error('서버 카피가 변경되었습니다. 미저장 내용을 확인한 뒤 다시 불러와 주세요.')
+      const saved=await editLiveCopy(jobId,{...current.copy,
         ad_copy:{headline:submitted.headline,subline:submitted.subline,cta:submitted.cta},
         caption:submitted.caption,hashtags:submitted.hashtags.split(/[\s,]+/).filter(Boolean)})
-      await queryClient.invalidateQueries({queryKey:['live-snapshot',jobId]})
-      await queryClient.invalidateQueries({queryKey:['job',jobId]})
+      queryClient.setQueryData(['live-snapshot',jobId],saved)
+      setDraftDirty(false)
+      setEditorHydratedKey(null)
+      seenCopy.current=null
+      await Promise.all([
+        queryClient.invalidateQueries({queryKey:['live-snapshot',jobId]}),
+        queryClient.invalidateQueries({queryKey:['job',jobId]})
+      ])
     }catch(e){setEditError(e instanceof Error?e.message:'카피 수정 실패')}
     finally{setSaving(false)}
   }
@@ -193,7 +224,15 @@ export default function CopyPage() {
 
       {copy && report && (
         <div className="stack">
-          {!mock && reviewing && <section className="panel" ref={copyFormRef}>
+          {!mock && reviewing && !editorReady && !copyConflict &&
+            <p role="status">검수 버전과 카피 입력값을 확인하고 있습니다…</p>}
+          {!mock && reviewing && copyConflict && <div className="notice notice-warning" role="alert">
+            <p>다른 요청에서 카피 버전이 변경되었습니다. 미저장 편집은 자동으로 덮어쓰지 않습니다.</p>
+            <button type="button" className="button secondary" onClick={discardDraftAndLoadCurrent}>
+              서버의 최신 카피 다시 불러오기
+            </button>
+          </div>}
+          {!mock && reviewing && editorReady && <section className="panel" ref={copyFormRef}>
             <h2 className="panel-title">카피 수정·재검수</h2>
             <p className="field-hint">수정하면 서버에서 새 Revision으로 재검수합니다.
               원문으로 되돌려도 이전 승인은 재활성화되지 않습니다.</p>
@@ -201,11 +240,20 @@ export default function CopyPage() {
               <label key={k} className="field">
                 <span className="copy-label">{k}</span>
                 <textarea data-copy-field={k} rows={k==='caption'?3:2} value={draft[k]}
-                  onChange={e=>{const value=e.currentTarget.value;setDraft(x=>({...x,[k]:value}))}}/>
+                  disabled={saving}
+                  onChange={e=>{
+                    const value=e.currentTarget.value
+                    setDraft(x=>({...x,[k]:value}))
+                    setDraftDirty(true)
+                    setEditError('')
+                  }}/>
               </label>)}
             <button type="button" className="button secondary"
-              disabled={saving||busy||!job?.copy_output}
+              disabled={saving||busy||!draftDirty||!job?.copy_output}
               onClick={()=>void saveLiveCopy()}>{saving?'저장 중…':'수정하고 다시 검수'}</button>
+            {draftDirty && <p className="field-hint" role="status">
+              편집 내용이 아직 검수되지 않았습니다. 저장·재검수 전에는 카피 승인이 불가능합니다.
+            </p>}
             {editError&&<p role="alert" className="field-error">{editError}</p>}
           </section>}
           <ReviewSummary report={report} />
