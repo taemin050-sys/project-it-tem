@@ -48,6 +48,11 @@ def test_final_live_ad_shared_only_by_owner_and_reviewable_by_another_actor(tmp_
         assert shared.json()["raw_product_images_shared"] is False
         visible=bob.get(base+"/shared").json()["jobs"]
         assert len(visible)==1 and visible[0]["final_sha"]==f_sha
+        from demo_staging.live.reviews import LiveShares
+        raw = LiveShares(tmp_path / "runtime/live/shares.sqlite").item(jid)["shared_at"]
+        assert visible[0]["shared_at"] == raw
+        assert visible[0]["shared_at_utc"] == LiveShares.utc_iso8601(raw)
+        assert visible[0]["shared_at_utc"].endswith("Z")
         assert bob.get(base+"/shared/"+jid+"/artifacts/final").content==final
         assert bob.get(base+"/shared/"+jid+"/artifacts/caption").content==caption
         rating=bob.post(base+"/shared/"+jid+"/evaluations",

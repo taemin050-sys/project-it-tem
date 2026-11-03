@@ -462,6 +462,7 @@ def register_live_api(app:FastAPI, ledger, runtime_root:Path, cookie_name:str):
                     valid=False
             results.append({"job_id":item["job_id"],"final_sha":item["final_sha"],
                 "shared_at":item["shared_at"],
+                "shared_at_utc":LiveShares.utc_iso8601(item["shared_at"]),
                 "integrity_status":"VERIFIED" if valid else "UNAVAILABLE"})
         return {"mode":"LIVE","jobs":results}
 

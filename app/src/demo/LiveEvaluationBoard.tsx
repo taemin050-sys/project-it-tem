@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useState } from 'react'
 import './LiveEvaluationBoard.css'
+import { formatSharedAtKST } from './sharedTime'
 
-type Shared = {job_id: string; final_sha: string; shared_at: string;
+type Shared = {job_id: string; final_sha: string; shared_at: string; shared_at_utc: string | null;
   integrity_status: 'VERIFIED' | 'UNAVAILABLE'}
 type Rated = {score: number; comment: string; category: string; artifact_sha256: string; revision: number}
 const categories = [
@@ -138,7 +139,7 @@ export default function LiveEvaluationBoard() {
                   disabled={item.integrity_status !== 'VERIFIED'}
                   onClick={() => void choose(item.job_id)}>
                   <span className="live-eval-index">{String(i + 1).padStart(2, '0')}</span>
-                  <span className="live-eval-item-details"><strong>{item.integrity_status === 'VERIFIED' ? '실제 AI 광고' : '검증 불가 · 평가 중지'} · {item.job_id.slice(0, 8)}</strong><small>공유 시각: {item.shared_at}</small></span>
+                  <span className="live-eval-item-details"><strong>{item.integrity_status === 'VERIFIED' ? '실제 AI 광고' : '검증 불가 · 평가 중지'} · {item.job_id.slice(0, 8)}</strong><small>{formatSharedAtKST(item.shared_at_utc)}</small></span>
                   <span className="live-eval-item-action">{item.integrity_status !== 'VERIFIED' ? '검증 불가' :
                       selected === item.job_id ? '선택됨' : '평가하기'}</span>
                 </button>
