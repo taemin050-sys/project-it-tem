@@ -2,9 +2,9 @@ import { useQuery } from '@tanstack/react-query'
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import { getBlob } from '../api/jobs'
-import { useBlobUrl, useJob, useLiveSnapshot } from '../api/useJob'
-import {getLivePerformance,shareLive,listPublishedLive} from '../api/liveJobs'
-import {retryApprovedComposition} from '../api/liveFlow'
+import {resetJob,useBlobUrl,useJob,useLiveSnapshot} from '../api/useJob'
+import {shareLive,listPublishedLive} from '../api/liveJobs'
+import {retryCompose} from '../api/liveFlow'
 import {isPublishedFinal} from '../api/liveMapping'
 import {queryClient} from '../api/queryClient'
 import JobBadges from '../components/JobBadges'
@@ -38,13 +38,10 @@ export default function ExportPage() {
     enabled:!mock && job?.status==='COMPLETED',
     staleTime:0,retry:false
   })
+  // A client flag is not evidence of publication. Use the authenticated
+  // server result and integrity-filtered shared listing.
   const alreadyShared=isPublishedFinal(live.data,publications.data?.jobs??[])
-  const perf=useQuery({
-    queryKey:['live-perf',job?.job_id],
-    queryFn:()=>getLivePerformance(job!.job_id),
-    enabled:!mock && !!job?.job_id,refetchInterval:job?.status==='COMPLETED'?false:3000,
-    retry:false
-  })
+  const composeFailed=!mock && live.data?.state==='IMAGE_APPROVED' && !run.busy
   async function publish(){
     if(QA_OFFLINE_FIXTURE || !job || job.status!=='COMPLETED')return
     setSharing(true);setShareError('')
@@ -96,9 +93,13 @@ export default function ExportPage() {
       wide
       back={{ to: '/create/draft', label: '이미지 검토' }}
       actions={
-        <button className="button" disabled={!ready} onClick={() => download(finalUrl!, `ad_${CANVAS.width}x${CANVAS.height}.${ext}`)}>
-          광고 이미지 저장 ({ext.toUpperCase()})
-        </button>
+        <div className="button-row">
+          {job?.status === 'COMPLETED' && <Link className="button secondary" to="/" onClick={resetJob}>홈으로</Link>}
+          {composeFailed && <button className="button secondary" onClick={() => void retryCompose(live.data!.job_id).catch(() => {})}>합성만 다시 시도</button>}
+          <button className="button" disabled={!ready} onClick={() => download(finalUrl!, `ad_${CANVAS.width}x${CANVAS.height}.${ext}`)}>
+            광고 이미지 저장 ({ext.toUpperCase()})
+          </button>
+        </div>
       }
     >
       {job && <JobBadges job={job} />}
@@ -109,7 +110,14 @@ export default function ExportPage() {
       </div>}
       <RunStatus />
 
-      {job?.status !== 'COMPLETED' && !run.busy && !run.error && (
+      {composeFailed && (
+        <div className="notice notice-warning" role="status">
+          <p className="notice-title">이미지는 승인됐고 합성만 남았습니다</p>
+          <p>이미지를 다시 만들지 않고, 승인한 이미지·카피 그대로 합성만 다시 요청합니다.</p>
+        </div>
+      )}
+
+      {job?.status !== 'COMPLETED' && !run.busy && !run.error && !composeFailed && (
         <div className="empty">
           <p className="empty-title">아직 완성된 광고가 없습니다</p>
           <p>이미지 검토에서 이미지를 승인하면 최종 광고를 만듭니다.</p>
@@ -119,22 +127,8 @@ export default function ExportPage() {
 
       {!mock && live.data?.state==='IMAGE_APPROVED' && <section className="panel">
         <h2 className="panel-title">승인된 이미지 합성 복구</h2>
-        <p>승인된 이미지·카피·서버에 저장된 레이아웃만으로 합성을 다시 시도합니다.
-          Image AI 추가 호출이나 자동 과금 재시도는 하지 않습니다.</p>
-        <button type="button" className="button secondary" disabled={run.busy}
-          onClick={()=>void retryApprovedComposition(live.data!.job_id).catch(()=>{})}>
-          기존 승인 이미지로 합성 복구
-        </button>
-      </section>}
-      {!mock && !QA_OFFLINE_FIXTURE && perf.data && <section className="panel">
-        <h2 className="panel-title">실제 AI 실행 기록</h2>
-        <p>비용 정책: {perf.data.application_cost_policy} ·
-          프로젝트 전체 사용액: {perf.data.project_spend_status}</p>
-        <ul className="plain-list">{perf.data.provider_attempts.map((a,i)=><li key={i}>
-          {a.stage} · {a.state} · {a.model||'모델 미확인'} ·
-          {a.usage ? JSON.stringify(a.usage) : '사용량 미확인'}
-        </li>)}</ul>
-        <p className="field-hint">실제 API 기록이며 Mock 처리시간이 아닙니다. 규칙 검수는 법적 적합성 확정이 아닙니다.</p>
+        <p>승인 이미지·카피와 서버에 고정된 레이아웃을 재사용합니다.
+          이미지 재생성, 이미지 재승인, 자동 과금 재시도는 수행하지 않습니다.</p>
       </section>}
       {!mock && !QA_OFFLINE_FIXTURE && ready && <section className="panel">
         <h2 className="panel-title">팀 공동 품질 평가</h2>

@@ -1,6 +1,7 @@
 import { create } from 'zustand'
 import { createJSONStorage, persist } from 'zustand/middleware'
 import { MOCK_DEFAULT } from '../config'
+import type { EmojiLevel } from '../lib/emojiLevel'
 import type { Step } from '../lib/pipeline'
 import { AD_PURPOSES, type ProductInput } from '../types/textSchema'
 
@@ -14,6 +15,8 @@ type ProjectState = {
   images: File[]
   references: File[]
   product: ProductForm
+  emoji: EmojiLevel
+  setEmoji: (emoji: EmojiLevel) => void
   jobId: string | null
   identityScope: string | null
   liveTaskId: string | null
@@ -45,6 +48,8 @@ export const useProjectStore = create<ProjectState>()(persist((set) => ({
     is_functional: false,
     photo_verified: false,
   },
+  emoji: '적음',
+  setEmoji: (emoji) => set({ emoji }),
   jobId: null,
   identityScope: null,
   liveTaskId: null,
@@ -62,6 +67,6 @@ export const useProjectStore = create<ProjectState>()(persist((set) => ({
 }), {
   name: 'it-tem-project',
   storage: createJSONStorage(() => sessionStorage),
-  partialize: (s) => ({ jobId: s.jobId, product: s.product, mock: s.mock,
+  partialize: (s) => ({ jobId: s.jobId, product: s.product, emoji: s.emoji, mock: s.mock,
     identityScope:s.identityScope,liveTaskId:s.liveTaskId }),
 }))

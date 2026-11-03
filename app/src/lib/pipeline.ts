@@ -11,10 +11,10 @@ export const STEP_LABELS: Record<Step, string> = {
   'mock/copy': '카피(mock)를 만들고 있습니다',
   'mock/image': '이미지(mock)를 만들고 있습니다',
   'mock/compose': '최종 광고(mock)를 합성하고 있습니다',
-  'ai/analyze': '화장품 사진인지 확인하고 있습니다',
-  'ai/research': '기획 AI가 사전 조사를 하고 있습니다',
-  'ai/copy-review': '카피를 쓰고 광고 표현을 검수하고 있습니다',
-  'ai/image': '승인한 카피로 이미지를 만들고 있습니다',
+  'ai/analyze': '열심히 문구를 생성중입니다',
+  'ai/research': '열심히 문구를 생성중입니다',
+  'ai/copy-review': '열심히 문구를 생성중입니다',
+  'ai/image': '열심히 이미지를 생성중입니다',
   compose: '카피와 이미지를 합성하고 있습니다',
 }
 

@@ -2,13 +2,14 @@ import { useState, type FormEvent } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { isUnreachable } from '../api/client'
 import { createJob } from '../api/jobs'
-import { advance,recoverLiveInput } from '../api/useJob'
+import { advance,productPayload,recoverLiveInput,resetJob } from '../api/useJob'
 import Field from '../components/Field'
 import MockFallback from '../components/MockFallback'
 import OptionGroup from '../components/OptionGroup'
 import PhotoDrop from '../components/PhotoDrop'
 import StepPage from '../components/StepPage'
 import { PRODUCT_PHOTOS, REFERENCE_PHOTOS, SHRINK } from '../config'
+import { EMOJI_LEVELS } from '../lib/emojiLevel'
 import { shrinkImage } from '../lib/shrinkImage'
 import { validateProduct, type ProductErrors } from '../lib/validateProduct'
 import { useProjectStore } from '../store/projectStore'
@@ -29,7 +30,7 @@ const describedBy = (...ids: (string | false | undefined)[]) => ids.filter(Boole
 
 export default function ProductPage() {
   const navigate = useNavigate()
-  const { images, references, product, run, jobId, setImages, setReferences, setProduct: saveProduct } = useProjectStore()
+  const { images, references, product, emoji, run, jobId, setImages, setReferences, setEmoji, setProduct: saveProduct } = useProjectStore()
   const [errors, setErrors] = useState<ProductErrors>({})
   const [uploading, setUploading] = useState(false)
   const [uploadError, setUploadError] = useState<{ message: string; offline: boolean }>()
@@ -60,11 +61,13 @@ export default function ProductPage() {
         Promise.all(references.map((f) => shrinkImage(f, SHRINK))),
       ])
       const job = await createJob(productFiles, referenceFiles, {
-        ...product,
+        ...productPayload(),
         brand_name: product.brand_name?.trim() || null,
         product_image_count: productFiles.length,
         reference_image_count: referenceFiles.length,
       })
+      // 업로드가 성공한 뒤에 비워야 실패해도 이전 작업으로 돌아갈 수 있다
+      resetJob()
       navigate('/create/copy')
       void advance(async () => job)
     } catch (err) {
@@ -185,6 +188,16 @@ export default function ProductPage() {
             value={product.ad_purpose}
             options={AD_PURPOSES.map((p) => ({ value: p, label: p }))}
             onChange={(v) => setProduct({ ad_purpose: v })}
+          />
+        </section>
+
+        <section className="panel" aria-label="이모티콘">
+          <OptionGroup
+            legend="게시글 이모티콘"
+            name="emoji"
+            value={emoji}
+            options={EMOJI_LEVELS.map((v) => ({ value: v, label: v }))}
+            onChange={setEmoji}
           />
         </section>
 

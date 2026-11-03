@@ -3,9 +3,11 @@ import {queryClient} from './queryClient'
 import {useProjectStore} from '../store/projectStore'
 import {approveLiveCopy,rejectLiveCopy,queueLive,waitLiveTask,approveLiveImage,
   rejectLiveImage,composeLive,getLiveSnapshot,qaPromptImage,qaCompose} from './liveJobs'
-import { QA_OFFLINE_FIXTURE } from '../config'
+import { AD_LAYOUT, QA_OFFLINE_FIXTURE } from '../config'
 import {guardCopyApproval,guardImageApproval,type LiveSnapshot} from './liveMapping'
-export const approvedLayout={text_regions:{
+// Legacy-only composition layout. Managed A Jobs NEVER receive this value.
+// The server records each Job's layout version/hash and composes from it.
+export const LEGACY_LAYOUT={text_regions:{
   headline:{left:.07,top:.055,right:.93,bottom:.17,min_font_size:44,max_font_size:62,
     padding:9,align:'center',color:'#26352B',background:null},
   subline:{left:.06,top:.835,right:.94,bottom:.905,min_font_size:26,max_font_size:42,
@@ -13,6 +15,18 @@ export const approvedLayout={text_regions:{
   cta:{left:.62,top:.91,right:.94,bottom:.95,min_font_size:19,max_font_size:26,
     padding:4,align:'center',color:'#FFFFFF',background:'#305141'},
 },protected_regions:[{left:.31,top:.23,right:.73,bottom:.82}]}
+import {ApiError} from './client'
+// Send FE Owner A v1 unchanged; Backend validates the SHA against the
+// frozen per-Job Image Owner policy and rejects any mismatch.
+const composePinned=(s:LiveSnapshot)=>{
+  const operation=QA_OFFLINE_FIXTURE
+    ? qaCompose(s.job_id)
+    : composeLive(s.job_id,s.template_profile==='A_CENTERED'?AD_LAYOUT:LEGACY_LAYOUT)
+  return operation.catch(e=>{
+    throw Error('광고 합성에 실패했습니다. 승인 이미지는 유지됩니다. 합성만 재시도하세요.'+
+      (e instanceof ApiError&&e.status>0?' (오류 '+e.status+')':''))
+  })
+}
 const refresh=async(id:string)=>{
   await queryClient.invalidateQueries({queryKey:['job',id]})
   await queryClient.invalidateQueries({queryKey:['live-snapshot',id]})
@@ -66,12 +80,11 @@ export async function approveImageAndCompose(s:LiveSnapshot){
   guardImageApproval(s)
   await run(s.job_id,'compose',async()=>{
     await approveLiveImage(s)
-    // A uses the server-owned immutable Owner layout. Old Jobs use their
-    // legacy layout only; never retroactively assign them template A.
-    if(QA_OFFLINE_FIXTURE) await qaCompose(s.job_id)
-    else await composeLive(s.job_id,s.template_profile==='A_CENTERED'?undefined:approvedLayout)
+    await composePinned(s)
   })
 }
+/** FE Owner alias: a manual retry is composition-only, never image regeneration. */
+export const retryCompose=(id:string)=>retryApprovedComposition(id)
 export async function rejectImage(s:LiveSnapshot){
   guardImageApproval(s)
   await run(s.job_id,'ai/image',async()=>{await rejectLiveImage(s)})
@@ -85,7 +98,6 @@ export async function retryApprovedComposition(id:string){
     const current=await getLiveSnapshot(id)
     if(current.state!=='IMAGE_APPROVED'||!current.image_sha||!current.approval_current)
       throw Error('IMAGE_APPROVAL_STALE_OR_COMPLETED')
-    if(QA_OFFLINE_FIXTURE) await qaCompose(id)
-    else await composeLive(id,current.template_profile==='A_CENTERED'?undefined:approvedLayout)
+    await composePinned(current)
   })
 }

@@ -4,7 +4,7 @@ import { approveCopyAndCreateImage, rejectCopy } from '../api/liveFlow'
 import {editLiveCopy,getLiveSnapshot} from '../api/liveJobs'
 import {queryClient} from '../api/queryClient'
 import { useState, useEffect, useRef } from 'react'
-import { advance, useJob, useLiveSnapshot, useLiveProgress } from '../api/useJob'
+import { advance, resetJob, useJob, useLiveProgress, useLiveSnapshot } from '../api/useJob'
 import JobBadges from '../components/JobBadges'
 import RunStatus from '../components/RunStatus'
 import StepPage from '../components/StepPage'
@@ -107,13 +107,16 @@ export default function CopyPage() {
   const reviewing = job?.status === 'COPY_REVIEW_REQUIRED'
   const rejected = job?.status === 'COPY_REJECTED'
   const approved = job !== undefined && ['COPY_APPROVED', 'IMAGE_REVIEW_REQUIRED', 'IMAGE_APPROVED', 'IMAGE_REJECTED', 'COMPLETED'].includes(job.status)
-  const canApprove = job !== undefined && canApproveCopy(job) &&
+  // FE Owner #21 requests an explicit confirmation for every Copy approval.
+  // Do not render this control until the current Live copy revision has hydrated,
+  // otherwise the late GET resets a user's early acknowledgement.
+  const canApprove = job !== undefined && canApproveCopy(job) && evidenceAck &&
     (mock || (editorReady && !draftDirty && !copyConflict && !saving &&
       live?.state===job.status && live?.compliance?.passed===job.compliance_report?.passed))
 
   function onApprove() {
     if(!mock){
-      if(!jobId || approvalInFlight.current || !canApprove || !editorReady ||
+      if(!jobId || approvalInFlight.current || !canApprove || !evidenceAck || !editorReady ||
           draftDirty || copyConflict || saving)return
       approvalInFlight.current=true
       // Always read the current server review hash at the click boundary.
@@ -173,7 +176,7 @@ export default function CopyPage() {
         <div className="notice notice-danger" role="alert">
           <p className="notice-title">화장품 사진이 아닌 것 같습니다</p>
           <p>사진 분석에서 화장품을 찾지 못해 다음 단계를 진행하지 않았습니다. 제품이 잘 보이는 사진으로 다시 올려 주세요.</p>
-          <Link className="button small" to="/create/product">사진 다시 올리기</Link>
+          <Link className="button small" to="/create/product" onClick={resetJob}>사진 다시 올리기</Link>
         </div>
       </StepPage>
     )
@@ -188,7 +191,7 @@ export default function CopyPage() {
       actions={approved
         ? <Link className="button" to="/create/draft">다음: 이미지 검토</Link>
         : rejected
-          ? <Link className="button" to="/create/product">제품 정보에서 다시 시작</Link>
+          ? <Link className="button" to="/create/product" onClick={resetJob}>제품 정보에서 다시 시작</Link>
           : (
             <div className="button-row">
               <button className="button secondary" disabled={!reviewing || busy} onClick={() => mock
@@ -202,14 +205,17 @@ export default function CopyPage() {
           )}
       actionsNote={<>
         {reviewing && job && <ApprovalNote job={job} />}
-        {!mock && reviewing && <label className="field-hint">
+        {/* Never expose the checkbox before this Job's current copy SHA has
+            hydrated; a late copy GET deliberately resets the acknowledgement. */}
+        {reviewing && (mock || editorReady) && <label className="field-hint">
           <input type="checkbox" checked={evidenceAck}
             onChange={e=>setEvidenceAck(e.target.checked)}/>
           근거 확인 필요 표현과 제품 정보의 근거를 직접 확인하겠습니다.
           (1차 규칙 검수는 법적 적합성 확정이 아닙니다)
         </label>}
-        {!mock && task && <p role="status">실제 AI 작업: {task.stage} · {task.state}
-          {task.state==='BILLING_UNKNOWN'?' — 청구 불확실, 자동 재시도 금지':''}</p>}
+        {!mock && task?.state==='BILLING_UNKNOWN' && <div role="alert" className="notice notice-warning">
+          <p>AI 작업의 과금 여부를 확인할 수 없습니다. 자동으로 다시 실행하지 마세요. 담당자 확인 후 진행하세요.</p>
+        </div>}
       </>}
     >
       {job && <JobBadges job={job} />}

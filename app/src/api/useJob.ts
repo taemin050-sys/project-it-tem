@@ -1,5 +1,6 @@
 import { useQuery } from '@tanstack/react-query'
 import { useMemo } from 'react'
+import { withEmojiGuide } from '../lib/emojiLevel'
 import { nextStep, type Flow } from '../lib/pipeline'
 import { useObjectUrls } from '../lib/useObjectUrls'
 import { useProjectStore } from '../store/projectStore'
@@ -60,6 +61,21 @@ export async function refreshJob() {
   await queryClient.invalidateQueries({ queryKey: jobKey(jobId) })
 }
 
+// 새로 시작할 때 이전 작업의 상태와 결과 캐시를 비운다 (입력값·사진은 유지).
+// shortcut: 서버에 Job 삭제 API가 없어 서버 저장본은 남는다, 서빙에 삭제 API가 생기면 여기서 호출한다
+export function resetJob() {
+  const { setJobId, setRun } = useProjectStore.getState()
+  setJobId(null)
+  setRun({ error: null, offline: false })
+  queryClient.clear()
+}
+
+// 업로드·복구가 같은 입력을 보내야 서버 입력 스냅샷이 어긋나지 않는다
+export function productPayload() {
+  const { product, emoji } = useProjectStore.getState()
+  return { ...product, ad_purpose: withEmojiGuide(product.ad_purpose, emoji) }
+}
+
 // first(업로드·승인)를 보낸 뒤 사용자 승인이 필요한 곳까지 단계를 차례로 보낸다.
 // 사용자 클릭에서만 부른다: 화면 effect에서 부르면 유료 AI 호출이 중복될 수 있다. 실패해도 자동 재시도하지 않는다
 export async function advance(first: () => Promise<Job>) {
@@ -72,7 +88,7 @@ export async function advance(first: () => Promise<Job>) {
     jobId = job.job_id
     setJobId(jobId)
     if(!mock){
-      const {product}=useProjectStore.getState()
+      const product=productPayload()
       const imageCount=job.assets?.filter(a=>a.role==='product').length
       const refCount=job.assets?.filter(a=>a.role==='reference').length
       if(imageCount===undefined || refCount===undefined)throw Error('원본 사진 메타데이터를 확인하지 못했습니다.')
@@ -116,7 +132,7 @@ function legacyPlanBody() {
 
 /** Recover a committed B0 upload without uploading photos or resubmitting a provider call. */
 export async function recoverLiveInput(){
-  const {jobId,product,setRun}=useProjectStore.getState()
+  const {jobId,setRun}=useProjectStore.getState()
   if(!jobId)throw Error('복구할 작업이 없습니다.')
   setRun({busy:true,error:null})
   try{
@@ -125,7 +141,7 @@ export async function recoverLiveInput(){
     const reference_image_count=original.assets?.filter(a=>a.role==='reference').length
     if(product_image_count===undefined||reference_image_count===undefined)
       throw Error('기존 사진 기록이 없습니다.')
-    const current=await createLiveInput(original,{...product,product_image_count,reference_image_count})
+    const current=await createLiveInput(original,{...productPayload(),product_image_count,reference_image_count})
     if(current.state==='INPUT_STORED'){
       const s=await getLiveSnapshot(jobId)
       if(s.state==='INPUT_STORED'){

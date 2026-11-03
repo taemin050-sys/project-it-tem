@@ -52,6 +52,7 @@ img { max-width: 100%; }
 @media (prefers-reduced-motion: reduce) {
   html { scroll-behavior: auto; }
   *, *::before, *::after { transition: none !important; }
+  .spinner { animation: none; }
 }
 
 .container { width: 100%; max-width: calc(var(--container) + var(--gutter) * 2); margin-inline: auto; padding-inline: var(--gutter); }
@@ -283,9 +284,12 @@ img { max-width: 100%; }
 .notice-warning .notice-title { color: var(--warning); }
 .notice-danger { border-left-color: var(--danger); background: var(--danger-bg); }
 .notice-danger .notice-title { color: var(--danger); }
-.progress { display: flex; align-items: center; gap: 12px; width: 100%; margin-top: 6px; }
-progress { flex: 1; height: 8px; accent-color: var(--olive); }
-.progress-value { font: 500 13px/1 var(--mono); }
+
+.loading { display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 40px 24px; text-align: center; border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--surface); font-size: 15px; }
+.loading p { margin: 0; }
+.spinner { position: relative; width: 56px; height: 56px; margin-bottom: 12px; border-radius: 50%; background: conic-gradient(transparent 12%, var(--accent) 55%, var(--olive)); mask: radial-gradient(farthest-side, transparent calc(100% - 7px), #000 calc(100% - 6px)); animation: spin 1s linear infinite; }
+.spinner::after { content: ''; position: absolute; top: 0; left: calc(50% - 3px); width: 6px; height: 6px; border-radius: 50%; background: var(--olive); }
+@keyframes spin { to { transform: rotate(1turn); } }
 
 .empty { display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 48px 24px; text-align: center; border: 1px dashed var(--border-strong); border-radius: var(--radius-lg); color: var(--text-2); }
 .empty-title { font-size: 18px; font-weight: 700; color: var(--text); }
