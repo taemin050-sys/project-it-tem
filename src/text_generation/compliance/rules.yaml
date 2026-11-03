@@ -7,21 +7,21 @@
 rules:
   # ---------- 의약품 오인 (별표 1, 제13조 제1항 제1호) ----------
   - id: drug_disease
-    patterns: ["아토피", "건선", "소양증", "모낭충", "기저귀\\s*발진", "atopy"]
+    patterns: ["아토피", "건선", "소양증", "모낭충", "기저귀\\s*발진", "atopy", "피부염", "습진"]
     category: 의약품 오인
     risk: 위반 의심
     suggestion: null
     basis: "지침 별표1 p.9"
 
   - id: drug_treatment
-    patterns: ["치료", "치유", "처치", "완치", "heal(ing)?"]
+    patterns: ["치료", "치유", "처치", "완치", "heal(ing)?", "\\bcure[sd]?\\b"]
     category: 의약품 오인
     risk: 위반 의심
     suggestion: "건강한 피부 / 피부 컨디션 케어"
     basis: "지침 별표1 p.9~11"
 
   - id: drug_inflammation
-    patterns: ["항염", "소염", "염증", "진통", "통증\\s*(경감|완화)", "살균", "소독", "항진균", "항바이러스", "항알레르기", "면역\\s*(강화|력)"]
+    patterns: ["항염", "소염", "염증", "진통", "통증\\s*(경감|완화)", "살균", "소독", "항진균", "항바이러스", "항알레르기", "면역\\s*(강화|력)", "anti[\\s-]*inflammatory"]
     category: 의약품 오인
     risk: 위반 의심
     suggestion: null
@@ -35,7 +35,7 @@ rules:
     basis: "지침 별표1 p.9, 별표2 p.15 (인체세정용 제품만 실증 시 가능)"
 
   - id: drug_regeneration
-    patterns: ["(피부|세포)\\s*재생", "재생\\s*(효과|크림|케어)", "세포\\s*(활성|성장)", "DNA\\s*활성", "혈액\\s*순환", "호르몬"]
+    patterns: ["(피부|세포)\\S{0,2}\\s*재생", "재생\\s*(효과|크림|케어)", "\\bregenerat\\w*", "세포\\s*(활성|성장)", "DNA\\s*활성", "혈액\\s*순환", "호르몬"]
     category: 의약품 오인
     risk: 위반 의심
     suggestion: "촉촉한 피부결 / 피부 컨디션 케어"
@@ -85,21 +85,35 @@ rules:
     basis: "지침 별표1 p.10, 별표2 p.15"
 
   - id: proof_specific_effect
-    patterns: ["셀룰라이트", "붓기", "부기", "다크\\s*서클", "피부\\s*혈행", "피부\\s*장벽\\s*(손상|개선|강화|회복)", "피지\\s*(분비)?\\s*조절", "미세\\s*먼지\\s*(차단|흡착)", "여드름성\\s*피부"]
+    patterns: ["셀룰라이트", "붓기", "부기", "다크\\s*서클", "피부\\s*혈행", "피부\\s*장벽\\s*(손상|개선|강화|회복)", "피지\\s*(분비)?\\s*조절", "미세\\s*먼지\\s*(차단|흡착)", "여드름성\\s*피부", "(barrier|skin)\\s*repair"]
     category: 효능 과장
     risk: 근거 확인 필요
     suggestion: null
     basis: "지침 별표2 p.15 (인체 적용시험 자료 필요)"
 
   - id: proof_numbers
-    patterns: ["\\d+(\\.\\d+)?\\s*%\\s*(개선|증가|감소|향상|효과)", "\\d+\\s*(초|분|시간|일|주|개월)\\s*(만에|후|동안|로|이면|보습|흡수|완성|효과|케어|진정)", "\\d+\\s*배", "\\d+\\s*(초|분)\\s*만"]
+    patterns: ["\\d+(\\.\\d+)?\\s*%\\s*(개선|증가|감소|향상|효과)", "\\d+\\s*(초|분|시간|일|주|개월)\\s*(만에|후|동안|로|이면|면|보습|흡수|완성|효과|케어|진정)", "\\d+\\s*배", "\\d+\\s*(초|분)\\s*만"]
     category: 수치·임상 표현
     risk: 근거 확인 필요
     suggestion: null
     basis: "지침 별표2 p.16 (효능·품질 수치, 비교 광고)"
 
+  - id: proof_duration
+    patterns: ["하루\\s*종일", "\\d+\\s*시간\\s*(지속|유지)", "(지속|유지)\\s*력", "롱\\s*래스팅", "long[\\s-]*lasting", "all[\\s-]*day"]
+    category: 수치·임상 표현
+    risk: 근거 확인 필요
+    suggestion: null
+    basis: "지침 별표2 p.16 (효능·품질 수치)"
+
+  - id: proof_comparison
+    patterns: ["\\S+보다\\s*(더\\s*)?(촉촉|순하|순한|가볍|가벼운|빠르|빠른|오래|효과|좋|진하|진한|밝)", "(타사|기존|일반)\\s*(제품|크림|토너|세럼)?\\s*(대비|보다)", "비교\\s*불가"]
+    category: 효능 과장
+    risk: 근거 확인 필요
+    suggestion: null
+    basis: "지침 별표2 p.16 (비교 광고)"
+
   - id: proof_test
-    patterns: ["피부과\\s*테스트", "임상", "인체\\s*적용\\s*시험", "테스트\\s*완료", "효과\\s*입증", "검증\\s*완료", "저자극\\s*테스트"]
+    patterns: ["피부과\\s*테스트", "임상", "인체\\s*적용\\s*시험", "테스트\\s*완료", "효과\\s*입증", "검증\\s*완료", "저자극\\s*테스트", "clinically\\s*(proven|tested)", "dermatologist[\\s-]*(tested|approved)"]
     category: 수치·임상 표현
     risk: 근거 확인 필요
     suggestion: null
@@ -120,15 +134,15 @@ rules:
     basis: "지침 별표1 p.14, 별표2 p.16 (대한화장품협회 기준 자료 필요)"
 
   - id: proof_soothing
-    patterns: ["진정"]
+    patterns: ["진정", "\\bsoothing\\b", "\\bcalming\\b"]
     category: 의약품 오인
     risk: 근거 확인 필요
     suggestion: "편안한 / 산뜻한"
-    basis: "식약처 뉴스레터 34호 (의약품 오인 예시, 팀 논의 필요)"
+    basis: "식약처 뉴스레터 34호 (의약품 오인 예시)"
 
   # ---------- 소비자 오인 · 화장품 범위 밖 (제13조 제1항 제4호) ----------
   - id: consumer_institution
-    patterns: ["(의사|전문의|피부과|병원|약사|의료진)\\S*\\s*(가|이)?\\s*(추천|개발|인증|공동\\s*개발)", "병원\\s*(용|전용)", "피부과\\s*(전용|시술용)", "약국\\s*(용|전용)", "협회\\s*인증"]
+    patterns: ["(의사|전문의|피부과|병원|약사|의료진)\\S*\\s*(가|이)?\\s*(추천|개발|인증|공동\\s*개발)", "병원\\s*(용|전용)", "피부과\\s*(전용|시술용)", "약국\\s*(용|전용)", "협회\\s*인증", "(doctor|dermatologist)[\\s-]*recommended"]
     category: 전문가·매체 추천
     risk: 위반 의심
     suggestion: null
@@ -203,7 +217,7 @@ rules:
     category: 효능 과장
     risk: 근거 확인 필요
     suggestion: "데일리템 / 데일리 아이템"
-    basis: "팀 기준 (10/28 카피 테스트에서 발견, 과장 표현)"
+    basis: "자체 기준 (과장 표현)"
 
 # ---------- 기능성 분기 (별표 1 제13조 제1항 제2호, 시행규칙 제2조) ----------
 # 일반 화장품 → not_functional_risk / 기능성 화장품 → functional_risk
