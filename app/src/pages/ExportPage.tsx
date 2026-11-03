@@ -2,8 +2,8 @@ import { useQuery } from '@tanstack/react-query'
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import { getBlob } from '../api/jobs'
-import { useBlobUrl, useJob, useLiveSnapshot } from '../api/useJob'
-import {getLivePerformance,shareLive,listPublishedLive} from '../api/liveJobs'
+import { resetJob, useBlobUrl, useJob, useLiveSnapshot } from '../api/useJob'
+import {shareLive,listPublishedLive} from '../api/liveJobs'
 import {isPublishedFinal} from '../api/liveMapping'
 import {queryClient} from '../api/queryClient'
 import JobBadges from '../components/JobBadges'
@@ -39,12 +39,6 @@ export default function ExportPage() {
     staleTime:0,retry:false
   })
   const alreadyShared=shared||isPublishedFinal(live.data,publications.data?.jobs??[])
-  const perf=useQuery({
-    queryKey:['live-perf',job?.job_id],
-    queryFn:()=>getLivePerformance(job!.job_id),
-    enabled:!mock && !!job?.job_id,refetchInterval:job?.status==='COMPLETED'?false:3000,
-    retry:false
-  })
   async function publish(){
     if(!job || job.status!=='COMPLETED')return
     setSharing(true);setShareError('')
@@ -97,9 +91,12 @@ export default function ExportPage() {
       wide
       back={{ to: '/create/draft', label: '이미지 검토' }}
       actions={
-        <button className="button" disabled={!ready} onClick={() => download(finalUrl!, `ad_${CANVAS.width}x${CANVAS.height}.${ext}`)}>
-          광고 이미지 저장 ({ext.toUpperCase()})
-        </button>
+        <div className="button-row">
+          {job?.status === 'COMPLETED' && <Link className="button secondary" to="/" onClick={resetJob}>홈으로</Link>}
+          <button className="button" disabled={!ready} onClick={() => download(finalUrl!, `ad_${CANVAS.width}x${CANVAS.height}.${ext}`)}>
+            광고 이미지 저장 ({ext.toUpperCase()})
+          </button>
+        </div>
       }
     >
       {job && <JobBadges job={job} />}
@@ -113,16 +110,6 @@ export default function ExportPage() {
         </div>
       )}
 
-      {!mock && perf.data && <section className="panel">
-        <h2 className="panel-title">실제 AI 실행 기록</h2>
-        <p>비용 정책: {perf.data.application_cost_policy} ·
-          프로젝트 전체 사용액: {perf.data.project_spend_status}</p>
-        <ul className="plain-list">{perf.data.provider_attempts.map((a,i)=><li key={i}>
-          {a.stage} · {a.state} · {a.model||'모델 미확인'} ·
-          {a.usage ? JSON.stringify(a.usage) : '사용량 미확인'}
-        </li>)}</ul>
-        <p className="field-hint">실제 API 기록이며 Mock 처리시간이 아닙니다. 규칙 검수는 법적 적합성 확정이 아닙니다.</p>
-      </section>}
       {!mock && ready && <section className="panel">
         <h2 className="panel-title">팀 공동 품질 평가</h2>
         <p>최종 광고 이미지와 Caption만 다른 인증된 팀원과 공유합니다. 원본 제품 사진과 비공개 Job 정보는 공유하지 않습니다.</p>

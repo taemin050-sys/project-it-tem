@@ -4,7 +4,7 @@ import { approveCopyAndCreateImage, rejectCopy } from '../api/liveFlow'
 import {editLiveCopy,getLiveSnapshot} from '../api/liveJobs'
 import {queryClient} from '../api/queryClient'
 import { useState, useEffect, useRef } from 'react'
-import { advance, useJob, useLiveSnapshot, useLiveProgress } from '../api/useJob'
+import { advance, resetJob, useJob, useLiveSnapshot } from '../api/useJob'
 import JobBadges from '../components/JobBadges'
 import RunStatus from '../components/RunStatus'
 import StepPage from '../components/StepPage'
@@ -65,7 +65,6 @@ export default function CopyPage() {
   const { data: job } = useJob()
   const mock=useProjectStore(s=>s.mock)
   const {data:live}=useLiveSnapshot()
-  const {data:task}=useLiveProgress()
   const [evidenceAck,setEvidenceAck]=useState(false)
   const [editError,setEditError]=useState('')
   const [saving,setSaving]=useState(false)
@@ -131,7 +130,7 @@ export default function CopyPage() {
         <div className="notice notice-danger" role="alert">
           <p className="notice-title">화장품 사진이 아닌 것 같습니다</p>
           <p>사진 분석에서 화장품을 찾지 못해 다음 단계를 진행하지 않았습니다. 제품이 잘 보이는 사진으로 다시 올려 주세요.</p>
-          <Link className="button small" to="/create/product">사진 다시 올리기</Link>
+          <Link className="button small" to="/create/product" onClick={resetJob}>사진 다시 올리기</Link>
         </div>
       </StepPage>
     )
@@ -146,7 +145,7 @@ export default function CopyPage() {
       actions={approved
         ? <Link className="button" to="/create/draft">다음: 이미지 검토</Link>
         : rejected
-          ? <Link className="button" to="/create/product">제품 정보에서 다시 시작</Link>
+          ? <Link className="button" to="/create/product" onClick={resetJob}>제품 정보에서 다시 시작</Link>
           : (
             <div className="button-row">
               <button className="button secondary" disabled={!reviewing || busy} onClick={() => mock
@@ -155,19 +154,17 @@ export default function CopyPage() {
                     useProjectStore.getState().setRun({error:String(e)}))}>
                 카피 거절
               </button>
-              <button className="button" disabled={!canApprove || busy} onClick={onApprove}>이 카피로 이미지 만들기</button>
+              <button className="button" disabled={!canApprove || !evidenceAck || busy} onClick={onApprove}>이 카피로 이미지 만들기</button>
             </div>
           )}
       actionsNote={<>
         {reviewing && job && <ApprovalNote job={job} />}
-        {!mock && reviewing && <label className="field-hint">
+        {reviewing && <label className="field-hint">
           <input type="checkbox" checked={evidenceAck}
             onChange={e=>setEvidenceAck(e.target.checked)}/>
           근거 확인 필요 표현과 제품 정보의 근거를 직접 확인하겠습니다.
           (1차 규칙 검수는 법적 적합성 확정이 아닙니다)
         </label>}
-        {!mock && task && <p role="status">실제 AI 작업: {task.stage} · {task.state}
-          {task.state==='BILLING_UNKNOWN'?' — 청구 불확실, 자동 재시도 금지':''}</p>}
       </>}
     >
       {job && <JobBadges job={job} />}

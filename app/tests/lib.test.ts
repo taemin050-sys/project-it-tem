@@ -1,10 +1,17 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
+import { EMOJI_LEVELS, withEmojiGuide } from '../src/lib/emojiLevel.ts'
 import { fitWithin } from '../src/lib/shrinkImage.ts'
 import { validateImages } from '../src/lib/validateImages.ts'
 
 const limits = { minFiles: 2, maxFiles: 5, acceptTypes: ['image/png'] }
 const png = (name: string, size = 1) => new File([new Uint8Array(size)], name, { type: 'image/png' })
+
+test('이모티콘 지시는 광고 목적을 유지하고 수준마다 다르며 이미지 문구에는 금지한다', () => {
+  const guides = EMOJI_LEVELS.map((level) => withEmojiGuide('신제품 홍보', level))
+  assert.equal(new Set(guides).size, 3)
+  for (const guide of guides) assert.match(guide, /^신제품 홍보 .*헤드라인·서브 문구·CTA에는 이모티콘 금지/)
+})
 
 test('정상 파일은 오류 없음 (용량 제한 없음)', () => {
   assert.deepEqual(validateImages([png('a.png', 50_000_000), png('b.png')], limits, '제품 사진'), [])

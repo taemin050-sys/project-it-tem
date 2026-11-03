@@ -1,6 +1,6 @@
 import { Link, useNavigate } from 'react-router-dom'
 import { review } from '../api/jobs'
-import { advance, useBlobUrl, useJob, useLiveSnapshot, useLiveProgress } from '../api/useJob'
+import { advance, resetJob, useBlobUrl, useJob, useLiveSnapshot, useLiveProgress } from '../api/useJob'
 import {approveImageAndCompose,rejectImage,resumeImageFromApproved} from '../api/liveFlow'
 import {getLiveSnapshot} from '../api/liveJobs'
 import JobBadges from '../components/JobBadges'
@@ -32,6 +32,7 @@ export default function DraftPage() {
   const rejected = job?.status === 'IMAGE_REJECTED'
   const approved = job?.status === 'IMAGE_APPROVED' || job?.status === 'COMPLETED'
   const products = job?.assets?.filter((a) => a.role === 'product') ?? []
+  const generating = task?.state === 'RUNNING' || task?.state === 'QUEUED'
 
   function onApprove() {
     if(!mock){
@@ -57,7 +58,7 @@ export default function DraftPage() {
       actions={approved
         ? <Link className="button" to="/create/export">다음: 최종 결과</Link>
         : rejected
-          ? <Link className="button" to="/create/product">제품 정보에서 다시 시작</Link>
+          ? <Link className="button" to="/create/product" onClick={resetJob}>제품 정보에서 다시 시작</Link>
           : (
             <div className="button-row">
               <button className="button secondary" disabled={!reviewing || run.busy} onClick={() => mock ? void advance(() => review(jobId!, 'image', false))
@@ -72,12 +73,10 @@ export default function DraftPage() {
         {reviewing && <p className="field-hint">원본 제품·브랜드·라벨 보존을 직접 확인하세요. 거절하면 자동 유료 재생성은 하지 않습니다.</p>}
         {!mock && live && ['COPY_APPROVED','PROMPT_READY'].includes(live.state) &&
         <button type="button" className="button secondary small"
-          disabled={run.busy || (task?.state==='RUNNING'||task?.state==='QUEUED')}
+          disabled={run.busy || generating}
           onClick={()=>void resumeImageFromApproved(live.job_id).catch(()=>{})}>
           저장된 승인 상태에서 이미지 생성 진행
         </button>}
-        {!mock && task && <p role="status">실제 AI 작업: {task.stage} · {task.state}
-          {task.state==='BILLING_UNKNOWN'?' — 청구 상태 확인 전 재호출 금지':''}</p>}
       </>}
     >
       {job && <JobBadges job={job} />}
@@ -89,7 +88,7 @@ export default function DraftPage() {
         </div>
       )}
 
-      {!job?.image_candidate && !run.busy && !run.error && (
+      {!job?.image_candidate && !run.busy && !run.error && !generating && (
         <div className="empty">
           <p className="empty-title">아직 만든 이미지가 없습니다</p>
           <p>기획·카피 검토에서 카피를 승인하면 이미지를 만듭니다.</p>
