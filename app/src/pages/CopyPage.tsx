@@ -70,6 +70,7 @@ export default function CopyPage() {
   const [editError,setEditError]=useState('')
   const [saving,setSaving]=useState(false)
   const seenCopy=useRef<string|null>(null)
+  const copyFormRef=useRef<HTMLElement|null>(null)
   const approvalInFlight=useRef(false)
   const [draft,setDraft]=useState({headline:'',subline:'',cta:'',caption:'',hashtags:''})
   useEffect(()=>{
@@ -116,9 +117,19 @@ export default function CopyPage() {
     try{
       const current=await getLiveSnapshot(jobId)
       if(!current.copy)throw Error('수정할 카피가 없습니다.')
+      // Read the actual visible form at the explicit save click.
+      // A concurrently refreshed Live snapshot must never turn an edited
+      // textarea into the stale pre-edit copy sent to the compliance gate.
+      const submitted={...draft}
+      for(const key of ['headline','subline','cta','caption','hashtags'] as const){
+        const area=copyFormRef.current?.querySelector<HTMLTextAreaElement>(
+          'textarea[data-copy-field="'+key+'"]')
+        if(!area)throw Error('COPY_EDIT_VISIBLE_INPUT_UNAVAILABLE')
+        submitted[key]=area.value
+      }
       await editLiveCopy(jobId,{...current.copy,
-        ad_copy:{headline:draft.headline,subline:draft.subline,cta:draft.cta},
-        caption:draft.caption,hashtags:draft.hashtags.split(/[\s,]+/).filter(Boolean)})
+        ad_copy:{headline:submitted.headline,subline:submitted.subline,cta:submitted.cta},
+        caption:submitted.caption,hashtags:submitted.hashtags.split(/[\s,]+/).filter(Boolean)})
       await queryClient.invalidateQueries({queryKey:['live-snapshot',jobId]})
       await queryClient.invalidateQueries({queryKey:['job',jobId]})
     }catch(e){setEditError(e instanceof Error?e.message:'카피 수정 실패')}
@@ -182,14 +193,14 @@ export default function CopyPage() {
 
       {copy && report && (
         <div className="stack">
-          {!mock && reviewing && <section className="panel">
+          {!mock && reviewing && <section className="panel" ref={copyFormRef}>
             <h2 className="panel-title">카피 수정·재검수</h2>
             <p className="field-hint">수정하면 서버에서 새 Revision으로 재검수합니다.
               원문으로 되돌려도 이전 승인은 재활성화되지 않습니다.</p>
             {(['headline','subline','cta','caption','hashtags'] as const).map(k=>
               <label key={k} className="field">
                 <span className="copy-label">{k}</span>
-                <textarea rows={k==='caption'?3:2} value={draft[k]}
+                <textarea data-copy-field={k} rows={k==='caption'?3:2} value={draft[k]}
                   onChange={e=>{const value=e.currentTarget.value;setDraft(x=>({...x,[k]:value}))}}/>
               </label>)}
             <button type="button" className="button secondary"
