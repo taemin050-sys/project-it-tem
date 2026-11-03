@@ -190,7 +190,7 @@ export default function CopyPage() {
               <label key={k} className="field">
                 <span className="copy-label">{k}</span>
                 <textarea rows={k==='caption'?3:2} value={draft[k]}
-                  onChange={e=>setDraft(x=>({...x,[k]:e.target.value}))}/>
+                  onChange={e=>{const value=e.currentTarget.value;setDraft(x=>({...x,[k]:value}))}}/>
               </label>)}
             <button type="button" className="button secondary"
               disabled={saving||busy||!job?.copy_output}
