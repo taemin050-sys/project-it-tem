@@ -4,14 +4,13 @@ import {useProjectStore} from '../store/projectStore'
 import {approveLiveCopy,rejectLiveCopy,queueLive,waitLiveTask,approveLiveImage,
   rejectLiveImage,composeLive,getLiveSnapshot} from './liveJobs'
 import {guardCopyApproval,guardImageApproval,type LiveSnapshot} from './liveMapping'
-export const approvedLayout={text_regions:{
-  headline:{left:.07,top:.055,right:.93,bottom:.17,min_font_size:44,max_font_size:62,
-    padding:9,align:'center',color:'#26352B',background:null},
-  subline:{left:.06,top:.835,right:.94,bottom:.905,min_font_size:26,max_font_size:42,
-    padding:9,align:'center',color:'#25342C',background:'#F8F7F3'},
-  cta:{left:.62,top:.91,right:.94,bottom:.95,min_font_size:19,max_font_size:26,
-    padding:4,align:'center',color:'#FFFFFF',background:'#305141'},
-},protected_regions:[{left:.31,top:.23,right:.73,bottom:.82}]}
+import {AD_LAYOUT} from '../config'
+import {ApiError} from './client'
+// The generic HTTP messages (e.g. 422 = photo input) are wrong for a compose failure; the image is kept.
+const compose=(id:string)=>composeLive(id,AD_LAYOUT).catch(e=>{
+  throw Error('광고 합성에 실패했습니다. 승인한 이미지는 그대로 있으니 원인을 확인한 뒤 합성만 다시 시도하세요.'+
+    (e instanceof ApiError&&e.status>0?` (오류 ${e.status})`:''))
+})
 const refresh=async(id:string)=>{
   await queryClient.invalidateQueries({queryKey:['job',id]})
   await queryClient.invalidateQueries({queryKey:['live-snapshot',id]})
@@ -61,7 +60,15 @@ export async function approveImageAndCompose(s:LiveSnapshot){
   guardImageApproval(s)
   await run(s.job_id,'compose',async()=>{
     await approveLiveImage(s)
-    await composeLive(s.job_id,approvedLayout)
+    await compose(s.job_id)
+  })
+}
+/** Compose failed after image approval: resend compose only, never regenerate or re-approve the image. */
+export async function retryCompose(id:string){
+  await run(id,'compose',async()=>{
+    const s=await getLiveSnapshot(id)
+    if(s.state!=='IMAGE_APPROVED')throw Error('합성 대기 상태가 아닙니다. 새로고침 후 현재 상태를 확인하세요.')
+    await compose(id)
   })
 }
 export async function rejectImage(s:LiveSnapshot){

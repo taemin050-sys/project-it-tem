@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import LiveEvaluationBoard from './LiveEvaluationBoard'
+import { AD_LAYOUT as layout } from '../config'
 
 type Stage = 'INPUT_STORED' | 'COPY_REVIEW_REQUIRED' | 'COPY_APPROVED' | 'COPY_REJECTED' |
              'PROMPT_READY' | 'IMAGE_REVIEW_REQUIRED' | 'IMAGE_APPROVED' | 'IMAGE_REJECTED' | 'COMPLETED'
@@ -21,19 +22,6 @@ type Performance={timings:Array<{stage:string;state:string;server_elapsed_s:numb
   project_spend_status:string;application_cost_policy:string}
 type State = {live_enabled:boolean;mode:string;reason:string}
 const api='/demo/api/live'
-// Visual QA on actual OpenAI image output. Preserve center product/label;
-// subline is placed below product, not in the 46%-width left slot.
-const layout={text_regions:{
-  headline:{left:.07,top:.055,right:.93,bottom:.17,
-    min_font_size:44,max_font_size:62,padding:9,align:'center',
-    color:'#26352B',background:null},
-  subline:{left:.06,top:.835,right:.94,bottom:.905,
-    min_font_size:26,max_font_size:42,padding:9,align:'center',
-    color:'#25342C',background:'#F8F7F3'},
-  cta:{left:.62,top:.91,right:.94,bottom:.95,
-    min_font_size:19,max_font_size:26,padding:4,align:'center',
-    color:'#FFFFFF',background:'#305141'},
-},protected_regions:[{left:.31,top:.23,right:.73,bottom:.82}]}
 
 async function request<T>(url:string, method='GET', payload?:unknown):Promise<T>{
   const res=await fetch(url,{method,credentials:'same-origin',cache:'no-store',

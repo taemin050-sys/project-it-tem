@@ -3,6 +3,7 @@ import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import { getBlob } from '../api/jobs'
 import { resetJob, useBlobUrl, useJob, useLiveSnapshot } from '../api/useJob'
+import {retryCompose} from '../api/liveFlow'
 import {shareLive,listPublishedLive} from '../api/liveJobs'
 import {isPublishedFinal} from '../api/liveMapping'
 import {queryClient} from '../api/queryClient'
@@ -39,6 +40,8 @@ export default function ExportPage() {
     staleTime:0,retry:false
   })
   const alreadyShared=shared||isPublishedFinal(live.data,publications.data?.jobs??[])
+  // 이미지 승인까지 끝났는데 합성만 실패한 상태 (합성 중에는 busy라 숨긴다)
+  const composeFailed=!mock && live.data?.state==='IMAGE_APPROVED' && !run.busy
   async function publish(){
     if(!job || job.status!=='COMPLETED')return
     setSharing(true);setShareError('')
@@ -93,6 +96,7 @@ export default function ExportPage() {
       actions={
         <div className="button-row">
           {job?.status === 'COMPLETED' && <Link className="button secondary" to="/" onClick={resetJob}>홈으로</Link>}
+          {composeFailed && <button className="button secondary" onClick={() => void retryCompose(live.data!.job_id).catch(() => {})}>합성만 다시 시도</button>}
           <button className="button" disabled={!ready} onClick={() => download(finalUrl!, `ad_${CANVAS.width}x${CANVAS.height}.${ext}`)}>
             광고 이미지 저장 ({ext.toUpperCase()})
           </button>
@@ -102,7 +106,14 @@ export default function ExportPage() {
       {job && <JobBadges job={job} />}
       <RunStatus />
 
-      {job?.status !== 'COMPLETED' && !run.busy && !run.error && (
+      {composeFailed && (
+        <div className="notice notice-warning" role="status">
+          <p className="notice-title">이미지는 승인됐고 합성만 남았습니다</p>
+          <p>이미지를 다시 만들지 않고, 승인한 이미지·카피 그대로 합성만 다시 요청합니다.</p>
+        </div>
+      )}
+
+      {job?.status !== 'COMPLETED' && !run.busy && !run.error && !composeFailed && (
         <div className="empty">
           <p className="empty-title">아직 완성된 광고가 없습니다</p>
           <p>이미지 검토에서 이미지를 승인하면 최종 광고를 만듭니다.</p>
