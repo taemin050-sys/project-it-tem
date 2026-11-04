@@ -11,15 +11,9 @@ import JobBadges from '../components/JobBadges'
 import RunStatus from '../components/RunStatus'
 import StepPage from '../components/StepPage'
 import { CANVAS } from '../config'
+import { download } from '../lib/download'
 import { useProjectStore } from '../store/projectStore'
 import type { Job } from '../types/draft'
-
-function download(href: string, filename: string) {
-  const a = document.createElement('a')
-  a.href = href
-  a.download = filename
-  a.click()
-}
 
 // 승인한 카피가 서버 본문 파일에 그대로 들어갔는지 (v0.5는 caption, 레거시는 문구 1개)
 const approvedText = (job: Job) => job.copy_output?.caption ?? job.copy_candidate?.text
@@ -66,7 +60,9 @@ export default function ExportPage() {
   const [copied, setCopied] = useState<'idle' | 'done' | 'error'>('idle')
 
   const ready = job?.status === 'COMPLETED' && finalUrl !== undefined && caption !== undefined
-  const sizeOk = size?.width === CANVAS.width && size?.height === CANVAS.height
+  // 서버가 알려준 최종 크기(mock은 고른 비율, Live는 4:5) 기준으로 확인한다
+  const target = job?.final_output ?? CANVAS
+  const sizeOk = size?.width === target.width && size?.height === target.height
   const expected = job && approvedText(job)
   const captionOk = caption !== undefined && expected !== undefined && caption.includes(expected)
   const ext = final?.content_type.includes('svg') ? 'svg' : 'png'
@@ -97,7 +93,7 @@ export default function ExportPage() {
         <div className="button-row">
           {job?.status === 'COMPLETED' && <Link className="button secondary" to="/" onClick={resetJob}>홈으로</Link>}
           {composeFailed && <button className="button secondary" onClick={() => void retryCompose(live.data!.job_id).catch(() => {})}>합성만 다시 시도</button>}
-          <button className="button" disabled={!ready} onClick={() => download(finalUrl!, `ad_${CANVAS.width}x${CANVAS.height}.${ext}`)}>
+          <button className="button" disabled={!ready} onClick={() => download(finalUrl!, `ad_${target.width}x${target.height}.${ext}`)}>
             광고 이미지 저장 ({ext.toUpperCase()})
           </button>
         </div>
@@ -163,12 +159,13 @@ export default function ExportPage() {
                 className="result-image"
                 src={finalUrl}
                 alt="최종 광고 이미지"
+                style={size && { aspectRatio: `${size.width} / ${size.height}` }}
                 onLoad={(e) => setSize({ width: e.currentTarget.naturalWidth, height: e.currentTarget.naturalHeight })}
               />
               <figcaption>
                 {!size ? '크기 확인 중…' : sizeOk
-                  ? `✓ ${size.width}×${size.height}px (4:5)`
-                  : <span className="field-error">크기가 {size.width}×{size.height}px입니다 (기대값 {CANVAS.width}×{CANVAS.height})</span>}
+                  ? `✓ ${size.width}×${size.height}px`
+                  : <span className="field-error">크기가 {size.width}×{size.height}px입니다 (기대값 {target.width}×{target.height})</span>}
               </figcaption>
             </figure>
           </aside>

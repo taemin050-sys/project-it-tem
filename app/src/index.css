@@ -354,6 +354,10 @@ input[type='checkbox'] { width: 20px; height: 20px; margin: 0; flex-shrink: 0; a
 .subgroup > legend + * { clear: both; }
 .subgroup .field-hint { margin: -6px 0 12px; }
 .subgroup .field-error { margin-top: 10px; }
+.check-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 140px), 1fr)); gap: 8px; }
+.check-item { display: flex; align-items: center; gap: 8px; min-height: 44px; padding: 0 12px; border: 1px solid var(--border-strong); border-radius: var(--radius); background: var(--surface); font-size: 15px; cursor: pointer; }
+.check-item:has(input:checked) { border-color: var(--text); background: var(--accent); }
+.check-item input { width: 18px; height: 18px; margin: 0; accent-color: var(--text); }
 .chips { display: flex; flex-wrap: wrap; gap: 8px; }
 .chip { display: inline-flex; align-items: center; min-height: 44px; padding: 0 16px; border: 1px solid var(--border-strong); border-radius: 999px; background: var(--surface); font-size: 15px; font-weight: 500; cursor: pointer; }
 .chip:hover { border-color: var(--text); }
@@ -377,6 +381,7 @@ input[type='checkbox'] { width: 20px; height: 20px; margin: 0; flex-shrink: 0; a
 .copy-set .copy-field:first-of-type { padding-top: 0; }
 .copy-label { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; font-size: 13px; font-weight: 600; color: var(--text-2); }
 .count { font: 500 11px/1 var(--mono); color: var(--text-2); }
+.count.over { color: var(--danger); font-weight: 700; }
 .copy-headline { font-size: clamp(20px, 2.2vw, 24px); font-weight: 700; line-height: 1.4; }
 .copy-subline { font-size: 17px; line-height: 1.55; white-space: pre-line; }
 .copy-cta { display: inline-block; padding: 6px 14px; border: 1px solid var(--text); border-radius: 999px; font-size: 15px; font-weight: 600; }
@@ -421,6 +426,9 @@ mark.risk-warning { background: var(--warning-bg); box-shadow: inset 0 -2px 0 va
 /* 4단계: 이미지 시안 */
 .draft-layout { display: grid; grid-template-columns: minmax(0, 560px) minmax(260px, 1fr); gap: clamp(24px, 4vw, 48px); align-items: start; }
 .draft-stage { min-width: 0; }
+.draft-stage figcaption { align-items: center; justify-content: center; margin-top: 12px; }
+.revise-input { min-height: 180px; font-size: 16px; line-height: 1.6; }
+.panel > .field + .button-row { margin-top: 20px; }
 /* 서버가 준 이미지(생성 이미지·최종 광고)를 4:5 칸에 그대로 보여준다 */
 .result-image { display: block; width: 100%; max-width: 560px; aspect-ratio: 4 / 5; margin-inline: auto; object-fit: contain; background: var(--border); }
 @media (max-width: 799px) { .draft-layout { grid-template-columns: 1fr; } }

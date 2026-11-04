@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
+import { countChars, overLimits } from '../src/lib/copyLimits.ts'
 import { EMOJI_LEVELS, withEmojiGuide } from '../src/lib/emojiLevel.ts'
 import { fitWithin } from '../src/lib/shrinkImage.ts'
 import { validateImages } from '../src/lib/validateImages.ts'
@@ -11,6 +12,14 @@ test('이모티콘 지시는 광고 목적을 유지하고 수준마다 다르�
   const guides = EMOJI_LEVELS.map((level) => withEmojiGuide('신제품 홍보', level))
   assert.equal(new Set(guides).size, 3)
   for (const guide of guides) assert.match(guide, /^신제품 홍보 .*헤드라인·서브 문구·CTA에는 이모티콘 금지/)
+})
+
+test('글자 수: 공백 포함·줄바꿈 제외, 헤드 15·서브 25·CTA 10자 초과만 막는다', () => {
+  assert.equal(countChars('가볍게 스며드는\n데일리 보습'), 14)
+  assert.equal(countChars('💧 촉촉'), 4)
+  const ok = { headline: '가'.repeat(15), subline: `${'나'.repeat(15)}\n${'다'.repeat(10)}`, cta: '라'.repeat(10) }
+  assert.deepEqual(overLimits(ok), [])
+  assert.deepEqual(overLimits({ ...ok, headline: '가'.repeat(16), cta: '라'.repeat(11) }), ['헤드 16자 (기준 15자)', 'CTA 11자 (기준 10자)'])
 })
 
 test('정상 파일은 오류 없음 (용량 제한 없음)', () => {

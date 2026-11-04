@@ -17,6 +17,8 @@ export const RISK_CATEGORIES = [
   '순위·최상급 표현', '전문가·매체 추천', '가상 후기', '확정 정보 불일치', '기타',
 ] as const
 export const COPY_FIELDS = ['product_name', 'headline', 'subline', 'cta', 'caption', 'hashtags', 'user_text'] as const
+// 화장품법 시행규칙 제2조 기능성화장품의 범위 (텍스트 schemas.py FunctionalType과 같은 순서). 여드름완화는 인체세정용 제품만
+export const FUNCTIONAL_TYPES = ['미백', '주름개선', '태닝', '자외선차단', '모발색상변화', '체모제거', '탈모완화', '여드름완화', '가려움개선', '튼살붉은선완화'] as const
 
 export type ProductType = (typeof PRODUCT_TYPES)[number]
 export type ContainerType = (typeof CONTAINER_TYPES)[number]
@@ -24,6 +26,7 @@ export type SourceType = (typeof SOURCE_TYPES)[number]
 export type RiskLevel = (typeof RISK_LEVELS)[number]
 export type RiskCategory = (typeof RISK_CATEGORIES)[number]
 export type CopyField = (typeof COPY_FIELDS)[number]
+export type FunctionalType = (typeof FUNCTIONAL_TYPES)[number]
 
 // ---------- 1. 사용자 입력 (React → 서빙 → 텍스트) ----------
 

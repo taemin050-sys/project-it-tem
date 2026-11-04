@@ -8,12 +8,12 @@ import MockFallback from '../components/MockFallback'
 import OptionGroup from '../components/OptionGroup'
 import PhotoDrop from '../components/PhotoDrop'
 import StepPage from '../components/StepPage'
-import { PRODUCT_PHOTOS, REFERENCE_PHOTOS, SHRINK } from '../config'
+import { PRODUCT_PHOTOS, RATIOS, REFERENCE_PHOTOS, SHRINK, type Ratio } from '../config'
 import { EMOJI_LEVELS } from '../lib/emojiLevel'
 import { shrinkImage } from '../lib/shrinkImage'
 import { validateProduct, type ProductErrors } from '../lib/validateProduct'
 import { useProjectStore } from '../store/projectStore'
-import { AD_PURPOSES, PRODUCT_TYPES } from '../types/textSchema'
+import { AD_PURPOSES, FUNCTIONAL_TYPES, PRODUCT_TYPES, type FunctionalType } from '../types/textSchema'
 
 const LIMITS = { product: PRODUCT_PHOTOS, reference: REFERENCE_PHOTOS }
 
@@ -23,14 +23,19 @@ const FOCUS_ORDER: [keyof ProductErrors, string][] = [
   ['references', 'references'],
   ['product_name', 'product_name'],
   ['features', 'features'],
+  ['functional_types', 'functional_types'],
   ['photo_verified', 'photo_verified'],
 ]
+
+// 기능성 종류 목록 순서를 유지한 채 켜고 끈다
+const toggle = (list: FunctionalType[], t: FunctionalType, on: boolean) =>
+  FUNCTIONAL_TYPES.filter((x) => (x === t ? on : list.includes(x)))
 
 const describedBy = (...ids: (string | false | undefined)[]) => ids.filter(Boolean).join(' ') || undefined
 
 export default function ProductPage() {
   const navigate = useNavigate()
-  const { images, references, product, emoji, run, jobId, setImages, setReferences, setEmoji, setProduct: saveProduct } = useProjectStore()
+  const { images, references, product, emoji, ratio, run, jobId, setImages, setReferences, setEmoji, setRatio, setProduct: saveProduct } = useProjectStore()
   const [errors, setErrors] = useState<ProductErrors>({})
   const [uploading, setUploading] = useState(false)
   const [uploadError, setUploadError] = useState<{ message: string; offline: boolean }>()
@@ -39,7 +44,7 @@ export default function ProductPage() {
   const setError = (key: keyof ProductErrors, message?: string) => setErrors((e) => ({ ...e, [key]: message }))
   function setProduct(patch: Parameters<typeof saveProduct>[0]) {
     saveProduct(patch)
-    for (const key of ['product_name', 'features', 'photo_verified'] as const) {
+    for (const key of ['product_name', 'features', 'functional_types', 'photo_verified'] as const) {
       if (key in patch) setError(key)
     }
   }
@@ -210,7 +215,34 @@ export default function ProductPage() {
               { value: 'general', label: '일반 화장품', desc: '기능성 인증을 받지 않은 제품' },
               { value: 'functional', label: '기능성 화장품', desc: '식약처 심사·보고를 마친 기능성화장품' },
             ]}
-            onChange={(v) => setProduct({ is_functional: v === 'functional' })}
+            onChange={(v) => setProduct({ is_functional: v === 'functional', functional_types: [] })}
+          />
+          {product.is_functional && (
+            <fieldset id="functional_types" className="subgroup check-group" tabIndex={-1}
+              aria-describedby={describedBy('functional_types-hint', errors.functional_types && 'functional_types-error')}>
+              <legend className="group-label">기능성 종류</legend>
+              <p id="functional_types-hint" className="field-hint">심사·보고를 마친 기능성 효능을 모두 골라 주세요. 여드름완화는 인체세정용 제품만 해당합니다.</p>
+              <div className="check-grid">
+                {FUNCTIONAL_TYPES.map((t) => (
+                  <label key={t} className="check-item">
+                    <input type="checkbox" checked={product.functional_types.includes(t)}
+                      onChange={(e) => setProduct({ functional_types: toggle(product.functional_types, t, e.target.checked) })} />
+                    {t}
+                  </label>
+                ))}
+              </div>
+              {errors.functional_types && <p id="functional_types-error" className="field-error">{errors.functional_types}</p>}
+            </fieldset>
+          )}
+        </section>
+
+        <section className="panel" aria-label="이미지 비율">
+          <OptionGroup
+            legend="이미지 비율"
+            name="ratio"
+            value={ratio}
+            options={(Object.keys(RATIOS) as Ratio[]).map((r) => ({ value: r, label: RATIOS[r].label, desc: `${RATIOS[r].desc} · ${RATIOS[r].width}×${RATIOS[r].height}` }))}
+            onChange={setRatio}
           />
         </section>
 
