@@ -6,7 +6,8 @@ import DemoLiveConsole from './DemoLiveConsole'
 import { Link, useLocation } from 'react-router-dom'
 import {QA_OFFLINE_FIXTURE} from '../config'
 
-type Identity = { authenticated: true; evaluator_id: string; role: 'evaluator' | 'admin'; mode: string }
+type Identity = { authenticated: true; evaluator_id: string; role: 'evaluator' | 'admin';
+  auth_provider?: 'TAILSCALE_SERVE'|'INVITE_COOKIE'; mode: string }
 
 export default function DemoGate() {
   const { pathname } = useLocation()
@@ -65,7 +66,9 @@ export default function DemoGate() {
       <span><strong>{QA_OFFLINE_FIXTURE ? 'IT-TEM QA OFFLINE_FIXTURE · 실제 AI 아님' : 'IT-TEM PRODUCT LIVE'}</strong>
         {' · '}{QA_OFFLINE_FIXTURE ? '시험 데이터 / 유료 호출 없음' : '실제 AI 생성 · 1차 규칙 검수 및 사람 승인 필요 · MONITOR_ONLY'}{' · '}
         <small>Build {import.meta.env.VITE_IT_TEM_CODE_SHA?.slice(0,8) || 'UNPINNED'}</small></span>
-      <span>{identity.evaluator_id} · <button type="button" onClick={() => void logout()}>로그아웃</button></span>
+      <span>{identity.evaluator_id} · {identity.auth_provider==='TAILSCALE_SERVE'
+        ? <span aria-label="Tailscale 신원 확인 완료">Tailscale 인증됨</span>
+        : <button type="button" onClick={() => void logout()}>로그아웃</button>}</span>
     </aside>
     <nav style={{padding:'10px 18px',display:'flex',gap:18}}>
       <Link to="/">정식 IT-TEM 시작</Link>

@@ -98,7 +98,7 @@ def register_live_api(app:FastAPI, ledger, runtime_root:Path, cookie_name:str):
     prefix="/demo/api/live"
 
     def authorized(request,job_id=None):
-        ident=ledger.identity(request.cookies.get(cookie_name))
+        ident=app.state.demo_request_identity(request)
         if not ident:
             raise HTTPException(status_code=401,detail="Login required")
         actor=ident[0]
