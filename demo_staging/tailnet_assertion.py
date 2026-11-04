@@ -12,7 +12,9 @@ import secrets
 import time
 from pathlib import Path
 
-from fastapi import Request
+from typing import TYPE_CHECKING
+if TYPE_CHECKING:
+    from fastapi import Request
 
 ACTOR = re.compile(r"^[a-zA-Z0-9_-]{3,40}$")
 HEX32 = re.compile(r"^[a-f0-9]{32}$")
