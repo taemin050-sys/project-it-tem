@@ -49,12 +49,28 @@ export function asProductJob(snapshot:LiveSnapshot,b0:Job):Job{
         download_url:base+'/artifacts/caption'}}:{})
   }
   return {...b0,status:stateMap[snapshot.state],artifacts,
+    live_revision_binding:{generation:snapshot.generation,
+      copy_sha:snapshot.copy_sha,review_sha:snapshot.review_sha},
     ...(snapshot.analysis?.analysis_succeeded?{product_analysis:snapshot.analysis.analysis}:{}),
     research_result:snapshot.research_display,copy_output:snapshot.copy,
     compliance_report:snapshot.compliance,image_candidate:candidate,
     final_output:snapshot.state==='COMPLETED'?{mock:snapshot.mode==='OFFLINE_FIXTURE',
       width:1080,height:1350,format:'png'}:undefined
   }
+}
+/** Do not display an acknowledgement until the independently polled Job and
+ * Live snapshot have the same exact copy/review/generation tuple.
+ * Reviving an old copy SHA via restore never revives its previous approval.
+ */
+export function isCopyReviewHydrated(job:Job|undefined,s:LiveSnapshot|undefined):boolean{
+  const key=job?.live_revision_binding
+  return Boolean(job && s && s.state==='COPY_REVIEW_REQUIRED' &&
+    job.status==='COPY_REVIEW_REQUIRED' && job.job_id===s.job_id &&
+    key && Number.isSafeInteger(key.generation) && key.generation>0 &&
+    key.generation===s.generation && key.copy_sha===s.copy_sha &&
+    key.review_sha===s.review_sha && s.copy && s.copy_sha && s.review_sha &&
+    s.compliance && job.copy_output && job.compliance_report &&
+    job.compliance_report.passed===s.compliance.passed)
 }
 export function guardCopyApproval(s:LiveSnapshot){
   if(s.state!=='COPY_REVIEW_REQUIRED'||!s.review_sha||!s.copy_sha||

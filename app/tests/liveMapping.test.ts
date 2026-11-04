@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import {asProductJob,guardCopyApproval,guardImageApproval,isPublishedFinal,type LiveSnapshot} from '../src/api/liveMapping.ts'
+import {asProductJob,guardCopyApproval,guardImageApproval,isPublishedFinal,isCopyReviewHydrated,type LiveSnapshot} from '../src/api/liveMapping.ts'
 import type {Job} from '../src/types/draft.ts'
 const raw:Job={job_id:'a'.repeat(32),status:'INPUTS_VALIDATED',assets:[{
   asset_id:'A',role:'product',original_filename:'a.png',content_type:'image/png',
@@ -54,4 +54,24 @@ test('published status is bound to completed immutable file sha, not job id alon
  assert.equal(isPublishedFinal(s,[{...entries[0],integrity_status:'UNAVAILABLE'}]),false)
  assert.equal(isPublishedFinal(s,[{job_id:raw.job_id,final_sha:'a'.repeat(64),
    integrity_status:'UNAVAILABLE'}]),false)
+})
+
+test('copy review acknowledgement hydrates only when Job and Live tuple agree',()=>{
+  const compliance={passed:true,issues:[],revised_fields:{},checklist:[],notice:'review'}
+  const copy={
+    plan:{concept:'',target_audience:'',tone:'',key_message:'',differentiation:'',cta_strategy:''},
+    ad_copy:{headline:'a',subline:'b',cta:'c'},caption:'abc',hashtags:[]
+  } as unknown as NonNullable<LiveSnapshot['copy']>
+  const r2={...example,state:'COPY_REVIEW_REQUIRED' as const,generation:2,
+    review_sha:'d'.repeat(64),copy_sha:'e'.repeat(64),mode:'LIVE',
+    compliance,copy}
+  const display2=asProductJob(r2,raw)
+  assert.equal(isCopyReviewHydrated(display2,r2),true)
+  const r3={...r2,generation:3,review_sha:'f'.repeat(64)}
+  assert.equal(isCopyReviewHydrated(display2,r3),false)
+  const display3=asProductJob(r3,raw)
+  assert.equal(isCopyReviewHydrated(display3,r2),false)
+  assert.equal(isCopyReviewHydrated(display3,r3),true)
+  assert.equal(isCopyReviewHydrated(display3,{...r3,copy_sha:'a'.repeat(64)}),false)
+  assert.equal(isCopyReviewHydrated(undefined,r3),false)
 })

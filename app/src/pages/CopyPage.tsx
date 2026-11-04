@@ -10,6 +10,7 @@ import StepPage from '../components/StepPage'
 import { COPY_LIMITS, countChars, overLimits } from '../lib/copyLimits'
 import { copyFieldText, splitByIssues } from '../lib/highlight'
 import { canApproveCopy } from '../lib/pipeline'
+import { isCopyReviewHydrated } from '../api/liveMapping'
 import { useProjectStore } from '../store/projectStore'
 import type { Job } from '../types/draft'
 import type { ComplianceIssue, ComplianceReport, CopyField, ResearchResult, RiskLevel, SourceType } from '../types/textSchema'
@@ -77,11 +78,12 @@ export default function CopyPage() {
   const [instruction,setInstruction]=useState('')
   // An acknowledgement is valid only for the exact published copy revision.
   // Nothing is offered during a late Live GET or unhydrated Job display.
-  const copyKey=mock?JSON.stringify(job?.copy_output??null):live?.copy_sha??null
+  const copyKey=mock?JSON.stringify(job?.copy_output??null):
+    jobId && live?.copy_sha && live?.review_sha && Number.isSafeInteger(live?.generation)
+      ? [jobId,live.generation,live.review_sha,live.copy_sha].join(':') : null
   const [ackKey,setAckKey]=useState<string|null>(null)
-  const evidenceAck=Boolean(copyKey && ackKey===copyKey)
-  const liveReady=mock || Boolean(job && live?.copy && live?.copy_sha && live?.review_sha &&
-    live.state===job.status && live.compliance?.passed===job.compliance_report?.passed)
+  const liveReady=mock || isCopyReviewHydrated(job,live)
+  const evidenceAck=Boolean(copyKey && ackKey===copyKey && liveReady)
 
   if (jobId === null && !busy) return <Navigate to="/create/product" replace />
 
@@ -111,6 +113,7 @@ export default function CopyPage() {
       // Stale React Query data cannot silently discard approval clicks.
       void getLiveSnapshot(jobId).then(current=>{
         if(current.copy_sha!==live?.copy_sha || current.review_sha!==live?.review_sha ||
+           current.generation!==live?.generation ||
            current.state!=='COPY_REVIEW_REQUIRED' || current.compliance?.passed!==true)
           throw Error('COPY_APPROVAL_SERVER_REVISION_CHANGED')
         navigate('/create/draft')
@@ -192,6 +195,9 @@ export default function CopyPage() {
         {reviewing && overs.length > 0 && <p className="field-error" role="alert">
           글자 수 기준을 넘어 이미지를 만들 수 없습니다: {overs.join(', ')}.
           수정 요청에서 짧은 카피를 요청해 주세요.</p>}
+        {reviewing && !liveReady && !mock && <p role="status" className="field-hint">
+          현재 카피·검수 버전을 동기화하고 있습니다. 확인·승인 전에 잠시 상태를 확인해 주세요.
+        </p>}
         {reviewing && liveReady && <label className="field-hint">
           <input type="checkbox" checked={evidenceAck}
             onChange={e=>setAckKey(e.target.checked?copyKey:null)}/>
