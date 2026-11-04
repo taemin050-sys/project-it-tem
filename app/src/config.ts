@@ -18,6 +18,13 @@ export const AI_REQUEST_TIMEOUT_MS = 330_000
 
 // 인스타 피드 4:5
 export const CANVAS = { width: 1080, height: 1350 } as const
+// 사용자가 고르는 결과 이미지 비율 (인스타 기준, 가로 1080 고정)
+export const RATIOS = {
+  '3:4': { width: 1080, height: 1440, label: '3:4', desc: '세로형 피드' },
+  '4:5': { width: 1080, height: 1350, label: '4:5', desc: '기본 피드' },
+  '9:16': { width: 1080, height: 1920, label: '9:16', desc: '스토리·릴스' },
+} as const
+export type Ratio = keyof typeof RATIOS
 // 카피는 바깥쪽 5% 여백 안이면 어디든 배치 가능 (10/26 결정)
 export const SAFE_MARGIN = 0.05
 

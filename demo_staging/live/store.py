@@ -55,6 +55,12 @@ class LiveStore:
                 final_sha TEXT NOT NULL, caption_sha TEXT NOT NULL,
                 created_utc TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
             );
+            CREATE TABLE IF NOT EXISTS live_copy_previous (
+                job_id TEXT PRIMARY KEY,
+                copy_json TEXT NOT NULL, copy_sha TEXT NOT NULL,
+                origin_generation INTEGER NOT NULL,
+                reason_sha TEXT NOT NULL
+            );
             CREATE TABLE IF NOT EXISTS live_queue (
                 job_id TEXT NOT NULL, stage TEXT NOT NULL,
                 context_sha TEXT NOT NULL, state TEXT NOT NULL,
@@ -169,6 +175,9 @@ class LiveStore:
             generation=job["generation"]+1
             report_sha=digest({"input_sha":job["input_sha"],"analysis":analysis,
                               "copy":parsed.output,"report":report,"generation":generation})
+            # A legacy manual edit is a different edit path. Prevent a stale
+            # QA previous-copy row from surviving an unrelated direct edit.
+            c.execute("DELETE FROM live_copy_previous WHERE job_id=?",(job_id,))
             c.execute("""UPDATE live_jobs SET generation=?,state='COPY_REVIEW_REQUIRED',copy_json=?,
               copy_sha=?,compliance_json=?,review_sha=?,approval_sha=NULL,
               approved_generation=NULL,evidence_acknowledged=0,prompt_json=NULL,image_sha=NULL,
@@ -177,6 +186,108 @@ class LiveStore:
                json.dumps(report,ensure_ascii=False),report_sha,job_id))
             updated=self._read(c,job_id,actor)
             self._event(c,updated,"copy_edited_review_restarted",updated["state"],report_sha)
+            c.commit()
+            return updated
+
+    def previous_copy_available(self,actor,job_id):
+        with self.db() as c:
+            self._read(c,job_id,actor)
+            return c.execute("SELECT 1 FROM live_copy_previous WHERE job_id=?",
+                (job_id,)).fetchone() is not None
+
+    def apply_copy_revision(self,actor,job_id,proposed_copy,instruction,
+                            expected_generation,expected_review_sha):
+        """Atomic, approval-invalidating QA revision.
+
+        Caller MUST independently authorize the provider/QA mode before this
+        method; it is not a model invocation or a paid-provider substitute.
+        """
+        from src.serving.text_v08_mapper import verify_copy
+        from src.text_generation.schemas import AdCopyOutput
+        if type(expected_generation) is not int or not isinstance(expected_review_sha,str):
+            raise LiveGateError("REVISION_TYPE_INVALID")
+        if not isinstance(instruction,str) or not 1<=len(instruction.strip())<=500:
+            raise LiveGateError("REVISION_INSTRUCTION_INVALID")
+        parsed=verify_copy(proposed_copy,model=AdCopyOutput)
+        with self.db() as c:
+            c.execute("BEGIN IMMEDIATE")
+            job=self._read(c,job_id,actor)
+            if job["state"]!="COPY_REVIEW_REQUIRED":
+                raise LiveGateError("COPY_REVISION_STATE_CONFLICT")
+            if job["generation"]!=expected_generation or job["review_sha"]!=expected_review_sha:
+                raise LiveGateError("STALE_REVIEW_OR_REVISION")
+            if parsed.sha256==job["copy_sha"]:
+                raise LiveGateError("COPY_REVISION_UNCHANGED")
+            original=json.loads(job["copy_json"])
+            context=json.loads(job["input_json"])
+            analysis=json.loads(job["analysis_json"])
+            report=strict_review(parsed.output,context["product"],analysis)
+            generation=job["generation"]+1
+            report_sha=digest({"input_sha":job["input_sha"],"analysis":analysis,
+                               "copy":parsed.output,"report":report,"generation":generation})
+            # One-step undo: retain the exact last approved-for-review content;
+            # restoring never recreates an approval or external provider receipt.
+            c.execute("""INSERT INTO live_copy_previous
+                (job_id,copy_json,copy_sha,origin_generation,reason_sha)
+                VALUES (?,?,?,?,?)
+                ON CONFLICT(job_id) DO UPDATE SET
+                  copy_json=excluded.copy_json,copy_sha=excluded.copy_sha,
+                  origin_generation=excluded.origin_generation,
+                  reason_sha=excluded.reason_sha""",
+                (job_id,json.dumps(original,ensure_ascii=False),job["copy_sha"],
+                 job["generation"],digest({"instruction":instruction})))
+            c.execute("""UPDATE live_jobs SET generation=?,state='COPY_REVIEW_REQUIRED',
+                copy_json=?,copy_sha=?,compliance_json=?,review_sha=?,
+                approval_sha=NULL,approved_generation=NULL,evidence_acknowledged=0,
+                prompt_json=NULL,image_sha=NULL,image_approval_sha=NULL,
+                final_sha=NULL,caption_sha=NULL WHERE job_id=?""",
+                (generation,json.dumps(parsed.output,ensure_ascii=False),
+                 parsed.sha256,json.dumps(report,ensure_ascii=False),report_sha,job_id))
+            updated=self._read(c,job_id,actor)
+            self._event(c,updated,"copy_revision_review_started",updated["state"],
+                        digest({"instruction_sha":digest(instruction),"new_copy_sha":parsed.sha256}))
+            c.commit()
+            return updated
+
+    def restore_previous_copy(self,actor,job_id,expected_generation,expected_review_sha):
+        """Toggle one previous copy inside a CAS transaction; never restore approval."""
+        from src.serving.text_v08_mapper import verify_copy
+        from src.text_generation.schemas import AdCopyOutput
+        if type(expected_generation) is not int or not isinstance(expected_review_sha,str):
+            raise LiveGateError("REVISION_TYPE_INVALID")
+        with self.db() as c:
+            c.execute("BEGIN IMMEDIATE")
+            job=self._read(c,job_id,actor)
+            if job["state"]!="COPY_REVIEW_REQUIRED":
+                raise LiveGateError("COPY_RESTORE_STATE_CONFLICT")
+            if job["generation"]!=expected_generation or job["review_sha"]!=expected_review_sha:
+                raise LiveGateError("STALE_REVIEW_OR_REVISION")
+            old=c.execute("SELECT * FROM live_copy_previous WHERE job_id=?",
+                         (job_id,)).fetchone()
+            if old is None:raise LiveGateError("COPY_PREVIOUS_UNAVAILABLE")
+            parsed=verify_copy(json.loads(old["copy_json"]),model=AdCopyOutput)
+            if old["copy_sha"]!=parsed.sha256 or old["copy_sha"]==job["copy_sha"]:
+                raise LiveGateError("COPY_PREVIOUS_SHA_INVALID")
+            context=json.loads(job["input_json"])
+            analysis=json.loads(job["analysis_json"])
+            report=strict_review(parsed.output,context["product"],analysis)
+            generation=job["generation"]+1
+            report_sha=digest({"input_sha":job["input_sha"],"analysis":analysis,
+                               "copy":parsed.output,"report":report,"generation":generation})
+            c.execute("""UPDATE live_copy_previous SET copy_json=?,copy_sha=?,
+                origin_generation=?,reason_sha=? WHERE job_id=?""",
+                (job["copy_json"],job["copy_sha"],job["generation"],
+                 digest({"previous_sha":old["copy_sha"],"return_sha":job["copy_sha"]}),job_id))
+            c.execute("""UPDATE live_jobs SET generation=?,state='COPY_REVIEW_REQUIRED',
+                copy_json=?,copy_sha=?,compliance_json=?,review_sha=?,
+                approval_sha=NULL,approved_generation=NULL,evidence_acknowledged=0,
+                prompt_json=NULL,image_sha=NULL,image_approval_sha=NULL,
+                final_sha=NULL,caption_sha=NULL WHERE job_id=?""",
+                (generation,json.dumps(parsed.output,ensure_ascii=False),parsed.sha256,
+                 json.dumps(report,ensure_ascii=False),report_sha,job_id))
+            updated=self._read(c,job_id,actor)
+            self._event(c,updated,"copy_previous_restored_review_started",
+                        updated["state"],report_sha)
             c.commit()
             return updated
 
@@ -199,6 +310,13 @@ class LiveStore:
             review=json.loads(job["compliance_json"])
             if not review["passed"]:
                 raise LiveGateError("REAL_COMPLIANCE_BLOCKED")
+            # FE Owner #22 length policy is also an authoritative approval
+            # boundary: a non-browser caller cannot bypass disabled FE controls.
+            current=json.loads(job["copy_json"])["ad_copy"]
+            if (len(current["headline"])>15 or
+                len(current["subline"].replace("\n",""))>25 or
+                len(current["cta"])>10):
+                raise LiveGateError("COPY_LENGTH_LIMIT_EXCEEDED")
             if (any(x["risk_level"]=="근거 확인 필요" for x in review["issues"])
                     and acknowledge_evidence is not True):
                 raise LiveGateError("EVIDENCE_ACKNOWLEDGEMENT_REQUIRED")

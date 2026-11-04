@@ -2,7 +2,8 @@
 import {queryClient} from './queryClient'
 import {useProjectStore} from '../store/projectStore'
 import {approveLiveCopy,rejectLiveCopy,queueLive,waitLiveTask,approveLiveImage,
-  rejectLiveImage,composeLive,getLiveSnapshot,qaPromptImage,qaCompose} from './liveJobs'
+    rejectLiveImage,composeLive,getLiveSnapshot,qaPromptImage,qaCompose,
+  reviseLiveCopy,restoreLiveCopy} from './liveJobs'
 import { AD_LAYOUT, QA_OFFLINE_FIXTURE } from '../config'
 import {guardCopyApproval,guardImageApproval,type LiveSnapshot} from './liveMapping'
 // Legacy-only composition layout. Managed A Jobs NEVER receive this value.
@@ -31,7 +32,8 @@ const refresh=async(id:string)=>{
   await queryClient.invalidateQueries({queryKey:['job',id]})
   await queryClient.invalidateQueries({queryKey:['live-snapshot',id]})
 }
-async function run(id:string,step:'ai/image'|'compose',action:()=>Promise<unknown>){
+async function run(id:string,step:'ai/image'|'ai/copy-review'|'compose',
+                   action:()=>Promise<unknown>){
   const {setRun}=useProjectStore.getState()
   if(useProjectStore.getState().run.busy)throw Error('이미 작업을 진행 중입니다.')
   setRun({busy:true,step,error:null})
@@ -71,6 +73,14 @@ export async function resumeImageFromApproved(id:string){
       useProjectStore.getState().setLiveTask(task.task_id)
     }else throw Error('이미 진행 중이거나 완료된 상태입니다. 상태를 새로고침하세요.')
   })
+}
+export async function reviseCopyFromInstruction(s:LiveSnapshot,instruction:string){
+  if(!instruction.trim())throw Error('수정 요청을 입력해 주세요.')
+  await run(s.job_id,'ai/copy-review',async()=>{await reviseLiveCopy(s,instruction.trim())})
+}
+export async function restorePreviousLiveCopy(s:LiveSnapshot){
+  if(!s.previous_copy_available)throw Error('복원 가능한 이전 버전이 없습니다.')
+  await run(s.job_id,'ai/copy-review',async()=>{await restoreLiveCopy(s)})
 }
 export async function rejectCopy(s:LiveSnapshot){
   if(s.state!=='COPY_REVIEW_REQUIRED')throw Error('카피 거절 상태 오류')

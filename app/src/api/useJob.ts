@@ -1,7 +1,7 @@
 import { useQuery } from '@tanstack/react-query'
 import { useMemo } from 'react'
 import { withEmojiGuide } from '../lib/emojiLevel'
-import { nextStep, type Flow } from '../lib/pipeline'
+import { nextStep, type Flow, type Step } from '../lib/pipeline'
 import { useObjectUrls } from '../lib/useObjectUrls'
 import { useProjectStore } from '../store/projectStore'
 import type { Job } from '../types/draft'
@@ -71,17 +71,20 @@ export function resetJob() {
 }
 
 // 업로드·복구가 같은 입력을 보내야 서버 입력 스냅샷이 어긋나지 않는다
+// shortcut: 텍스트 ProductInput에 functional_types가 아직 없어 서버(모르는 항목 거절)로 보내지 않는다, 필드가 생기면 그대로 보낸다
 export function productPayload() {
   const { product, emoji } = useProjectStore.getState()
-  return { ...product, ad_purpose: withEmojiGuide(product.ad_purpose, emoji) }
+  return { ...product, functional_types: product.is_functional ? product.functional_types : [],
+    ad_purpose: withEmojiGuide(product.ad_purpose, emoji) }
 }
 
 // first(업로드·승인)를 보낸 뒤 사용자 승인이 필요한 곳까지 단계를 차례로 보낸다.
 // 사용자 클릭에서만 부른다: 화면 effect에서 부르면 유료 AI 호출이 중복될 수 있다. 실패해도 자동 재시도하지 않는다
-export async function advance(first: () => Promise<Job>) {
+// step: first 요청 중 로딩 문구 (수정 요청처럼 AI가 다시 만드는 요청)
+export async function advance(first: () => Promise<Job>, step: Step | null = null) {
   const { setRun, setJobId, mock } = useProjectStore.getState()
   const flow = flowOf(mock)
-  setRun({ busy: true, step: null, error: null, offline: false })
+  setRun({ busy: true, step, error: null, offline: false })
   let jobId: string | null = useProjectStore.getState().jobId
   try {
     let job = await first()
@@ -113,7 +116,7 @@ export async function advance(first: () => Promise<Job>) {
     queryClient.setQueryData(jobKey(jobId), job)
     for (let step = nextStep(job, flow); step; step = nextStep(job, flow)) {
       setRun({ step })
-      job = await runStep(jobId, step, step === 'mock/plan' ? legacyPlanBody() : undefined)
+      job = await runStep(jobId, step, stepBody(step))
       queryClient.setQueryData(jobKey(jobId), job)
     }
     setRun({ busy: false, step: null })
@@ -121,6 +124,12 @@ export async function advance(first: () => Promise<Job>) {
     if (e instanceof ApiError && e.status === 409) await queryClient.invalidateQueries({ queryKey: jobKey(jobId) })
     setRun({ busy: false, step: null, error: e instanceof Error ? e.message : '요청에 실패했습니다.', offline: isUnreachable(e) })
   }
+}
+
+// shortcut: 비율은 mock(v2 ai/image)에만 보낸다. 이미지·서빙이 비율을 받으면 Live 입력에도 넣는다
+function stepBody(step: Step) {
+  if (step === 'mock/plan') return legacyPlanBody()
+  if (step === 'ai/image') return { aspect_ratio: useProjectStore.getState().ratio }
 }
 
 // 레거시 mock/plan은 brand_name·product_name을 둘 다 필수(빈 값 거절)로 받는다. v0.5는 브랜드가 선택 항목이라 표시용 값을 보낸다

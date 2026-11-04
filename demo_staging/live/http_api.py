@@ -33,6 +33,19 @@ class CopyUpdate(BaseModel):
     copy_output:dict
 
 
+class CopyRevisionRequest(BaseModel):
+    model_config=ConfigDict(extra="forbid",strict=True)
+    instruction:str=Field(min_length=1,max_length=500)
+    expected_generation:int
+    expected_review_sha:str=Field(min_length=64,max_length=64)
+
+
+class CopyRestoreRequest(BaseModel):
+    model_config=ConfigDict(extra="forbid",strict=True)
+    expected_generation:int
+    expected_review_sha:str=Field(min_length=64,max_length=64)
+
+
 class CopyApproval(BaseModel):
     model_config=ConfigDict(extra="forbid",strict=True)
     expected_generation:int
@@ -113,7 +126,11 @@ def register_live_api(app:FastAPI, ledger, runtime_root:Path, cookie_name:str):
              "copy_sha":job["copy_sha"],"review_sha":job["review_sha"],
              "image_sha":job["image_sha"],"final_sha":job["final_sha"],"caption_sha":job["caption_sha"],
              "approval_current":bool(job["approval_sha"]),
+             "previous_copy_available":flow.state.previous_copy_available(job["actor"],job["job_id"]),
              "template_profile":profile["profile_id"] if profile else "PRE_POLICY_LEGACY",
+             "functional_types":json.loads(job["input_json"])["product"].get("functional_types",[]),
+             "functional_types_status":"OWNER_TEXT_DTO_PENDING"
+                if json.loads(job["input_json"])["product"].get("functional_types") else "NO_SELECTION",
              "product_protection_status":"MANUAL_REVIEW_REQUIRED"
                 if job["state"]=="COMPLETED" else "NOT_REVIEWED"}
         for stored,key in (("research_display_json","research_display"),
@@ -301,6 +318,62 @@ def register_live_api(app:FastAPI, ledger, runtime_root:Path, cookie_name:str):
     def edit_copy(job_id:str,body:CopyUpdate,request:Request):
         actor=authorized(request,job_id)
         try:return visible(flow.state.edit_copy(actor,job_id,body.copy_output))
+        except (LiveGateError,ValueError) as e:raise safe_error(e) from None
+
+    @app.post("/demo/api/qa/jobs/{job_id}/revise-copy")
+    def qa_revision_copy(job_id:str,body:CopyRevisionRequest,request:Request):
+        actor=qa_access(request,job_id)
+        try:
+            current=flow.state.get(actor,job_id)
+            if current["mode"]!="OFFLINE_FIXTURE":
+                raise LiveGateError("QA_REQUIRES_OFFLINE_FIXTURE")
+            if current["state"]!="COPY_REVIEW_REQUIRED":
+                raise LiveGateError("COPY_REVISION_STATE_CONFLICT")
+            # Deterministic, named OFFLINE_FIXTURE candidate only. This does
+            # NOT represent an AI model following the user's instruction.
+            from copy import deepcopy
+            original=json.loads(current["copy_json"])
+            proposed=deepcopy(original)
+            options=(
+                ("매일 산뜻하게","가벼운 데일리 보습 루틴","자세히 보기"),
+                ("촉촉한 하루","편안한 수분 케어의 시작","지금 만나기"),
+                ("매일 수분 케어","산뜻하게 마무리되는 보습","제품 살펴보기"),
+            )
+            n=int(current["generation"])%len(options)
+            headline,subline,cta=options[n]
+            proposed["ad_copy"]={"headline":headline,"subline":subline,"cta":cta}
+            proposed["caption"]=f"{headline}. {subline}. {cta}."
+            updated=flow.state.apply_copy_revision(
+                actor,job_id,proposed,body.instruction,
+                body.expected_generation,body.expected_review_sha)
+            return visible(updated)
+        except (LiveGateError,ValueError) as e:raise safe_error(e) from None
+
+    @app.post("/demo/api/qa/jobs/{job_id}/restore-copy")
+    def qa_restore_copy(job_id:str,body:CopyRestoreRequest,request:Request):
+        actor=qa_access(request,job_id)
+        try:
+            current=flow.state.get(actor,job_id)
+            if current["mode"]!="OFFLINE_FIXTURE":
+                raise LiveGateError("QA_REQUIRES_OFFLINE_FIXTURE")
+            return visible(flow.state.restore_previous_copy(
+                actor,job_id,body.expected_generation,body.expected_review_sha))
+        except (LiveGateError,ValueError) as e:raise safe_error(e) from None
+
+    @app.post(prefix+"/jobs/{job_id}/revise-copy")
+    def paid_revision_requires_owner_contract(job_id:str,body:CopyRevisionRequest,request:Request):
+        authorized(request,job_id)
+        # The Text Owner's instruction-aware paid revision contract is not
+        # accepted yet. Never substitute a fake answer, direct user edit, or
+        # unaudited provider call into a live request.
+        raise HTTPException(status_code=423,detail="TEXT_OWNER_LIVE_REVISION_CONTRACT_PENDING")
+
+    @app.post(prefix+"/jobs/{job_id}/restore-copy")
+    def live_restore_copy(job_id:str,body:CopyRestoreRequest,request:Request):
+        actor=authorized(request,job_id)
+        try:
+            return visible(flow.state.restore_previous_copy(
+                actor,job_id,body.expected_generation,body.expected_review_sha))
         except (LiveGateError,ValueError) as e:raise safe_error(e) from None
 
     @app.post(prefix+"/jobs/{job_id}/approve-copy")

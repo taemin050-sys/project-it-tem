@@ -2,24 +2,18 @@ import { useQuery } from '@tanstack/react-query'
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import { getBlob } from '../api/jobs'
-import {resetJob,useBlobUrl,useJob,useLiveSnapshot} from '../api/useJob'
-import {shareLive,listPublishedLive} from '../api/liveJobs'
+import { resetJob, useBlobUrl, useJob, useLiveSnapshot } from '../api/useJob'
 import {retryCompose} from '../api/liveFlow'
+import {shareLive,listPublishedLive} from '../api/liveJobs'
 import {isPublishedFinal} from '../api/liveMapping'
 import {queryClient} from '../api/queryClient'
 import JobBadges from '../components/JobBadges'
 import RunStatus from '../components/RunStatus'
 import StepPage from '../components/StepPage'
-import { CANVAS,QA_OFFLINE_FIXTURE } from '../config'
+import { CANVAS } from '../config'
+import { download } from '../lib/download'
 import { useProjectStore } from '../store/projectStore'
 import type { Job } from '../types/draft'
-
-function download(href: string, filename: string) {
-  const a = document.createElement('a')
-  a.href = href
-  a.download = filename
-  a.click()
-}
 
 // 승인한 카피가 서버 본문 파일에 그대로 들어갔는지 (v0.5는 caption, 레거시는 문구 1개)
 const approvedText = (job: Job) => job.copy_output?.caption ?? job.copy_candidate?.text
@@ -29,6 +23,7 @@ export default function ExportPage() {
   const run = useProjectStore((s) => s.run)
   const { data: job } = useJob()
   const mock=useProjectStore(s=>s.mock)
+  const [shared,setShared]=useState(false)
   const [sharing,setSharing]=useState(false)
   const [shareError,setShareError]=useState('')
   const live=useLiveSnapshot()
@@ -38,15 +33,15 @@ export default function ExportPage() {
     enabled:!mock && job?.status==='COMPLETED',
     staleTime:0,retry:false
   })
-  // A client flag is not evidence of publication. Use the authenticated
-  // server result and integrity-filtered shared listing.
-  const alreadyShared=isPublishedFinal(live.data,publications.data?.jobs??[])
+  const alreadyShared=shared||isPublishedFinal(live.data,publications.data?.jobs??[])
+  // 이미지 승인까지 끝났는데 합성만 실패한 상태 (합성 중에는 busy라 숨긴다)
   const composeFailed=!mock && live.data?.state==='IMAGE_APPROVED' && !run.busy
   async function publish(){
-    if(QA_OFFLINE_FIXTURE || !job || job.status!=='COMPLETED')return
+    if(!job || job.status!=='COMPLETED')return
     setSharing(true);setShareError('')
     try{
       await shareLive(job.job_id)
+      setShared(true)
       await queryClient.invalidateQueries({queryKey:['live-shared-results']})
     }
     catch(e){setShareError(e instanceof Error?e.message:'공유 실패')}
@@ -65,7 +60,9 @@ export default function ExportPage() {
   const [copied, setCopied] = useState<'idle' | 'done' | 'error'>('idle')
 
   const ready = job?.status === 'COMPLETED' && finalUrl !== undefined && caption !== undefined
-  const sizeOk = size?.width === CANVAS.width && size?.height === CANVAS.height
+  // 서버가 알려준 최종 크기(mock은 고른 비율, Live는 4:5) 기준으로 확인한다
+  const target = job?.final_output ?? CANVAS
+  const sizeOk = size?.width === target.width && size?.height === target.height
   const expected = job && approvedText(job)
   const captionOk = caption !== undefined && expected !== undefined && caption.includes(expected)
   const ext = final?.content_type.includes('svg') ? 'svg' : 'png'
@@ -96,7 +93,7 @@ export default function ExportPage() {
         <div className="button-row">
           {job?.status === 'COMPLETED' && <Link className="button secondary" to="/" onClick={resetJob}>홈으로</Link>}
           {composeFailed && <button className="button secondary" onClick={() => void retryCompose(live.data!.job_id).catch(() => {})}>합성만 다시 시도</button>}
-          <button className="button" disabled={!ready} onClick={() => download(finalUrl!, `ad_${CANVAS.width}x${CANVAS.height}.${ext}`)}>
+          <button className="button" disabled={!ready} onClick={() => download(finalUrl!, `ad_${target.width}x${target.height}.${ext}`)}>
             광고 이미지 저장 ({ext.toUpperCase()})
           </button>
         </div>
@@ -105,8 +102,8 @@ export default function ExportPage() {
       {job && <JobBadges job={job} />}
       {!mock && live.data?.template_profile==='A_CENTERED' && <div className="notice notice-warning" role="status">
         <p className="notice-title">제품 보호·게시 적합성: 수동 검토 필요</p>
-        <p>A 템플릿의 합성 완료는 제품 보호 검증 PASS가 아닙니다.
-          원본 제품·라벨·법률 표시사항을 사람 검토 후 게시해 주세요.</p>
+        <p>A 템플릿의 합성 완료는 제품·브랜드·라벨 보존 검증 PASS가 아닙니다.
+          원본 사진과 법률 표시사항을 사람이 확인한 뒤 게시해 주세요.</p>
       </div>}
       <RunStatus />
 
@@ -125,12 +122,7 @@ export default function ExportPage() {
         </div>
       )}
 
-      {!mock && live.data?.state==='IMAGE_APPROVED' && <section className="panel">
-        <h2 className="panel-title">승인된 이미지 합성 복구</h2>
-        <p>승인 이미지·카피와 서버에 고정된 레이아웃을 재사용합니다.
-          이미지 재생성, 이미지 재승인, 자동 과금 재시도는 수행하지 않습니다.</p>
-      </section>}
-      {!mock && !QA_OFFLINE_FIXTURE && ready && <section className="panel">
+      {!mock && ready && <section className="panel">
         <h2 className="panel-title">팀 공동 품질 평가</h2>
         <p>최종 광고 이미지와 Caption만 다른 인증된 팀원과 공유합니다. 원본 제품 사진과 비공개 Job 정보는 공유하지 않습니다.</p>
         <button className="button secondary" type="button" disabled={sharing||alreadyShared||publications.isLoading}
@@ -172,12 +164,13 @@ export default function ExportPage() {
                 className="result-image"
                 src={finalUrl}
                 alt="최종 광고 이미지"
+                style={size && { aspectRatio: `${size.width} / ${size.height}` }}
                 onLoad={(e) => setSize({ width: e.currentTarget.naturalWidth, height: e.currentTarget.naturalHeight })}
               />
               <figcaption>
                 {!size ? '크기 확인 중…' : sizeOk
-                  ? `✓ ${size.width}×${size.height}px (4:5)`
-                  : <span className="field-error">크기가 {size.width}×{size.height}px입니다 (기대값 {CANVAS.width}×{CANVAS.height})</span>}
+                  ? `✓ ${size.width}×${size.height}px`
+                  : <span className="field-error">크기가 {size.width}×{size.height}px입니다 (기대값 {target.width}×{target.height})</span>}
               </figcaption>
             </figure>
           </aside>

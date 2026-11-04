@@ -9,7 +9,10 @@ export type LiveSnapshot={
   job_id:string;state:LiveState;mode:string;generation:number;
   input_sha:string;copy_sha:string|null;review_sha:string|null;
   image_sha:string|null;final_sha:string|null;caption_sha:string|null;
-  approval_current:boolean;analysis?:{analysis:ProductAnalysis;analysis_succeeded:boolean;error?:string|null};
+  approval_current:boolean;previous_copy_available?:boolean;
+  functional_types?:string[];
+  functional_types_status?:'OWNER_TEXT_DTO_PENDING'|'NO_SELECTION';
+  analysis?:{analysis:ProductAnalysis;analysis_succeeded:boolean;error?:string|null};
   research_display?:ResearchResult;copy?:AdCopyOutput;compliance?:ComplianceReport;
   image_prompt?:unknown
   template_profile?:'A_CENTERED'|'LEGACY_PINNED'|'PRE_POLICY_LEGACY'

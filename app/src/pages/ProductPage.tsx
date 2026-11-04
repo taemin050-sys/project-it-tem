@@ -8,12 +8,12 @@ import MockFallback from '../components/MockFallback'
 import OptionGroup from '../components/OptionGroup'
 import PhotoDrop from '../components/PhotoDrop'
 import StepPage from '../components/StepPage'
-import { PRODUCT_PHOTOS, REFERENCE_PHOTOS, SHRINK } from '../config'
+import { PRODUCT_PHOTOS, RATIOS, REFERENCE_PHOTOS, SHRINK, type Ratio } from '../config'
 import { EMOJI_LEVELS } from '../lib/emojiLevel'
 import { shrinkImage } from '../lib/shrinkImage'
 import { validateProduct, type ProductErrors } from '../lib/validateProduct'
 import { useProjectStore } from '../store/projectStore'
-import { AD_PURPOSES, PRODUCT_TYPES } from '../types/textSchema'
+import { AD_PURPOSES, FUNCTIONAL_TYPES, PRODUCT_TYPES, type FunctionalType } from '../types/textSchema'
 
 const LIMITS = { product: PRODUCT_PHOTOS, reference: REFERENCE_PHOTOS }
 
@@ -23,14 +23,19 @@ const FOCUS_ORDER: [keyof ProductErrors, string][] = [
   ['references', 'references'],
   ['product_name', 'product_name'],
   ['features', 'features'],
+  ['functional_types', 'functional_types'],
   ['photo_verified', 'photo_verified'],
 ]
+
+// 기능성 종류 목록 순서를 유지한 채 켜고 끈다
+const toggle = (list: FunctionalType[], t: FunctionalType, on: boolean) =>
+  FUNCTIONAL_TYPES.filter((x) => (x === t ? on : list.includes(x)))
 
 const describedBy = (...ids: (string | false | undefined)[]) => ids.filter(Boolean).join(' ') || undefined
 
 export default function ProductPage() {
   const navigate = useNavigate()
-  const { images, references, product, emoji, run, jobId, setImages, setReferences, setEmoji, setProduct: saveProduct } = useProjectStore()
+  const { images, references, product, emoji, ratio, mock, run, jobId, setImages, setReferences, setEmoji, setRatio, setProduct: saveProduct } = useProjectStore()
   const [errors, setErrors] = useState<ProductErrors>({})
   const [uploading, setUploading] = useState(false)
   const [uploadError, setUploadError] = useState<{ message: string; offline: boolean }>()
@@ -39,13 +44,19 @@ export default function ProductPage() {
   const setError = (key: keyof ProductErrors, message?: string) => setErrors((e) => ({ ...e, [key]: message }))
   function setProduct(patch: Parameters<typeof saveProduct>[0]) {
     saveProduct(patch)
-    for (const key of ['product_name', 'features', 'photo_verified'] as const) {
+    for (const key of ['product_name', 'features', 'functional_types', 'photo_verified'] as const) {
       if (key in patch) setError(key)
     }
   }
 
   async function onSubmit(e: FormEvent) {
     e.preventDefault()
+    // Image Owner native generation/composition is 4:5 only. Mock can render
+    // Owner-selected 3:4 and 9:16; never silently generate 4:5 for a Live choice.
+    if (!mock && ratio !== '4:5') {
+      setUploadError({ message: '실제 생성·합성은 현재 4:5만 지원합니다. 다른 비율은 Mock 시연 전용입니다. 4:5를 선택해 주세요.', offline: false })
+      return
+    }
     const errs = validateProduct(images, references, product, LIMITS)
     setErrors(errs)
     const first = FOCUS_ORDER.find(([key]) => errs[key])
@@ -78,6 +89,7 @@ export default function ProductPage() {
   }
 
   const busy = uploading || run.busy
+  const ratioBlocked = !mock && ratio !== '4:5'
 
   return (
     <StepPage
@@ -85,7 +97,8 @@ export default function ProductPage() {
       description="광고에 사용할 제품 사진과 정보를 입력해 주세요."
       back={{ to: '/', label: '처음으로' }}
       actions={
-        <button className="button" type="submit" form="product-form" disabled={busy} aria-busy={uploading}>
+        <button className="button" type="submit" form="product-form"
+          disabled={busy || ratioBlocked} aria-busy={uploading}>
           {uploading ? '사진을 올리는 중…' : '다음: 기획·카피 만들기'}
         </button>
       }
@@ -210,8 +223,47 @@ export default function ProductPage() {
               { value: 'general', label: '일반 화장품', desc: '기능성 인증을 받지 않은 제품' },
               { value: 'functional', label: '기능성 화장품', desc: '식약처 심사·보고를 마친 기능성화장품' },
             ]}
-            onChange={(v) => setProduct({ is_functional: v === 'functional' })}
+            onChange={(v) => setProduct({ is_functional: v === 'functional', functional_types: [] })}
           />
+          {product.is_functional && (
+            <fieldset id="functional_types" className="subgroup check-group" tabIndex={-1}
+              aria-describedby={describedBy('functional_types-hint', errors.functional_types && 'functional_types-error')}>
+              <legend className="group-label">기능성 종류</legend>
+              <p id="functional_types-hint" className="field-hint">심사·보고를 마친 기능성 효능을 모두 골라 주세요. 여드름완화는 인체세정용 제품만 해당합니다.</p>
+              {!mock && <p className="field-hint" role="status">
+                선택한 기능성 종류는 Serving에 안전하게 보존됩니다.
+                현재 Text Owner v0.8의 종류별 AI 생성·검수 계약에는 아직 반영되지 않습니다.
+                선택만으로 효능 허가나 광고 근거가 확인되는 것은 아닙니다.
+              </p>}
+              <div className="check-grid">
+                {FUNCTIONAL_TYPES.map((t) => (
+                  <label key={t} className="check-item">
+                    <input type="checkbox" checked={product.functional_types.includes(t)}
+                      onChange={(e) => setProduct({ functional_types: toggle(product.functional_types, t, e.target.checked) })} />
+                    {t}
+                  </label>
+                ))}
+              </div>
+              {errors.functional_types && <p id="functional_types-error" className="field-error">{errors.functional_types}</p>}
+            </fieldset>
+          )}
+        </section>
+
+        <section className="panel" aria-label="이미지 비율">
+          <OptionGroup
+            legend="이미지 비율"
+            name="ratio"
+            value={ratio}
+            options={(Object.keys(RATIOS) as Ratio[]).map((r) => ({ value: r, label: RATIOS[r].label, desc: `${RATIOS[r].desc} · ${RATIOS[r].width}×${RATIOS[r].height}` }))}
+            onChange={setRatio}
+          />
+          {!mock && <p className="field-hint" role="status">
+            실제 AI 이미지 생성·합성은 현재 4:5만 지원합니다.
+            3:4 및 9:16은 Mock 화면에서 체험할 수 있습니다.
+          </p>}
+          {!mock && ratio !== '4:5' && <p className="field-error" role="alert">
+            선택한 비율은 실제 서버에서 지원하지 않습니다. 진행하려면 4:5를 선택해 주세요.
+          </p>}
         </section>
 
         <div className={errors.photo_verified ? 'consent has-error' : 'consent'}>
