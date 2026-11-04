@@ -62,11 +62,14 @@ export function asProductJob(snapshot:LiveSnapshot,b0:Job):Job{
  * Live snapshot have the same exact copy/review/generation tuple.
  * Reviving an old copy SHA via restore never revives its previous approval.
  */
-export function isCopyReviewHydrated(job:Job|undefined,s:LiveSnapshot|undefined):boolean{
+export function isCopyReviewHydrated(
+  job:Job|undefined,s:LiveSnapshot|undefined,minGeneration=0
+):boolean{
   const key=job?.live_revision_binding
   return Boolean(job && s && s.state==='COPY_REVIEW_REQUIRED' &&
     job.status==='COPY_REVIEW_REQUIRED' && job.job_id===s.job_id &&
     key && Number.isSafeInteger(key.generation) && key.generation>0 &&
+    key.generation>=minGeneration &&
     key.generation===s.generation && key.copy_sha===s.copy_sha &&
     key.review_sha===s.review_sha && s.copy && s.copy_sha && s.review_sha &&
     s.compliance && job.copy_output && job.compliance_report &&

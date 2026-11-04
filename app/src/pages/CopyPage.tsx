@@ -82,7 +82,13 @@ export default function CopyPage() {
     jobId && live?.copy_sha && live?.review_sha && Number.isSafeInteger(live?.generation)
       ? [jobId,live.generation,live.review_sha,live.copy_sha].join(':') : null
   const [ackKey,setAckKey]=useState<string|null>(null)
-  const liveReady=mock || isCopyReviewHydrated(job,live)
+  // Once a revision/restore is requested, a still-matching *old* pair
+  // of React Query caches cannot expose the acknowledgement again.
+  const [revisionFence,setRevisionFence]=useState<{
+    jobId:string;minGeneration:number
+  }|null>(null)
+  const minGeneration=revisionFence?.jobId===jobId?revisionFence.minGeneration:0
+  const liveReady=mock || isCopyReviewHydrated(job,live,minGeneration)
   const evidenceAck=Boolean(copyKey && ackKey===copyKey && liveReady)
 
   if (jobId === null && !busy) return <Navigate to="/create/product" replace />
@@ -127,7 +133,8 @@ export default function CopyPage() {
     }
   }
   function sendRevision() {
-    if (!jobId || !instruction.trim() || revisionInFlight.current || !canApprove) return
+    if (!jobId || !instruction.trim() || revisionInFlight.current ||
+        (!mock && !liveReady)) return
     if(mock){
       setRevising(false)
       void advance(() => reviseJob(jobId, 'copy', instruction.trim()), 'ai/copy-review')
@@ -136,6 +143,9 @@ export default function CopyPage() {
     }
     if(!live || !liveReady)return
     const requested=instruction.trim()
+    const beforeGeneration=live.generation
+    // Use a revision floor before any network request, not only after success.
+    setRevisionFence({jobId,minGeneration:beforeGeneration+1})
     revisionInFlight.current=true
     void getLiveSnapshot(jobId).then(current=>{
       if(current.state!=='COPY_REVIEW_REQUIRED' ||
@@ -144,22 +154,36 @@ export default function CopyPage() {
         throw Error('서버 카피가 변경됐습니다. 현재 검수 버전을 다시 확인해 주세요.')
       return reviseCopyFromInstruction(current,requested)
     }).then(()=>{setRevising(false);setInstruction('')})
-      .catch(e=>useProjectStore.getState().setRun({
-        error:e instanceof Error?e.message:'수정 요청을 처리하지 못했습니다. 자동 재시도하지 않습니다.'
-      })).finally(()=>{revisionInFlight.current=false})
+      .catch(e=>{
+        // Clear the fence only if a fresh authoritative read proves that
+        // the server did not move to a new generation.
+        void getLiveSnapshot(jobId).then(current=>{
+          if(current.generation===beforeGeneration)setRevisionFence(null)
+        }).catch(()=>{})
+        useProjectStore.getState().setRun({
+          error:e instanceof Error?e.message:'수정 요청을 처리하지 못했습니다. 자동 재시도하지 않습니다.'
+        })
+      }).finally(()=>{revisionInFlight.current=false})
   }
   function restoreLivePrevious(){
     if(!jobId || !liveReady || !live?.previous_copy_available ||
        revisionInFlight.current)return
+    const beforeGeneration=live.generation
+    setRevisionFence({jobId,minGeneration:beforeGeneration+1})
     revisionInFlight.current=true
     void getLiveSnapshot(jobId).then(current=>{
       if(current.generation!==live.generation || current.review_sha!==live.review_sha)
         throw Error('서버 카피 버전이 변경되었습니다.')
       return restorePreviousLiveCopy(current)
     }).then(()=>{setRevising(false);setInstruction('')})
-      .catch(e=>useProjectStore.getState().setRun({
-        error:e instanceof Error?e.message:'이전 버전 복원 실패'
-      })).finally(()=>{revisionInFlight.current=false})
+      .catch(e=>{
+        void getLiveSnapshot(jobId).then(current=>{
+          if(current.generation===beforeGeneration)setRevisionFence(null)
+        }).catch(()=>{})
+        useProjectStore.getState().setRun({
+          error:e instanceof Error?e.message:'이전 버전 복원 실패'
+        })
+      }).finally(()=>{revisionInFlight.current=false})
   }
 
   if (analysis && !analysis.is_cosmetic) {
