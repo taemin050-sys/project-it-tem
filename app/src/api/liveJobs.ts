@@ -7,6 +7,17 @@ import { getJob } from './jobs'
 
 const prefix='/demo/api/live'
 const url=(id:string)=>prefix+'/jobs/'+encodeURIComponent(id)
+
+export type TextCostEstimate={
+  mode:'NON_BILLABLE_ESTIMATE';scope:'TEXT_ONLY';model:string;
+  total_usd:number;display:string;steps:Record<string,number>;
+  includes_image_generation:false;actual_charges_known:false
+}
+export function getTextCostEstimate(photoCount:number,revisionTarget?:'copy'|'image_prompt'){
+  const q=new URLSearchParams({photo_count:String(photoCount)})
+  if(revisionTarget)q.set('revision_target',revisionTarget)
+  return request<TextCostEstimate>(prefix+'/text-cost-estimate?'+q.toString())
+}
 const json=(v:unknown)=>({method:'POST',headers:{'Content-Type':'application/json'},
   body:JSON.stringify(v)})
 export const getLiveSnapshot=(id:string)=>request<LiveSnapshot>(url(id))

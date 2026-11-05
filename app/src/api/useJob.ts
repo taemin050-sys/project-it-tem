@@ -74,7 +74,9 @@ export function resetJob() {
 // free of stealth instructions and bind the emoji preference to the Job hash.
 export function productPayload() {
   const { product, emoji } = useProjectStore.getState()
-  return { ...product, functional_types: product.is_functional ? product.functional_types : [],
+  return { ...product, functional_types:product.functional_types,
+    // Owner Text v0.10 automatically considers selected types functional.
+    is_functional:product.is_functional || product.functional_types.length>0,
     emoji_level:toOwnerEmojiLevel(emoji) }
 }
 

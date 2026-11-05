@@ -5,7 +5,7 @@ import type { EmojiLevel } from '../lib/emojiLevel'
 import type { Step } from '../lib/pipeline'
 import { AD_PURPOSES, type FunctionalType, type ProductInput } from '../types/textSchema'
 
-// 사진 수는 보낼 때 실제 파일 수로 채운다. functional_types는 화면 입력값 (보낼 때는 productPayload가 거른다)
+// 사진 수는 전송 직전에 채운다. Owner Text v0.10에 functional_types·emoji_level 전달.
 export type ProductForm = Omit<ProductInput, 'product_image_count' | 'reference_image_count'> & { functional_types: FunctionalType[] }
 
 /** 지금 보내고 있는 요청과 마지막 실패. 화면 진행 표시는 이 값만 쓴다 (추정 진행률 없음) */

@@ -1,8 +1,8 @@
 import { Link, Navigate, useNavigate } from 'react-router-dom'
 import { restorePrevious, review, reviseJob } from '../api/jobs'
 import { approveCopyAndCreateImage, reviseCopyFromInstruction, restorePreviousLiveCopy } from '../api/liveFlow'
-import {getLiveSnapshot} from '../api/liveJobs'
-import { useState, useRef } from 'react'
+import {getLiveSnapshot,getTextCostEstimate,type TextCostEstimate} from '../api/liveJobs'
+import { useState, useRef,useEffect } from 'react'
 import { advance, resetJob, useJob, useLiveProgress, useLiveSnapshot } from '../api/useJob'
 import JobBadges from '../components/JobBadges'
 import RunStatus from '../components/RunStatus'
@@ -76,6 +76,16 @@ export default function CopyPage() {
   const revisionInFlight=useRef(false)
   const [revising,setRevising]=useState(false)
   const [instruction,setInstruction]=useState('')
+  const [revisionEstimate,setRevisionEstimate]=useState<TextCostEstimate>()
+  useEffect(()=>{
+    let active=true
+    if(!mock && revising){
+      void getTextCostEstimate(5,'copy').then(value=>{
+        if(active)setRevisionEstimate(value)
+      }).catch(()=>{if(active)setRevisionEstimate(undefined)})
+    }
+    return ()=>{active=false}
+  },[mock,revising])
   // An acknowledgement is valid only for the exact published copy revision.
   // Nothing is offered during a late Live GET or unhydrated Job display.
   const copyKey=mock?JSON.stringify(job?.copy_output??null):
@@ -102,6 +112,10 @@ export default function CopyPage() {
   const approved = job !== undefined && ['COPY_APPROVED', 'IMAGE_REVIEW_REQUIRED', 'IMAGE_APPROVED', 'IMAGE_REJECTED', 'COMPLETED'].includes(job.status)
   const canApprove = job !== undefined && canApproveCopy(job) && liveReady
   const overs = copy ? overLimits(copy.ad_copy) : []
+  const captionChars=copy ? countChars(copy.caption):0
+  const captionMin=250
+  const captionMax=(!mock && live?.emoji_level==='많이')?350:400
+  const captionOutOfRange=Boolean(copy && (captionChars<captionMin || captionChars>captionMax))
   const revisionFeedback=(!mock && liveReady)?live?.revision_feedback:null
 
   // 글자 수를 넘었으면 줄여 달라는 요청을 미리 채워 둔다 (사용자가 기준을 몰라도 바로 보낼 수 있게)
@@ -220,6 +234,12 @@ export default function CopyPage() {
         {reviewing && overs.length > 0 && <p className="field-error" role="alert">
           글자 수 기준을 넘어 이미지를 만들 수 없습니다: {overs.join(', ')}.
           수정 요청에서 짧은 카피를 요청해 주세요.</p>}
+        {reviewing && captionOutOfRange && <p className="field-hint" role="status">
+          게시글 본문 {captionChars}자 · Text Owner 권장 범위
+          {' '}{captionMin}~{captionMax}자입니다.
+          권장 길이와 다르면 수정 요청으로 보완할 수 있습니다.
+          이 길이 안내 자체가 법적 검수 결과나 승인 차단은 아닙니다.
+        </p>}
         {reviewing && !liveReady && !mock && <p role="status" className="field-hint">
           현재 카피·검수 버전을 동기화하고 있습니다. 확인·승인 전에 잠시 상태를 확인해 주세요.
         </p>}
@@ -261,11 +281,12 @@ export default function CopyPage() {
                 onChange={e=>setInstruction(e.target.value)}/>
             </label>
             {!mock && <p className="field-hint" role="status">
-              QA Fixture에서는 모의 수정 결과로 Revision·재검수만 시험합니다.
-              실제 유료 AI 수정 요청은 Text Owner 계약 완료 전까지 서버가 차단합니다.
-              수정이 필요하면 입력 정보를 변경해 새 작업을 시작할 수 있습니다.
-              <Link className="button secondary small" to="/create/product"
-                onClick={resetJob}>입력 정보 변경 후 새 작업 시작</Link>
+              QA Fixture는 유료 모델을 호출하지 않습니다.
+              실제 Text Owner v0.10 수정은 관리자가 승인한 Live Worker에서만 실행됩니다.
+              {revisionEstimate
+                ? <> 텍스트 수정 1회 예상 비용: <strong>{revisionEstimate.display}</strong>.</>
+                : ' 텍스트 수정 예상 비용을 확인 중이거나 조회할 수 없습니다.'}
+              {' '}추정액은 이미지 재생성 비용이나 실제 청구 금액이 아닙니다.
             </p>}
             <div className="button-row">
               <button type="button" className="button"

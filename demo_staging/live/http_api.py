@@ -261,6 +261,37 @@ def register_live_api(app:FastAPI, ledger, runtime_root:Path, cookie_name:str):
             headers={"Cache-Control":"private,no-store",
                      "X-IT-TEM-Provenance":"OFFLINE_FIXTURE"})
 
+    @app.get(prefix+"/text-cost-estimate")
+    def text_cost_estimate(request:Request,photo_count:int=5,revision_target:str|None=None):
+        """Authenticated, deterministic Text Owner estimate. No model/client/secret."""
+        authorized(request)
+        from src.text_generation.cost import (
+            estimate_generation_cost,estimate_revision_cost,format_usd)
+        from fastapi import HTTPException
+        model=os.environ.get("IT_TEM_TEXT_MODEL","gpt-6-luna")
+        vision_model=os.environ.get("IT_TEM_VISION_MODEL","gpt-6-luna")
+        try:
+            if revision_target is None:
+                estimated=estimate_generation_cost(
+                    photo_count=photo_count,model=model,vision_model=vision_model)
+            elif revision_target in ("copy","image_prompt"):
+                estimated=estimate_revision_cost(revision_target,model=model)
+            else:
+                raise ValueError("Revision target unsupported")
+        except ValueError:
+            # Do not invent prices when configuration/model changes.
+            raise HTTPException(status_code=422,detail="TEXT_ESTIMATE_UNAVAILABLE") from None
+        return {
+            "mode":"NON_BILLABLE_ESTIMATE",
+            "scope":"TEXT_ONLY",
+            "model":estimated.model,
+            "steps":estimated.steps,
+            "total_usd":estimated.total_usd,
+            "display":format_usd(estimated.total_usd),
+            "includes_image_generation":False,
+            "actual_charges_known":False,
+        }
+
     @app.get(prefix+"/capabilities")
     def capabilities(request:Request):
         actor=authorized(request)

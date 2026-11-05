@@ -66,17 +66,13 @@ def test_owner_input_is_actual_text_v010_and_bound_to_job(tmp_path):
     assert flow.state.template("alice",jid)["profile_id"]=="OWNER_IMAGE_SIZE_4_5"
 
 
-@pytest.mark.parametrize("mutate",["duplicate","contradiction","missing","invalid_emoji",
-                                    "unauthorized_emoji","unknown_field"])
+@pytest.mark.parametrize("mutate",["invalid_emoji","unauthorized_emoji","unknown_field"])
 def test_owner_input_fails_closed_before_job(tmp_path,mutate):
     body=sample_input()
     p=body["product"]
     p["is_functional"]=True
     p["functional_types"]=["자외선차단"]
     p["emoji_level"]="보통"
-    if mutate=="duplicate":p["functional_types"]=["자외선차단","자외선차단"]
-    if mutate=="contradiction":p["is_functional"]=False
-    if mutate=="missing":p["functional_types"]=[]
     if mutate=="invalid_emoji":p["emoji_level"]="적음"
     if mutate=="unauthorized_emoji":p["emoji_level"]=4
     if mutate=="unknown_field":p["live_overrides"]="approve-all"
@@ -208,3 +204,31 @@ def test_offline_http_live_revision_disabled_and_acl(tmp_path,monkeypatch):
             assert db.execute("SELECT COUNT(*) FROM queued_ops").fetchone()[0]==0
         with sqlite3.connect(tmp_path/"runtime"/"live"/"cost.sqlite") as db:
             assert db.execute("SELECT COUNT(*) FROM attempts").fetchone()[0]==0
+
+
+
+@pytest.mark.parametrize("scenario",["no_type_functional","auto_true","duplicates","missing_default"])
+def test_owner_v010_functional_types_optional_and_auto_normalize(scenario):
+    p=sample_input()
+    p["product"]["is_functional"]=True
+    p["product"]["functional_types"]=["자외선차단"]
+    if scenario=="no_type_functional":
+        p["product"]["functional_types"]=[]
+    elif scenario=="auto_true":
+        p["product"]["is_functional"]=False
+    elif scenario=="duplicates":
+        p["product"]["functional_types"]=["자외선차단","자외선차단"]
+    else:
+        p["product"].pop("functional_types")
+        p["product"].pop("emoji_level",None)
+    snap,sha=validate_input(p,assets())
+    result=snap["product"]
+    assert len(sha)==64
+    if scenario in ("no_type_functional","missing_default"):
+        assert result["is_functional"] is True
+        assert result["functional_types"]==[]
+    else:
+        assert result["is_functional"] is True
+        assert result["functional_types"]==["자외선차단"]
+    if scenario=="missing_default":
+        assert result["emoji_level"]=="없음"

@@ -47,17 +47,14 @@ def validate_input(value: dict, asset_rows: list[dict]) -> tuple[dict,str]:
             raise LiveGateError("PRODUCT_INPUT_INVALID")
         extras=set(raw)-set(ProductInput.model_fields)
         if extras:raise LiveGateError("PRODUCT_INPUT_UNKNOWN_FIELDS")
-        # Check unnormalized user intent before Owner model_validator
-        # de-duplicates functional types or sets is_functional=True.
-        types=TypeAdapter(list[FunctionalType]).validate_python(
+        # Owner Text v0.10 ProductInput intentionally accepts:
+        #   is_functional=True,  functional_types=[] -> claims require evidence
+        #   is_functional=False, functional_types=[...] -> auto-switch True
+        #   repeated types -> de-duplicate in its own model_validator.
+        # Never replace Owner's normalization with a contradictory Serving gate.
+        TypeAdapter(list[FunctionalType]).validate_python(
             raw.get("functional_types",[]),strict=True)
-        if (len(types)!=len(set(types)) or
-            (raw.get("is_functional") is True and not types) or
-            (raw.get("is_functional") is False and bool(types))):
-            raise LiveGateError("FUNCTIONAL_TYPES_SELECTION_INVALID")
         product=ProductInput.model_validate(raw,strict=True)
-        if product.functional_types!=types:
-            raise LiveGateError("FUNCTIONAL_TYPES_SELECTION_INVALID")
         if not product.photo_verified:
             raise LiveGateError("PHOTO_RIGHTS_NOT_VERIFIED")
         products=[a for a in asset_rows if a["role"]=="product"]
@@ -111,6 +108,68 @@ def strict_review(copy: dict, product: dict, analysis: dict) -> dict:
         if key not in existing:
             issues.append(issue)
             existing.add(key)
+    # Owner v0.10's field contract is type-specific, while its current
+    # rule_checker still branches solely on is_functional. Protect against
+    # unselected functional claims without changing any Owner source file.
+    # If the function-category reason cannot identify an approved type, fail
+    # closed rather than silently treating a non-selected claim as supported.
+    selected=set(owner_product.functional_types)
+    if selected:
+        import re
+        upgraded=[]
+        for issue in issues:
+            if issue.category=="기능성 오인" and issue.risk_level!="위반 의심":
+                m=re.search(r"기능성\(([^)]+)\)",issue.reason)
+                if m is None or m.group(1) not in selected:
+                    issue=issue.model_copy(update={
+                        "risk_level":"위반 의심",
+                        "reason":"선택한 기능성 종류가 아닌 효능 표현입니다. "+
+                                 issue.reason,
+                    })
+            upgraded.append(issue)
+        issues=upgraded
+    # Owner's functional taxonomy is 10 entries, while rule_checker.yaml
+    # currently specifies regexes for only 7. Conservative literal fallback
+    # for the 3 uncovered names; NOT exhaustive regulation/clinical validation.
+    # For unselected types, fail closed on direct claims; for selected or
+    # unspecified functional type, warn that evidence remains unverified.
+    from src.text_generation.schemas import ComplianceIssue
+    literal_fallback={
+        "태닝":(r"태닝",),
+        "모발색상변화":(r"모발\s*색상\s*변화",r"모발색상변화"),
+        "체모제거":(r"체모\s*제거",r"체모제거"),
+    }
+    snippets={
+        "product_name":owner_product.product_name,
+        "headline":owner_copy.ad_copy.headline,
+        "subline":owner_copy.ad_copy.subline,
+        "cta":owner_copy.ad_copy.cta,
+        "caption":owner_copy.caption,
+        "hashtags":" ".join(owner_copy.hashtags),
+    }
+    import re
+    for kind,patterns in literal_fallback.items():
+        for field,text in snippets.items():
+            for pattern in patterns:
+                for match in re.finditer(pattern,text,re.IGNORECASE):
+                    if any(x.field==field and
+                           match.start()<x.end and match.end()>x.start
+                           for x in issues):
+                        continue
+                    selected_types=set(owner_product.functional_types)
+                    risk=("위반 의심" if not owner_product.is_functional or
+                          (selected_types and kind not in selected_types)
+                          else "근거 확인 필요")
+                    issues.append(ComplianceIssue(
+                        field=field,text=match.group(0),
+                        start=match.start(),end=match.end(),
+                        category="기능성 오인",risk_level=risk,
+                        reason=(f"기능성 종류 '{kind}' 관련 표현: "
+                                "선택 종류 및 심사·보고 근거를 확인해야 합니다. "
+                                "현재 검출은 명시적 효능 이름에 한정합니다."),
+                        suggestion=None,basis="Text Owner v0.10 기능성 종류 분류",
+                        detected_by="rule",auto_fixed=False,
+                    ))
     issues.sort(key=lambda x:(x.field,x.start,x.end))
     confirmed=not any(x.risk_level=="위반 의심" for x in issues)
     report=baseline.model_copy(update={
