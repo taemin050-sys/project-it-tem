@@ -1,6 +1,7 @@
 from copy import deepcopy
 from hashlib import sha256
 import json
+from pathlib import Path
 import pytest
 from pydantic import ValidationError
 from .helpers import body,layout,copy_output
@@ -9,8 +10,9 @@ from src.image_generation.contracts import content_hash
 from src.image_generation.errors import GatewayError
 
 def test_full_copy_hash_matches_team_canonical_contract():
-    from docs.contracts.validation import canonical_copy_hash
-    item=body();assert item.copy_hash==canonical_copy_hash(item.copy_output)
+    vector=json.loads((Path(__file__).parent/'fixtures/canonical_copy_hash.json').read_text())
+    assert content_hash(vector['copy_output'])==vector['copy_sha256']
+    item=body(copy_output=vector['copy_output'],copy_hash=vector['copy_sha256'])
     ad,caption,tags=_copy_fields(item)
     assert (ad,caption,tags)==(item.copy_output['ad_copy'],item.copy_output['caption'],item.copy_output['hashtags'])
 

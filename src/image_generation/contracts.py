@@ -9,7 +9,7 @@ import json
 import unicodedata
 from typing import Annotated, Literal
 from uuid import UUID
-from pydantic import AfterValidator, BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import AfterValidator, BaseModel, ConfigDict, Field, field_validator, model_validator, model_serializer
 
 class Contract(BaseModel):
     model_config = ConfigDict(extra="forbid")
@@ -64,17 +64,43 @@ class ImagePrompt(Contract):
 
 
 ImageProviderModel = Literal[
-    "gpt-image-2.5-sunburst-2026-09-08", "gpt-image-2-2026-04-21"]
+    "gpt-image-2.6-sunburst", "gpt-image-2.5-sunburst-2026-09-08", "gpt-image-2-2026-04-21"]
+ImageComplexity = Literal["low", "medium", "high"]
 ImageOperation = Literal["generate", "edit", "cutout"]
+
+
+def resolve_image_complexity(model: ImageProviderModel,
+                             complexity: ImageComplexity | None) -> ImageComplexity | None:
+    """Keep the model-specific option explicit without changing legacy snapshots."""
+    if complexity is not None and complexity not in ("low", "medium", "high"):
+        raise ValueError("Unsupported image complexity")
+    if model == "gpt-image-2.6-sunburst":
+        return "high" if complexity is None else complexity
+    if complexity is not None:
+        raise ValueError("Image complexity requires gpt-image-2.6-sunburst")
+    return None
+
+
+class LayoutSelection(Contract):
+    version: Literal["instagram-copy-hierarchy-v2"] = "instagram-copy-hierarchy-v2"
+    aspect_ratio: Literal["3:4", "4:5", "9:16"]
+    placement: Literal["feed", "reels", "story"]
+
+    @model_validator(mode="after")
+    def compatible(self):
+        from .layout_profiles import get_layout
+        get_layout(self.aspect_ratio, self.placement)
+        return self
 
 
 class ExternalImageRequest(Contract):
     """One Korean API operation; input order is part of the snapshot hash."""
+    layout_selection: LayoutSelection | None = None
     kind: Literal["api_image"] = "api_image"
     operation: ImageOperation
     pipeline_profile_id: Literal["openai-images"] = "openai-images"
     pipeline_revision: Literal["2"] = "2"
-    model: ImageProviderModel = "gpt-image-2.5-sunburst-2026-09-08"
+    model: ImageProviderModel = "gpt-image-2.6-sunburst"
     product_images: list[AssetRef] = Field(default_factory=list, max_length=5)
     reference_images: list[AssetRef] = Field(default_factory=list, max_length=5)
     prompt: ImagePrompt | None = None
@@ -83,10 +109,26 @@ class ExternalImageRequest(Contract):
     width: int = Field(default=1152, ge=16, le=3840, strict=True)
     height: int = Field(default=1440, ge=16, le=3840, strict=True)
     quality: Literal["low", "medium", "high"] = "medium"
+    complexity: ImageComplexity | None = None
+
+    @model_serializer(mode="wrap")
+    def serialize_request(self, handler):
+        data = handler(self)
+        if self.layout_selection is None:
+            data.pop("layout_selection", None)  # Keep pre-layout saved bytes/hashes.
+        if self.complexity is None:
+            data.pop("complexity", None)  # Preserve older models' saved bytes/hashes.
+        return data
 
     @model_validator(mode="after")
     def valid_operation(self):
-        if self.operation != "cutout" and self.width * 5 != self.height * 4:
+        self.complexity = resolve_image_complexity(self.model, self.complexity)
+        if self.layout_selection is not None:
+            from .layout_profiles import get_layout
+            profile = get_layout(self.layout_selection.aspect_ratio, self.layout_selection.placement)
+            if self.operation == "cutout" or (self.width,self.height) != profile.native:
+                raise ValueError("Selected layout must match its generation canvas")
+        if self.layout_selection is None and self.operation != "cutout" and self.width * 5 != self.height * 4:
             raise ValueError("Generation and editing require a 4:5 canvas")
         if (self.width % 16 or self.height % 16
                 or not 655360 <= self.width * self.height <= 3686400
