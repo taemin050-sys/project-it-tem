@@ -54,6 +54,10 @@ def render_korean_image_policy(request: ExternalImageRequest) -> str:
         parts.append(f"배경 참고 사진의 역할\n{products + 1}번부터 {products + references}번은 "
             "배경 구도와 조명만 참고한다. 해당 사진의 제품·글자·로고는 복제하지 않는다. "
             "원본 제품 보존과 카피 여백을 우선한다.")
+    if request.layout_selection is not None:
+        from .layout_profiles import get_layout, render_layout_instruction
+        selection = request.layout_selection
+        parts.append(render_layout_instruction(get_layout(selection.aspect_ratio, selection.placement)))
     return "\n\n".join(parts)
 
 

@@ -9,7 +9,7 @@ import json
 import unicodedata
 from typing import Annotated, Literal
 from uuid import UUID
-from pydantic import AfterValidator, BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import AfterValidator, BaseModel, ConfigDict, Field, field_validator, model_validator, model_serializer
 
 class Contract(BaseModel):
     model_config = ConfigDict(extra="forbid")
@@ -68,8 +68,21 @@ ImageProviderModel = Literal[
 ImageOperation = Literal["generate", "edit", "cutout"]
 
 
+class LayoutSelection(Contract):
+    version: Literal["instagram-copy-hierarchy-v2"] = "instagram-copy-hierarchy-v2"
+    aspect_ratio: Literal["3:4", "4:5", "9:16"]
+    placement: Literal["feed", "reels", "story"]
+
+    @model_validator(mode="after")
+    def compatible(self):
+        from .layout_profiles import get_layout
+        get_layout(self.aspect_ratio, self.placement)
+        return self
+
+
 class ExternalImageRequest(Contract):
     """One Korean API operation; input order is part of the snapshot hash."""
+    layout_selection: LayoutSelection | None = None
     kind: Literal["api_image"] = "api_image"
     operation: ImageOperation
     pipeline_profile_id: Literal["openai-images"] = "openai-images"
@@ -84,9 +97,21 @@ class ExternalImageRequest(Contract):
     height: int = Field(default=1440, ge=16, le=3840, strict=True)
     quality: Literal["low", "medium", "high"] = "medium"
 
+    @model_serializer(mode="wrap")
+    def serialize_request(self, handler):
+        data = handler(self)
+        if self.layout_selection is None:
+            data.pop("layout_selection", None)  # Keep pre-layout saved bytes/hashes.
+        return data
+
     @model_validator(mode="after")
     def valid_operation(self):
-        if self.operation != "cutout" and self.width * 5 != self.height * 4:
+        if self.layout_selection is not None:
+            from .layout_profiles import get_layout
+            profile = get_layout(self.layout_selection.aspect_ratio, self.layout_selection.placement)
+            if self.operation == "cutout" or (self.width,self.height) != profile.native:
+                raise ValueError("Selected layout must match its generation canvas")
+        if self.layout_selection is None and self.operation != "cutout" and self.width * 5 != self.height * 4:
             raise ValueError("Generation and editing require a 4:5 canvas")
         if (self.width % 16 or self.height % 16
                 or not 655360 <= self.width * self.height <= 3686400

@@ -19,7 +19,7 @@ from uuid import UUID, uuid5
 from pydantic import Field, field_validator, model_validator
 
 from .api_image_processor import ExternalImageProcessor
-from .contracts import Contract, CopyRevision, ExternalImageRequest, ImagePrompt, content_hash
+from .contracts import Contract, CopyRevision, ExternalImageRequest, ImagePrompt, LayoutSelection, content_hash
 from .errors import GatewayError
 from .product_analysis import ProductAnalysisResult
 
@@ -70,6 +70,7 @@ class BackendSafeZone(Contract):
 
 
 class BackendImageInput(Contract):
+    layout_selection: LayoutSelection | None = None
     job_id: Annotated[str, Field(strict=True, pattern=r"^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$")]
     copy_revision: CopyRevision
     # Opaque server approval identity. This library does not authenticate it or
@@ -84,6 +85,12 @@ class BackendImageInput(Contract):
         default_factory=list, max_length=50)
     product_images: list[Photo] = Field(min_length=2, max_length=5, repr=False)
     reference_images: list[Photo] = Field(default_factory=list, max_length=5, repr=False)
+
+    @model_validator(mode="after")
+    def layout_boundary(self):
+        if self.layout_selection is not None and self.safe_zone is not None:
+            raise ValueError("Use layout_selection or legacy copy safe_zone, not both")
+        return self
 
     @field_validator("image_prompt")
     @classmethod
@@ -190,6 +197,8 @@ class BackendImageAdapter:
         legacy = body.image_prompt.concept is not None and type(body.copy_revision) is int
         version = "backend-v02-ko-v1" if legacy else "backend-v02-ko-v2"
         metadata = body.model_dump(mode="json", exclude={"product_images", "reference_images"})
+        if body.layout_selection is None:
+            metadata.pop("layout_selection", None)  # Preserve old input fingerprints.
         metadata.update(model=self.model, quality=self.quality, adapter_version=version,
                         mock=self.processor.adapter.offline)
         for role in ("product_images", "reference_images"):
@@ -215,7 +224,12 @@ class BackendImageAdapter:
                             for data in body.product_images]
                 references = [self.processor.assets.put_upload(data, project_id=project_id)
                               for data in body.reference_images]
-                request = ExternalImageRequest(operation="edit", pipeline_revision="2",
+                selected = {}
+                if body.layout_selection is not None:
+                    from .layout_profiles import get_layout
+                    profile = get_layout(body.layout_selection.aspect_ratio, body.layout_selection.placement)
+                    selected = dict(layout_selection=body.layout_selection, width=profile.native[0], height=profile.native[1])
+                request = ExternalImageRequest(**selected, operation="edit", pipeline_revision="2",
                     model=self.model, quality=self.quality, prompt=prompt,
                     product_images=products, reference_images=references,
                     watermark_policy="exclude-v1", cosmetics_policy_version="ko-v1")

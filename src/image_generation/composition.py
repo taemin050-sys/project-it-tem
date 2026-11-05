@@ -45,12 +45,14 @@ class CompositionRect(Contract):
             raise ValueError("A region must have positive area")
         return self
 
-    def pixels(self) -> tuple[int, int, int, int]:
-        return (math.ceil(self.left * 1080), math.ceil(self.top * 1350),
-                math.floor(self.right * 1080), math.floor(self.bottom * 1350))
+    def pixels(self, canvas_size: tuple[int, int] = FINAL_SIZE) -> tuple[int, int, int, int]:
+        return (math.ceil(self.left * canvas_size[0]), math.ceil(self.top * canvas_size[1]),
+                math.floor(self.right * canvas_size[0]), math.floor(self.bottom * canvas_size[1]))
 
 
 class CompositionTextRegion(CompositionRect):
+    max_lines: int | None = Field(default=None, ge=1, le=20)
+    vertical_align: Literal["top", "center"] = "top"
     min_font_size: int = Field(default=24, ge=18, le=128)
     max_font_size: int = Field(default=64, ge=18, le=128)
     padding: int = Field(default=16, ge=0, le=64)
@@ -76,11 +78,19 @@ def _overlap(a: CompositionRect, b: CompositionRect) -> bool:
 
 class CompositionLayout(Contract):
     model_config = ConfigDict(extra="forbid", strict=True)
+    cta_placement: Literal["image", "platform"] = "image"
+    canvas_size: tuple[Literal[1080], Literal[1350, 1440, 1920]] = FINAL_SIZE
     text_regions: dict[CopyField, CompositionTextRegion] = Field(min_length=1, max_length=3)
     protected_regions: list[CompositionRect] = Field(default_factory=list, max_length=10)
 
     @model_validator(mode="after")
     def disjoint_regions(self):
+        if self.cta_placement == "platform" and "cta" in self.text_regions:
+            raise ValueError("Platform CTA must not also have an image region")
+        for region in self.text_regions.values():
+            l,t,r,b=region.pixels(self.canvas_size)
+            if r-l <= 2*region.padding or b-t <= 2*region.padding:
+                raise ValueError("Text region has no usable canvas pixels")
         regions = list(self.text_regions.values())
         for i, region in enumerate(regions):
             if any(_overlap(region, other) for other in regions[i+1:] + self.protected_regions):
@@ -144,7 +154,9 @@ def _copy_fields(body: CompositionInput) -> tuple[dict[str, str], str, list[str]
             text.encode("utf-8")
             if any(unicodedata.category(c).startswith("C") and c != "\n" for c in text):
                 raise ValueError
-        if any(text and name not in body.layout.text_regions for name, text in ad.items()):
+        if any(text and name not in body.layout.text_regions
+               and not (name == "cta" and body.layout.cta_placement == "platform")
+               for name, text in ad.items()):
             raise _reject("COMPOSITION_LAYOUT_MISSING_FIELD")
         return ad, caption, tags
     except (KeyError, TypeError, ValueError, UnicodeError):
@@ -191,8 +203,9 @@ def _lines(text: str, font: ImageFont.FreeTypeFont, width: int) -> list[str] | N
     return result
 
 
-def _fit(text: str, region: CompositionTextRegion, data: bytes, index: int):
-    l,t,r,b = region.pixels()
+def _fit(text: str, region: CompositionTextRegion, data: bytes, index: int,
+         canvas_size: tuple[int, int] = FINAL_SIZE):
+    l,t,r,b = region.pixels(canvas_size)
     width, height = r-l-2*region.padding, b-t-2*region.padding
     low, high, best = region.min_font_size, region.max_font_size, None
     while low <= high:
@@ -203,7 +216,7 @@ def _fit(text: str, region: CompositionTextRegion, data: bytes, index: int):
         pitch = max(math.ceil(sum(font.getmetrics())*1.1),
                     max((box[3]-box[1] for box in boxes), default=0))
         used = (len(boxes)-1)*pitch + (boxes[-1][3]-boxes[-1][1] if boxes else 0)
-        if lines is not None and used <= height:
+        if lines is not None and used <= height and (region.max_lines is None or len(lines) <= region.max_lines):
             best = font, lines, boxes, pitch, size
             low = size+1
         else:
@@ -223,32 +236,39 @@ def compose_ad_png(body: CompositionInput, *, font_path: str | Path,
     started = time.monotonic()
     body = CompositionInput.model_validate(body.model_dump(warnings=False))
     ad, caption, tags = _copy_fields(body)
-    data, font_hash = _font_data(font_path, font_index, list(ad.values()))
-    baseline = resize_ad_png(body.image_bytes)
+    rendered_copy = {name: text for name, text in ad.items()
+                     if text and not (name == "cta" and body.layout.cta_placement == "platform")}
+    data, font_hash = _font_data(font_path, font_index, list(rendered_copy.values()))
+    canvas_size = body.layout.canvas_size
+    baseline = resize_ad_png(body.image_bytes, final_size=canvas_size)
     prepared = {}
     try:
-        for name, text in ad.items():
-            if text:
-                prepared[name] = _fit(text, body.layout.text_regions[name], data, font_index)
+        for name, text in rendered_copy.items():
+            prepared[name] = _fit(text, body.layout.text_regions[name], data, font_index, canvas_size)
     except (OSError, ValueError):
         raise _reject("COMPOSITION_FONT_UNAVAILABLE") from None
     placements = {}
     with Image.open(BytesIO(baseline.image_bytes)) as source:
         source.load()
-        overlay = Image.new("RGBA", FINAL_SIZE)
+        overlay = Image.new("RGBA", canvas_size)
         draw = ImageDraw.Draw(overlay)
         for name, (font, lines, boxes, pitch, size) in prepared.items():
             region = body.layout.text_regions[name]
-            l,t,r,b = region.pixels()
+            l,t,r,b = region.pixels(canvas_size)
             if region.background:
                 draw.rectangle((l,t,r-1,b-1), fill=region.background)
             ink = []
+            used=(len(boxes)-1)*pitch+(boxes[-1][3]-boxes[-1][1] if boxes else 0)
+            offset=(b-t-2*region.padding-used)//2 if region.vertical_align == "center" else 0
             for i, (line, box) in enumerate(zip(lines, boxes)):
                 width = box[2]-box[0]
                 x = l+region.padding
                 if region.align == "center": x = l+(r-l-width)//2
                 if region.align == "right": x = r-region.padding-width
-                y = t+region.padding+i*pitch
+                y = t+region.padding+offset+i*pitch
+                if not (l+region.padding <= x and x+width <= r-region.padding
+                        and t+region.padding <= y and y+box[3]-box[1] <= b-region.padding):
+                    raise _reject("COMPOSITION_TEXT_OVERFLOW")
                 draw.text((x-box[0],y-box[1]), line, fill=region.color, font=font)
                 ink.append([x,y,x+width,y+box[3]-box[1]])
             placements[name] = {"region": [l,t,r,b], "font_size":size,
@@ -262,7 +282,7 @@ def compose_ad_png(body: CompositionInput, *, font_path: str | Path,
     image_bytes = output.getvalue()
     with Image.open(BytesIO(image_bytes)) as decoded:
         decoded.load()
-        if decoded.format != "PNG" or decoded.size != FINAL_SIZE:
+        if decoded.format != "PNG" or decoded.size != canvas_size:
             raise _reject("COMPOSITION_OUTPUT_INVALID")
         width,height = decoded.size
     caption_text = caption + ("\n\n" if caption and tags else "") + " ".join(tags)
@@ -275,6 +295,8 @@ def compose_ad_png(body: CompositionInput, *, font_path: str | Path,
                "protected_region_check":bool(body.layout.protected_regions),
                "needs_manual_check":True,"provider_calls":0,"provider_cost_usd":"0",
                "elapsed_ms":round((time.monotonic()-started)*1000),
+               "cta_placement":body.layout.cta_placement,
+               "omitted_image_fields":["cta"] if body.layout.cta_placement == "platform" else [],
                "warnings":[] if body.layout.protected_regions else ["PRODUCT_REGION_NOT_PROVIDED"]}
     return ComposedAd(image_bytes,caption_text.encode("utf-8"),caption,tuple(tags),
                       "image/png",width,height,sha256(image_bytes).hexdigest(),

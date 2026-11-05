@@ -23,11 +23,15 @@ integer 1 and string "1" are different identities. Never cast revision labels.
 The result is a generated image candidate for user review, not a final ad.
 A matching saved success replays without a new provider call even when new
 live calls are disabled. Failed/uncertain attempts are never automatically retried.
-resize_ad_png creates a separate 1080x1350 PNG; it does not compose Korean copy.
+resize_ad_png defaults to a separate 1080x1350 PNG; it does not compose Korean copy.
 After serving verifies approval, call compose_ad_png(CompositionInput(...),
 font_path=server_font_path). Pass the approved image bytes/SHA-256, complete
 AdCopyOutput snapshot/canonical hash, copy revision and explicit text regions.
-It returns a 1080x1350 PNG and UTF-8 caption/hashtags without a model call.
+It returns the selected canvas PNG and UTF-8 caption/hashtags without a model call.
+Optional layout_selection supports feed 3:4/4:5 and reels/story 9:16. Use the
+same selection for generation and make_placement_layout() during composition.
+Omitting it preserves the historical 4:5 generation path. Placement coordinates
+are targets; review actual product bounds before passing protected_regions.
 Use make_a_template() for paired upper safe-zone / centered A layout settings.
 Layout coordinates use the final canvas. Supply product protection regions
 to prevent text overlap; absent regions require manual product/layout review.
@@ -49,3 +53,7 @@ __all__ = ["make_a_template", "BackendGeneratedImage", "BackendImageAdapter", "B
            "ExternalImageRequest", "ImagePrompt", "ProductAnalysis",
            "ProductAnalysisResult", "resize_ad_png", "ComposedAd", "CompositionInput",
            "CompositionLayout", "CompositionRect", "CompositionTextRegion", "compose_ad_png"]
+
+from .contracts import LayoutSelection
+from .layout_profiles import get_layout, make_placement_layout
+__all__ += ["LayoutSelection", "get_layout", "make_placement_layout"]

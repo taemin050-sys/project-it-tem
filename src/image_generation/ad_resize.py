@@ -32,15 +32,18 @@ class ResizedAd:
     method: str
 
 
-def resize_ad_png(data: bytes, *, max_input_bytes: int = 32 * 1024 * 1024,
+def resize_ad_png(data: bytes, *, final_size: tuple[int, int] = FINAL_SIZE, max_input_bytes: int = 32 * 1024 * 1024,
                   max_pixels: int = 16_000_000) -> ResizedAd:
-    """Normalize orientation/color and downsample a 4:5 image to final PNG.
+    """Normalize orientation/color and downsample an image of the selected ratio to final PNG.
 
     Same-sized upright RGB/RGBA PNG is returned byte-for-byte after validation.
     ICC-tagged resized images are color-managed into tagged sRGB. Untagged RGB
     is assumed sRGB. Untagged CMYK/LAB and unknown modes fail explicitly.
     Source dimensions in the receipt are measured after EXIF orientation.
     """
+    if (type(final_size) is not tuple or final_size not in {(1080,1350),(1080,1440),(1080,1920)}
+            or any(type(n) is not int for n in final_size)):
+        raise ValueError("Choose an allowed final canvas")
     if (type(max_input_bytes) is not int or max_input_bytes <= 0
             or type(max_pixels) is not int or max_pixels <= 0):
         raise ValueError("Image limits must be positive integers")
@@ -64,9 +67,9 @@ def resize_ad_png(data: bytes, *, max_input_bytes: int = 32 * 1024 * 1024,
                 upright = ImageOps.exif_transpose(image)
                 source_size = upright.size
                 width, height = source_size
-                if width * 5 != height * 4:
-                    raise GatewayError("RESIZE_ASPECT_MISMATCH", "Input must be 4:5; cropping is disabled.")
-                if width < FINAL_SIZE[0] or height < FINAL_SIZE[1]:
+                if width * final_size[1] != height * final_size[0]:
+                    raise GatewayError("RESIZE_ASPECT_MISMATCH", "Input must match the selected canvas; cropping is disabled.")
+                if width < final_size[0] or height < final_size[1]:
                     raise GatewayError("RESIZE_UPSCALE_DISABLED", "Input is smaller than the final canvas.")
                 profile_bytes = upright.info.get("icc_profile")
                 profile = ImageCms.ImageCmsProfile(BytesIO(profile_bytes)) if profile_bytes else None
@@ -88,23 +91,23 @@ def resize_ad_png(data: bytes, *, max_input_bytes: int = 32 * 1024 * 1024,
                     output_profile = srgb.tobytes()
                 # Validate the profile even on this no-op path. Preserve exact
                 # bytes/color tagging when neither orientation nor size changes.
-                if (source_size == FINAL_SIZE and image.format == "PNG"
+                if (source_size == final_size and image.format == "PNG"
                         and image.mode in {"RGB", "RGBA"} and orientation == 1):
                     result_bytes, method = data, "unchanged"
                 else:
-                    if source_size != FINAL_SIZE:
+                    if source_size != final_size:
                         if alpha:
                             # Premultiplied alpha avoids dark fringes on cutouts.
-                            pixels = pixels.convert("RGBa").resize(FINAL_SIZE, Image.Resampling.LANCZOS).convert("RGBA")
+                            pixels = pixels.convert("RGBa").resize(final_size, Image.Resampling.LANCZOS).convert("RGBA")
                         else:
-                            pixels = pixels.resize(FINAL_SIZE, Image.Resampling.LANCZOS)
+                            pixels = pixels.resize(final_size, Image.Resampling.LANCZOS)
                     output = BytesIO()
                     # New image strips source EXIF orientation and free-text tags.
                     clean = Image.frombytes(pixels.mode, pixels.size, pixels.tobytes())
                     save_options = {"icc_profile": output_profile} if output_profile else {}
                     clean.save(output, "PNG", compress_level=6, **save_options)
                     result_bytes = output.getvalue()
-                    method = "lanczos" if source_size != FINAL_SIZE else "png-normalize"
+                    method = "lanczos" if source_size != final_size else "png-normalize"
     except GatewayError:
         raise
     except (Image.DecompressionBombWarning, Image.DecompressionBombError):
@@ -114,9 +117,9 @@ def resize_ad_png(data: bytes, *, max_input_bytes: int = 32 * 1024 * 1024,
     # Assert the delivered bytes rather than declaring hard-coded dimensions.
     with Image.open(BytesIO(result_bytes)) as final:
         final.load()
-        if final.format != "PNG" or final.size != FINAL_SIZE:
+        if final.format != "PNG" or final.size != final_size:
             raise GatewayError("RESIZE_OUTPUT_INVALID", "Final PNG did not match its required canvas.")
         actual_width, actual_height = final.size
     return ResizedAd(result_bytes, "image/png", actual_width, actual_height,
                      hashlib.sha256(result_bytes).hexdigest(), source_sha, width, height,
-                     source_size != FINAL_SIZE, method)
+                     source_size != final_size, method)
