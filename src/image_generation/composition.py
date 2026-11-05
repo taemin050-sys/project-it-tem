@@ -148,6 +148,8 @@ def validate_copy_output(copy: dict, expected_hash: str) -> tuple[dict[str, str]
     A matching hash binds content; serving must still establish approval.
     """
     try:
+        if not isinstance(copy, dict):
+            raise ValueError
         if content_hash(copy) != expected_hash:
             raise _reject("COMPOSITION_COPY_HASH_MISMATCH")
         if not isinstance(copy.get("plan"), dict):

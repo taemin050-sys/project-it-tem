@@ -3,18 +3,18 @@ from copy import deepcopy
 from dataclasses import replace
 from email import policy
 from email.parser import BytesParser
-from hashlib import sha256
-from io import BytesIO
 from uuid import uuid4
 import base64
 
 import httpx
-from PIL import Image
 import pytest
 from pydantic import ValidationError
 
 from src.image_generation.contracts import ExternalImageRequest, content_hash
 from src.image_generation.errors import GatewayError
+from src.image_generation import export_candidate
+from src.image_generation.ad_resize import resize_ad_png
+from src.image_generation.composition import CompositionLayout
 from . import test_backend_adapter as backend
 from .helpers import FONT, copy_output, layout
 
@@ -176,3 +176,111 @@ def test_transport_budget_zero_blocks_both(tmp_path, mode):
     adapter = backend.setup(tmp_path, lambda _: pytest.fail("No provider call"), budget="0")
     with pytest.raises(GatewayError):
         adapter.generate(candidate(mode), project_id=uuid4())
+
+
+@pytest.mark.parametrize("ratio,placement,size,final", [
+    ("3:4", "feed", (1152, 1536), (1080, 1440)),
+    ("4:5", "feed", (1152, 1440), (1080, 1350)),
+    ("9:16", "reels", (1152, 2048), (1080, 1920)),
+    ("9:16", "story", (1152, 2048), (1080, 1920))])
+def test_export_freeform_is_only_resize_no_font_or_overlay(tmp_path, monkeypatch, ratio, placement, size, final):
+    import src.image_generation.candidate_export as module
+    monkeypatch.setattr(module, "compose_ad_png", lambda *a, **k: pytest.fail("No second text overlay"))
+    body = candidate(layout_selection=dict(aspect_ratio=ratio, placement=placement))
+    adapter = backend.setup(tmp_path, lambda _: httpx.Response(200, json={"data": [
+        {"b64_json": base64.b64encode(backend.png(size=size)).decode()}]}))
+    generated = adapter.generate(body, project_id=uuid4())
+    result = export_candidate(generated, copy_output=body.copy_output)
+    assert result.image_bytes == resize_ad_png(generated.image_bytes, final_size=final).image_bytes
+    assert (result.width, result.height) == final
+    assert result.receipt["provider_calls"] == 0 and not result.receipt["protected_region_check"]
+    assert result.receipt["needs_manual_check"] is True
+    assert result.caption == body.caption and result.hashtags == tuple(body.hashtags)
+    assert result.source_image_sha256 == generated.sha256
+    assert result.copy_hash == body.copy_hash and result.job_id == body.job_id
+    with pytest.raises(GatewayError) as error:
+        export_candidate(generated, copy_output=body.copy_output, font_path=FONT)
+    assert error.value.code == "CANDIDATE_FREEFORM_CONFIG_INVALID"
+
+
+def test_export_composed_local_failure_repair_without_new_generation(tmp_path):
+    calls = []
+    def handler(req):
+        calls.append(req)
+        return backend.response()
+    body, project = candidate("composed"), uuid4()
+    adapter = backend.setup(tmp_path, handler)
+    generated = adapter.generate(body, project_id=project)
+    with pytest.raises(GatewayError) as error:
+        export_candidate(generated, copy_output=body.copy_output)
+    assert error.value.code == "CANDIDATE_COMPOSITION_REQUIRED"
+    with pytest.raises(GatewayError) as error:
+        export_candidate(generated, copy_output=body.copy_output,
+                         layout=CompositionLayout(**layout()), font_path=tmp_path / "missing.ttf")
+    assert error.value.code == "COMPOSITION_FONT_UNAVAILABLE"
+    result = export_candidate(generated, copy_output=body.copy_output,
+                              layout=CompositionLayout(**layout()), font_path=FONT)
+    assert len(calls) == 1 and result.receipt["provider_calls"] == 0
+    assert result.receipt["generation_mode"] == "composed"
+    assert (result.width, result.height) == (1080, 1350)
+    assert result.image_bytes != resize_ad_png(generated.image_bytes).image_bytes
+
+
+@pytest.mark.parametrize("part,code", [
+    ("image_hash", "COMPOSITION_IMAGE_HASH_MISMATCH"),
+    ("dimensions", "CANDIDATE_IMAGE_METADATA_INVALID"),
+    ("copy", "COMPOSITION_COPY_HASH_MISMATCH"),
+    ("mode", "CANDIDATE_NOT_EXPORTABLE"),
+    ("state", "CANDIDATE_NOT_EXPORTABLE")])
+def test_export_rejects_changed_candidate_or_copy(tmp_path, part, code):
+    body = candidate()
+    generated = backend.setup(tmp_path, lambda _: backend.response()).generate(body, project_id=uuid4())
+    copy = deepcopy(body.copy_output)
+    if part == "image_hash": generated = replace(generated, sha256="b" * 64)
+    elif part == "dimensions": generated = replace(generated, width=2048)
+    elif part == "copy": copy["plan"]["target"] = "다른 대상"
+    elif part == "mode": generated = replace(generated, receipt={**generated.receipt, "generation_mode": "other"})
+    else: generated = replace(generated, receipt={**generated.receipt, "state": "unknown"})
+    with pytest.raises(GatewayError) as error:
+        export_candidate(generated, copy_output=copy)
+    assert error.value.code == code
+
+
+@pytest.mark.parametrize("modes", [["freeform"], ["composed"],
+    ["freeform", "composed"], ["freeform", "freeform", "composed"]])
+def test_transport_single_and_one_one_two_one(tmp_path, modes):
+    calls = []
+    def handler(req):
+        calls.append(fields(req))
+        return backend.response()
+    adapter, project = backend.setup(tmp_path, handler, budget="10"), uuid4()
+    results = [adapter.generate(candidate(mode, job_id=f"candidate-{i}"), project_id=project)
+               for i, mode in enumerate(modes)]
+    assert [r.receipt["generation_mode"] for r in results] == modes
+    assert len(calls) == len(modes) and all(c["n"] == "1" for c in calls)
+
+
+def test_contract_model_copy_cannot_bypass_freeform_requirements(tmp_path):
+    body = candidate().model_copy(update={"copy_output": None})
+    adapter = backend.setup(tmp_path, lambda _: pytest.fail("No provider call"))
+    with pytest.raises(ValidationError):
+        adapter.generate(body, project_id=uuid4())
+
+
+def test_export_legacy_receipt_mode_defaults_to_composed(tmp_path):
+    body = candidate(None)
+    generated = backend.setup(tmp_path, lambda _: backend.response()).generate(body, project_id=uuid4())
+    receipt = dict(generated.receipt)
+    receipt.pop("generation_mode")
+    result = export_candidate(replace(generated, receipt=receipt), copy_output=body.copy_output,
+                              layout=CompositionLayout(**layout()), font_path=FONT)
+    assert result.receipt["generation_mode"] == "composed"
+
+
+def test_export_tag_only_caption_has_no_leading_blank_lines(tmp_path):
+    copy = copy_output()
+    copy["caption"] = ""
+    body = candidate(copy_output=copy, caption="", copy_hash=content_hash(copy))
+    generated = backend.setup(tmp_path, lambda _: backend.response()).generate(body, project_id=uuid4())
+    result = export_candidate(generated, copy_output=copy)
+    assert result.caption_bytes == " ".join(copy["hashtags"]).encode("utf-8")
