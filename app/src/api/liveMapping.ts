@@ -15,7 +15,10 @@ export type LiveSnapshot={
   analysis?:{analysis:ProductAnalysis;analysis_succeeded:boolean;error?:string|null};
   research_display?:ResearchResult;copy?:AdCopyOutput;compliance?:ComplianceReport;
   image_prompt?:unknown
-  template_profile?:'A_CENTERED'|'LEGACY_PINNED'|'PRE_POLICY_LEGACY'
+  template_profile?:'A_CENTERED'|'LEGACY_PINNED'|'PRE_POLICY_LEGACY'|
+    'OWNER_IMAGE_SIZE_3_4'|'OWNER_IMAGE_SIZE_4_5'|'OWNER_IMAGE_SIZE_9_16'
+  image_size?:'3:4'|'4:5'|'9:16'
+  output_size?:{width:number;height:number}
   product_protection_status?:'MANUAL_REVIEW_REQUIRED'|'NOT_REVIEWED'
 }
 export type LiveTask={task_id:string;job_id:string;stage:string;state:
@@ -55,7 +58,8 @@ export function asProductJob(snapshot:LiveSnapshot,b0:Job):Job{
     research_result:snapshot.research_display,copy_output:snapshot.copy,
     compliance_report:snapshot.compliance,image_candidate:candidate,
     final_output:snapshot.state==='COMPLETED'?{mock:snapshot.mode==='OFFLINE_FIXTURE',
-      width:1080,height:1350,format:'png'}:undefined
+      width:snapshot.output_size?.width??1080,
+      height:snapshot.output_size?.height??1350,format:'png'}:undefined
   }
 }
 /** Do not display an acknowledgement until the independently polled Job and

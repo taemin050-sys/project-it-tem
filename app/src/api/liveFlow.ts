@@ -22,7 +22,8 @@ import {ApiError} from './client'
 const composePinned=(s:LiveSnapshot)=>{
   const operation=QA_OFFLINE_FIXTURE
     ? qaCompose(s.job_id)
-    : composeLive(s.job_id,s.template_profile==='A_CENTERED'?AD_LAYOUT:LEGACY_LAYOUT)
+    : composeLive(s.job_id,s.template_profile?.startsWith('OWNER_IMAGE_SIZE_')
+       ? undefined : s.template_profile==='A_CENTERED'?AD_LAYOUT:LEGACY_LAYOUT)
   return operation.catch(e=>{
     throw Error('광고 합성에 실패했습니다. 승인 이미지는 유지됩니다. 합성만 재시도하세요.'+
       (e instanceof ApiError&&e.status>0?' (오류 '+e.status+')':''))

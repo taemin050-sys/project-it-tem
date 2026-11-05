@@ -14,9 +14,9 @@ export async function getProductLiveJob(id:string):Promise<Job>{
   const [snapshot,original]=await Promise.all([getLiveSnapshot(id),getJob(id)])
   return asProductJob(snapshot,original)
 }
-export function createLiveInput(b0:Job,product:ProductInput){
+export function createLiveInput(b0:Job,product:ProductInput,imageSize:'3:4'|'4:5'|'9:16'){
   return request<LiveSnapshot>(url(b0.job_id)+'/input',
-    json({customer_request_id:'product-live-'+b0.job_id,product}))
+    json({customer_request_id:'product-live-'+b0.job_id,product,image_size:imageSize}))
 }
 export const queueLive=(id:string,stage:'text'|'prompt'|'image')=>
   request<{task_id:string;state:string;new:boolean}>(url(id)+'/queue-'+stage,

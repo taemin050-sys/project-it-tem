@@ -51,12 +51,6 @@ export default function ProductPage() {
 
   async function onSubmit(e: FormEvent) {
     e.preventDefault()
-    // Image Owner native generation/composition is 4:5 only. Mock can render
-    // Owner-selected 3:4 and 9:16; never silently generate 4:5 for a Live choice.
-    if (!mock && ratio !== '4:5') {
-      setUploadError({ message: '실제 생성·합성은 현재 4:5만 지원합니다. 다른 비율은 Mock 시연 전용입니다. 4:5를 선택해 주세요.', offline: false })
-      return
-    }
     const errs = validateProduct(images, references, product, LIMITS)
     setErrors(errs)
     const first = FOCUS_ORDER.find(([key]) => errs[key])
@@ -89,7 +83,8 @@ export default function ProductPage() {
   }
 
   const busy = uploading || run.busy
-  const ratioBlocked = !mock && ratio !== '4:5'
+  // All three ratios are accepted by the Owner #23 size-only contract.
+  const ratioBlocked = false
 
   return (
     <StepPage
@@ -258,11 +253,8 @@ export default function ProductPage() {
             onChange={setRatio}
           />
           {!mock && <p className="field-hint" role="status">
-            실제 AI 이미지 생성·합성은 현재 4:5만 지원합니다.
-            3:4 및 9:16은 Mock 화면에서 체험할 수 있습니다.
-          </p>}
-          {!mock && ratio !== '4:5' && <p className="field-error" role="alert">
-            선택한 비율은 실제 서버에서 지원하지 않습니다. 진행하려면 4:5를 선택해 주세요.
+            선택한 최종 크기는 Server Job에 저장되어 Image Owner의 생성·합성 프로필로 전달됩니다.
+            3:4·4:5·9:16의 실제 모델 품질은 아직 검증되지 않았습니다.
           </p>}
         </section>
 

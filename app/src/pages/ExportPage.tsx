@@ -60,7 +60,7 @@ export default function ExportPage() {
   const [copied, setCopied] = useState<'idle' | 'done' | 'error'>('idle')
 
   const ready = job?.status === 'COMPLETED' && finalUrl !== undefined && caption !== undefined
-  // 서버가 알려준 최종 크기(mock은 고른 비율, Live는 4:5) 기준으로 확인한다
+  // 서버에 고정된 Owner 선택 크기와 실제 PNG 바이트를 대조한다.
   const target = job?.final_output ?? CANVAS
   const sizeOk = size?.width === target.width && size?.height === target.height
   const expected = job && approvedText(job)
@@ -100,9 +100,9 @@ export default function ExportPage() {
       }
     >
       {job && <JobBadges job={job} />}
-      {!mock && live.data?.template_profile==='A_CENTERED' && <div className="notice notice-warning" role="status">
+      {!mock && ((live.data?.template_profile==='A_CENTERED') || Boolean(live.data?.template_profile?.startsWith('OWNER_IMAGE_SIZE_'))) && <div className="notice notice-warning" role="status">
         <p className="notice-title">제품 보호·게시 적합성: 수동 검토 필요</p>
-        <p>A 템플릿의 합성 완료는 제품·브랜드·라벨 보존 검증 PASS가 아닙니다.
+        <p>이미지 합성 완료는 제품·브랜드·라벨 보존 검증 PASS가 아닙니다.
           원본 사진과 법률 표시사항을 사람이 확인한 뒤 게시해 주세요.</p>
       </div>}
       <RunStatus />

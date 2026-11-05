@@ -78,3 +78,24 @@ test('copy review acknowledgement hydrates only when Job and Live tuple agree',(
   assert.equal(isCopyReviewHydrated(display3,{...r3,copy_sha:'a'.repeat(64)}),false)
   assert.equal(isCopyReviewHydrated(undefined,r3),false)
 })
+
+test('Owner Image #23 final dimensions are server-bound, not silently forced to 4:5',()=>{
+  const supported=[
+    {image_size:'3:4' as const,output_size:{width:1080,height:1440},
+      template_profile:'OWNER_IMAGE_SIZE_3_4' as const},
+    {image_size:'4:5' as const,output_size:{width:1080,height:1350},
+      template_profile:'OWNER_IMAGE_SIZE_4_5' as const},
+    {image_size:'9:16' as const,output_size:{width:1080,height:1920},
+      template_profile:'OWNER_IMAGE_SIZE_9_16' as const}
+  ]
+  for(const fields of supported){
+    const s:LiveSnapshot={...example,...fields,state:'COMPLETED',mode:'LIVE',
+      image_sha:'e'.repeat(64),final_sha:'f'.repeat(64),caption_sha:'a'.repeat(64)}
+    const job=asProductJob(s,raw)
+    assert.equal(job.final_output?.width,fields.output_size.width)
+    assert.equal(job.final_output?.height,fields.output_size.height)
+    assert.equal(job.final_output?.mock,false)
+    assert.equal(job.artifacts?.final?.download_url,
+      '/demo/api/live/jobs/'+raw.job_id+'/artifacts/final')
+  }
+})

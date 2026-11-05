@@ -48,9 +48,10 @@ def live_image_adapter(runtime:Path,request):
 
     price_cap="0"
     reserve="0"
-    model=os.environ.get("IT_TEM_IMAGE_MODEL","gpt-image-2.5-sunburst-2026-09-08")
-    # Exact two models permitted by official Image Owner DTO at PR #17.
-    if model not in ("gpt-image-2.5-sunburst-2026-09-08","gpt-image-2-2026-04-21"):
+    model=os.environ.get("IT_TEM_IMAGE_MODEL","gpt-image-2.6-sunburst")
+    # Keep legacy pinned requests valid and accept the Owner #23 v2.6 model.
+    if model not in ("gpt-image-2.6-sunburst",
+                     "gpt-image-2.5-sunburst-2026-09-08","gpt-image-2-2026-04-21"):
         raise LiveGateError("UNAPPROVED_IMAGE_MODEL")
     transport=OpenAIImagesAdapter(OpenAIImagesConfig(
         live_calls=True,api_key=os.environ["OPENAI_API_KEY"],timeout_seconds=120))

@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import hashlib
 import json
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, TypeAdapter
 
@@ -34,6 +34,9 @@ class LiveInput(BaseModel):
     # must retain its pinned file SHA; user-selected FunctionalTypes are
     # validated and durably recorded here, NOT attributed to Owner v0.8.
     product: dict
+    # A new FE explicitly sends this final image ratio; old requests omit it
+    # and continue to replay their exact historical A v1 snapshots.
+    image_size: Literal["3:4","4:5","9:16"] | None = None
     customer_request_id: str=Field(min_length=10,max_length=128)
 
 
@@ -72,6 +75,8 @@ def validate_input(value: dict, asset_rows: list[dict]) -> tuple[dict,str]:
         snapshot={"product":product.model_dump(mode="json"),
                   "customer_request_id":incoming.customer_request_id}
         snapshot["product"]["functional_types"]=types
+        if incoming.image_size is not None:
+            snapshot["image_size"]=incoming.image_size
         snapshot["ordered_asset_hashes"]=[
             {"asset_id":a["asset_id"],"role":a["role"],"sha256":a["sha256"]}
             for a in asset_rows]

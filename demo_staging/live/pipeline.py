@@ -265,8 +265,15 @@ class LivePipeline:
         sha=hashlib.sha256(output.image_bytes).hexdigest()
         if sha!=output.sha256:
             raise LiveGateError("IMAGE_HASH_MISMATCH")
+        owner_request=self.image_input(actor,job_id)
+        if owner_request.layout_selection is not None:
+            from src.image_generation.size_selection import resolve_size_choice
+            _,profile=resolve_size_choice(owner_request.layout_selection.aspect_ratio)
+            expected_native=profile.native
+        else:
+            expected_native=(1152,1440)
         with Image.open(BytesIO(output.image_bytes)) as im:
-            if (im.format!="PNG" or im.size!=(1152,1440)
+            if (im.format!="PNG" or im.size!=expected_native
                     or (output.width,output.height)!=im.size):
                 raise LiveGateError("OWNER_IMAGE_SIZE_INVALID")
         atomic_write(self.image_path(job_id),output.image_bytes)
@@ -339,10 +346,15 @@ class LivePipeline:
             if image_sha!=job["image_sha"]:
                 raise LiveGateError("IMAGE_BYTES_CHANGED")
             cp=json.loads(job["copy_json"])
+            from src.image_generation.composition import CompositionLayout
+            # SQLite stores canonical JSON arrays; Owner's new strict typed
+            # tuple field is reconstructed via its JSON-mode DTO validator.
+            layout_obj=CompositionLayout.model_validate_json(
+                json.dumps(plan["layout"],ensure_ascii=False))
             input_obj=CompositionInput(
                 job_id=job_id,image_bytes=raw,image_sha256=image_sha,
                 copy_revision=job["generation"],copy_hash=job["copy_sha"],
-                copy_output=cp,layout=plan["layout"])
+                copy_output=cp,layout=layout_obj)
             from src.image_generation.errors import GatewayError
             try:
                 result=compose_ad_png(input_obj,font_path=font)
@@ -351,11 +363,14 @@ class LivePipeline:
                 # No Provider attempt occurs and IMAGE_APPROVED is preserved.
                 raise LiveGateError("COMPOSITION_RENDER_FAILED") from None
             receipt=result.receipt
+            expected_size=(tuple(snapshot["safe_zone"]["final_size"])
+               if snapshot and snapshot["profile_id"].startswith("OWNER_IMAGE_SIZE_")
+               else (1080,1350))
             if (result.copy_hash!=job["copy_sha"] or
                 result.copy_revision!=job["generation"] or
                 result.source_image_sha256!=image_sha or
                 hashlib.sha256(result.image_bytes).hexdigest()!=result.sha256 or
-                (result.width,result.height)!=(1080,1350) or
+                (result.width,result.height)!=expected_size or
                 not isinstance(receipt,dict) or
                 receipt.get("font_sha256")!=font_hash or
                 receipt.get("provider_calls")!=0):

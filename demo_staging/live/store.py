@@ -10,8 +10,8 @@ import sqlite3
 from pathlib import Path
 
 from .contracts import LiveGateError, digest, validate_input, strict_review, live_prompt, owner_text_snapshots
-from .template_contract import (A_ID,A_VERSION,LEGACY_ID,LEGACY_VERSION,
-    owner_a_policy,normalize_layout,verify_policy,canonical)
+from .template_contract import (A_ID,A_VERSION,LEGACY_ID,LEGACY_VERSION,SIZE_PREFIX,
+    owner_a_policy,owner_size_policy,historical_a_v1_layout,normalize_layout,verify_policy,canonical)
 
 
 class LiveStore:
@@ -90,8 +90,14 @@ class LiveStore:
         if template_profile not in ("LEGACY","A"):
             raise LiveGateError("TEMPLATE_PROFILE_INVALID")
         # Validate the complete Owner policy before opening the DB transaction.
-        a_policy=owner_a_policy() if template_profile=="A" else None
         snapshot,sha=validate_input(input_body,assets)
+        # No migration/overwrite of stored A v1 Jobs. Explicit new FE input
+        # selects an Owner #23 size profile before the immutable Job is saved.
+        new_size=snapshot.get("image_size")
+        if template_profile=="LEGACY" and new_size is not None:
+            raise LiveGateError("OWNER_SIZE_REQUIRES_VERSIONED_PROFILE")
+        a_policy=(owner_size_policy(new_size) if new_size is not None
+                  else owner_a_policy()) if template_profile=="A" else None
         with self.db() as c:
             c.execute("BEGIN IMMEDIATE")
             existing=c.execute("SELECT * FROM live_jobs WHERE job_id=?",(job_id,)).fetchone()
@@ -110,15 +116,17 @@ class LiveStore:
                 c.execute("""INSERT INTO live_job_templates
                     (job_id,profile_id,profile_version,safe_zone_json,safe_zone_sha,
                      layout_json,layout_sha) VALUES (?,?,?,?,?,?,?)""",
-                    (job_id,A_ID,A_VERSION,canonical(zone),digest(zone),
-                     canonical(layout),digest(layout)))
+                    (job_id,a_policy["profile_id"],a_policy["profile_version"],
+                     canonical(zone),digest(zone),canonical(layout),digest(layout)))
             r=self._read(c,job_id,actor)
             self._event(c,r,"input_committed",r["state"],sha)
             if template_profile=="A":
-                # Durable ingress provenance in the existing append-only event log.
-                # A deleted template row must not disguise an A Job as old legacy.
-                self._event(c,r,"template_a_ingress_contract_v1",r["state"],digest({
-                    "profile_id":A_ID,"profile_version":A_VERSION,
+                # Owner Image size v2 and frozen A v1 use distinct immutable
+                # marker events. Neither may be silently imported into the other.
+                self._event(c,r,("template_owner_size_ingress_v2" if new_size
+                    else "template_a_ingress_contract_v1"),r["state"],digest({
+                    "profile_id":a_policy["profile_id"],
+                    "profile_version":a_policy["profile_version"],
                     "input_sha":sha,"safe_zone_sha":digest(zone),
                     "layout_sha":digest(layout)}))
             if template_profile=="LEGACY":
@@ -387,7 +395,18 @@ class LiveStore:
             profile_row=c.execute("SELECT * FROM live_job_templates WHERE job_id=?",
                                   (job_id,)).fetchone()
             policy=verify_policy(profile_row)
+            metadata={}
+            if policy is not None and policy["profile_id"].startswith(SIZE_PREFIX):
+                from src.image_generation.size_selection import resolve_size_choice
+                size=json.loads(job["input_json"]).get("image_size")
+                if size!=policy["safe_zone"]["size"]:
+                    raise LiveGateError("OWNER_IMAGE_SIZE_CONTEXT_CONFLICT")
+                selection,_=resolve_size_choice(size)
+                metadata["layout_selection"]=selection.model_dump(mode="json")
+            elif policy is not None:
+                metadata["safe_zone"]=policy["safe_zone"]
             owner=BackendImageInput.model_validate({
+                **metadata,
                 "job_id":job_id,"copy_revision":job["generation"],
                 "copy_hash":job["copy_sha"],
                 "product_analysis":json.loads(job["analysis_json"]),
@@ -396,7 +415,6 @@ class LiveStore:
                 "caption":json.loads(job["copy_json"])["caption"],
                 "hashtags":json.loads(job["copy_json"])["hashtags"],
                 "product_images":images,"reference_images":references,
-                "safe_zone":policy["safe_zone"] if policy else None,
             })
             if content_hash(json.loads(job["copy_json"])) != job["copy_sha"]:
                 raise LiveGateError("APPROVED_COPY_CHANGED")
@@ -488,8 +506,12 @@ class LiveStore:
                 policy=verify_policy(row)
             else:
                 layout=policy["layout"]
-                if provided_layout is not None and digest(normalize_layout(provided_layout))!=policy["layout_sha"]:
-                    raise LiveGateError("COMPOSITION_LAYOUT_CONFLICT")
+                if provided_layout is not None:
+                    normalized=(historical_a_v1_layout(provided_layout)
+                        if policy["profile_id"]==A_ID
+                        else normalize_layout(provided_layout))
+                    if digest(normalized)!=policy["layout_sha"]:
+                        raise LiveGateError("COMPOSITION_LAYOUT_CONFLICT")
             context_sha=digest({"input_sha":job["input_sha"],
                 "copy_sha":job["copy_sha"],"copy_revision":job["generation"],
                 "approval_sha":job["approval_sha"],"image_sha":job["image_sha"],
@@ -555,6 +577,7 @@ class LiveStore:
                                  (job_id,)).fetchone()
             managed_marker=c.execute("""SELECT 1 FROM live_events WHERE job_id=?
                 AND event IN ('template_a_ingress_contract_v1',
+                              'template_owner_size_ingress_v2',
                               'compose_contract_frozen_v1') LIMIT 1""",
                 (job_id,)).fetchone()
             if r is None:

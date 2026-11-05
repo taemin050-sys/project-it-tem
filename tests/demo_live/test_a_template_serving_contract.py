@@ -15,7 +15,7 @@ from src.image_generation.backend_adapter import BackendGeneratedImage
 from demo_staging.live.contracts import LiveGateError
 from demo_staging.live.pipeline import LivePipeline
 from demo_staging.live.store import LiveStore
-from demo_staging.live.template_contract import A_ID,LEGACY_ID,digest,normalize_layout
+from demo_staging.live.template_contract import A_ID,LEGACY_ID,digest,normalize_layout,historical_a_v1_layout,A_V1_LAYOUT_SHA
 from tests.demo_live.test_pipeline import prepare_service, FakeOwner,png,layout,FONT
 from tests.demo_live.test_live_contracts import sample_input,assets
 
@@ -49,7 +49,8 @@ def test_new_a_safe_zone_pinned_at_creation_and_owner_binding(tmp_path):
     profile=pipe.state.template("alice",jid)
     assert profile["profile_id"]==A_ID
     assert profile["safe_zone_sha"]==digest(zone.model_dump(mode="json"))
-    assert profile["layout_sha"]==digest(layout_owner.model_dump(mode="json"))
+    assert profile["layout_sha"]==A_V1_LAYOUT_SHA
+    assert digest(historical_a_v1_layout(layout_owner))==A_V1_LAYOUT_SHA
     assert profile["layout"]["protected_regions"]==[]
     assert pipe.state.get("alice",jid)["state"]=="IMAGE_APPROVED"
     assert owner.calls==["analyze","research","copy","prompt"]
@@ -72,7 +73,8 @@ def test_a_rejects_foreign_layout_and_old_request_cannot_install_a(tmp_path):
     a_layout=make_a_template()[1].model_dump(mode="json")
     chosen=pipe.state.plan_compose("alice",jid,a_layout,
         hashlib.sha256(FONT.read_bytes()).hexdigest())
-    assert chosen["layout_sha"]==digest(a_layout)
+    assert chosen["layout_sha"]==A_V1_LAYOUT_SHA
+    assert digest(historical_a_v1_layout(a_layout))==A_V1_LAYOUT_SHA
     with pytest.raises(LiveGateError,match="COMPOSITION_LAYOUT_CONFLICT"):
         pipe.state.plan_compose("alice",jid,layout(),
             hashlib.sha256(FONT.read_bytes()).hexdigest())
@@ -266,7 +268,8 @@ def test_official_http_input_installs_a_at_first_ingress_preserving_b0_wire(tmp_
                     headers={"Origin":"http://testserver"})
         assert y.status_code==200 and y.json()["input_sha"]==x.json()["input_sha"]
         profile=app.state.live_pipeline.state.template("alice",jid)
-        assert profile["layout_sha"]==digest(make_a_template()[1].model_dump(mode="json"))
+        assert profile["layout_sha"]==A_V1_LAYOUT_SHA
+        assert digest(historical_a_v1_layout(make_a_template()[1]))==A_V1_LAYOUT_SHA
         with app.state.live_pipeline.state.db() as c:
             assert c.execute("SELECT COUNT(*) FROM live_job_templates WHERE job_id=?",
                              (jid,)).fetchone()[0]==1

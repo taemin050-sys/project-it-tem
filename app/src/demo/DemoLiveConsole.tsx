@@ -202,7 +202,7 @@ export default function DemoLiveConsole({evaluatorId}:{evaluatorId:string}){
     // Diagnostic console also sends the Owner A v1 layout unchanged.
     // Server verifies per-Job layout/receipt; legacy policy remains isolated.
     await request(api+'/jobs/'+snap.job_id+'/compose','POST',
-      snap.template_profile==='A_CENTERED'?{layout:AD_LAYOUT}:{layout:LEGACY_LAYOUT})
+      snap.template_profile?.startsWith('OWNER_IMAGE_SIZE_')?{}:snap.template_profile==='A_CENTERED'?{layout:AD_LAYOUT}:{layout:LEGACY_LAYOUT})
     await update(snap.job_id)
   }
   const disabled=!cap?.live_enabled

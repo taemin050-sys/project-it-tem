@@ -25,6 +25,7 @@ from demo_staging.live_safety import LiveNotAuthorized
 class InputPayload(BaseModel):
     model_config=ConfigDict(extra="forbid",strict=True)
     product: dict
+    image_size: str | None = None
     customer_request_id: str
 
 
@@ -128,6 +129,11 @@ def register_live_api(app:FastAPI, ledger, runtime_root:Path, cookie_name:str):
              "approval_current":bool(job["approval_sha"]),
              "previous_copy_available":flow.state.previous_copy_available(job["actor"],job["job_id"]),
              "template_profile":profile["profile_id"] if profile else "PRE_POLICY_LEGACY",
+             "image_size":json.loads(job["input_json"]).get("image_size","4:5"),
+             "output_size":({"width":profile["safe_zone"]["final_size"][0],
+                             "height":profile["safe_zone"]["final_size"][1]}
+                     if profile and profile["profile_id"].startswith("OWNER_IMAGE_SIZE_")
+                     else {"width":1080,"height":1350}),
              "functional_types":json.loads(job["input_json"])["product"].get("functional_types",[]),
              "functional_types_status":"OWNER_TEXT_DTO_PENDING"
                 if json.loads(job["input_json"])["product"].get("functional_types") else "NO_SELECTION",
@@ -188,13 +194,16 @@ def register_live_api(app:FastAPI, ledger, runtime_root:Path, cookie_name:str):
             if job["state"]=="COPY_APPROVED":
                 flow.prompt(actor,job_id,FakeOwner(),offline=True)
             owner_request=flow.image_input(actor,job_id)
-            if owner_request.safe_zone is None:
-                raise LiveGateError("QA_A_SAFE_ZONE_REQUIRED")
+            if owner_request.safe_zone is None and owner_request.layout_selection is None:
+                raise LiveGateError("QA_OWNER_IMAGE_LAYOUT_REQUIRED")
+            from src.image_generation.size_selection import resolve_size_choice
+            native=(resolve_size_choice(owner_request.layout_selection.aspect_ratio)[1].native
+                if owner_request.layout_selection is not None else (1152,1440))
             # Synthetic pixel image, not an OpenAI result. Immutable copy and
             # candidate SHA still go through the real Serving binding gate.
-            img=png((215,225,235),size=(1152,1440))
+            img=png((215,225,235),size=native)
             candidate=BackendGeneratedImage(
-                image_bytes=img,mime_type="image/png",width=1152,height=1440,
+                image_bytes=img,mime_type="image/png",width=native[0],height=native[1],
                 sha256=hashlib.sha256(img).hexdigest(),job_id=job_id,
                 copy_revision=owner_request.copy_revision,
                 copy_hash=owner_request.copy_hash,mock=True,

@@ -7,6 +7,7 @@
 | 영수증 | 의미 |
 |---|---|
 | model, request_sha256, attempt_id, provider_request_id | 요청·시도·제공자 응답 연결 |
+| complexity | 2.6 요청의 모델별 옵션. 기본 high이며 quality medium과 별개. 이전 모델 영수증에는 필드 없음 |
 | state | submitting / succeeded / failed / unknown |
 | usage | 제공자가 돌려준 토큰 집계. 없으면 미확인 |
 | elapsed_ms | 완료된 성공/실패 시 원장 created_at→updated_at 경과시간 |
@@ -33,6 +34,11 @@
 
 따라서 동일 성공 작업은 API 호출이 비활성화됐거나 예산이 0이어도 추가 호출 없이 재사용할 수 있다.
 기존 입력 fingerprint, mock/live 구분, project 경계는 유지한다. mock 결과를 실생성으로 전환하지 않는다.
+새 작업의 기본 모델은 `gpt-image-2.6-sunburst`, complexity는 `high`, quality는 `medium`이다.
+이전 `gpt-image-2.5-sunburst-2026-09-08` / `gpt-image-2-2026-04-21` 저장 요청은 complexity를
+추가하지 않아 JSON·해시가 유지된다. 해당 작업을 `generate`로 재조회할 때는 당시 모델·quality를 명시한다.
+새 기본 설정으로 같은 job을 재사용하면 `BACKEND_INPUT_CONFLICT`이며, 새 모델에는 새 job을 사용한다.
+`get_receipt`는 현재 새 작업 설정과 관계없이 저장된 모델·complexity를 읽는다.
 누락·손상된 저장 이미지를 새 생성으로 자동 대체하지 않는다.
 submitting / unknown / failed 시도를 재시작·새 예약으로 자동 바꾸지 않는다.
 호출자가 새 job ID를 발급하면 별개 시도가 되므로, 서빙은 재시도를 이유로 job을 새로 만들면 안 된다.
