@@ -117,3 +117,5 @@ Python 패키지는 `pydantic>=2.7,<3`, `httpx>=0.27,<1`, `Pillow>=10`, `fonttoo
 ## 2026-11-05 · 추가 이미지 2트랙 경계
 
 [이미지 2트랙 Python 사용법](imageTwoTrack.md). 기존 MVP 단일 합성 기본값은 유지한다. 자유형 다수+합성형1장에 필요한 이미지 후보 경로는 별도 opt-in이며 새 HTTP/배치 계약·서빙/UI 연결·전체 계정 예산/후보 승인은 이 코드 게시로 완료되지 않는다.
+
+[2트랙 담당별 전달문·남은 계약](imageTwoTrackHandoff.md).
