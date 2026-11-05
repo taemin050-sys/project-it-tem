@@ -112,8 +112,9 @@ rules:
     suggestion: null
     basis: "지침 별표2 p.16 (비교 광고)"
 
+  # "테스트도 완료", "테스트를 마친"처럼 사이에 조사가 들어가는 표현 포함 (11/5 이모티콘 테스트에서 미검출)
   - id: proof_test
-    patterns: ["피부과\\s*테스트", "임상", "인체\\s*적용\\s*시험", "테스트\\s*완료", "효과\\s*입증", "검증\\s*완료", "저자극\\s*테스트", "clinically\\s*(proven|tested)", "dermatologist[\\s-]*(tested|approved)"]
+    patterns: ["피부과\\s*테스트", "임상", "인체\\s*적용\\s*시험", "(테스트|시험)\\S{0,2}\\s*(완료|통과|마쳤|마친)", "자극\\s*(테스트|시험)", "효과\\s*입증", "검증\\s*완료", "저자극\\s*테스트", "clinically\\s*(proven|tested)", "dermatologist[\\s-]*(tested|approved)"]
     category: 수치·임상 표현
     risk: 근거 확인 필요
     suggestion: null
