@@ -114,3 +114,65 @@ def test_contract_analysis_failure_blocks_freeform(tmp_path):
     with pytest.raises(GatewayError) as error:
         adapter.generate(body, project_id=uuid4())
     assert error.value.code == "PRODUCT_ANALYSIS_FAILED"
+
+
+@pytest.mark.parametrize("ratio,placement,size", [
+    ("3:4", "feed", (1152, 1536)), ("4:5", "feed", (1152, 1440)),
+    ("9:16", "reels", (1152, 2048)), ("9:16", "story", (1152, 2048))])
+def test_transport_three_free_one_composed_and_replay(tmp_path, ratio, placement, size):
+    calls = []
+    def handler(req):
+        calls.append(fields(req))
+        return httpx.Response(200, json={"data": [{"b64_json": base64.b64encode(backend.png(size=size)).decode()}],
+            "usage": {"input_tokens": 120, "output_tokens": 30, "total_tokens": 150}},
+            headers={"x-request-id": f"req-{len(calls)}"})
+    adapter = backend.setup(tmp_path, handler, budget="10")
+    project = uuid4()
+    bodies = [candidate(mode, job_id=f"batch-one-{index}",
+                        layout_selection=dict(aspect_ratio=ratio, placement=placement))
+              for index, mode in enumerate(["freeform"] * 3 + ["composed"])]
+    results = [adapter.generate(body, project_id=project) for body in bodies]
+    assert [r.receipt["generation_mode"] for r in results] == ["freeform"] * 3 + ["composed"]
+    assert len({r.receipt["attempt_id"] for r in results}) == 4
+    assert all(r.receipt["usage"]["total_tokens"] == 150 for r in results)
+    assert all(r.receipt["actual_cost_usd"] is None for r in results)
+    assert all(c["n"] == "1" and c["size"] == f"{size[0]}x{size[1]}" for c in calls)
+    for c in calls[:3]:
+        prompt = c["prompt"]
+        for text in [bodies[0].image_prompt.prompt, bodies[0].ad_copy.headline, "워터마크 제외 정책", "원본 색"]:
+            assert text in prompt
+        for text in ["PRODUCT_TARGET", "UI_SAFE", "광고 문구·가격·배지를 새로 그리지 않는다", bodies[0].caption]:
+            assert text not in prompt
+        if (ratio, placement) != ("3:4", "feed"):
+            assert bodies[0].ad_copy.cta not in prompt and "이미지 안에 CTA를 추가하지 않는다" in prompt
+        else:
+            assert bodies[0].ad_copy.cta in prompt
+    assert "광고 문구·가격·배지를 새로 그리지 않는다" in calls[3]["prompt"]
+    assert "PRODUCT_TARGET" in calls[3]["prompt"]
+    assert bodies[0].ad_copy.headline not in calls[3]["prompt"]
+    restarted = backend.setup(tmp_path, handler, budget="0")
+    assert [restarted.generate(body, project_id=project) for body in bodies] == results
+    assert len(calls) == 4
+
+
+@pytest.mark.parametrize("mode", ["freeform", "composed"])
+def test_transport_unknown_never_reposts(tmp_path, mode):
+    calls = []
+    def handler(req):
+        calls.append(req)
+        raise httpx.ReadTimeout("no receipt")
+    adapter = backend.setup(tmp_path, handler)
+    body, project = candidate(mode), uuid4()
+    for _ in range(2):
+        with pytest.raises(GatewayError):
+            adapter.generate(body, project_id=project)
+    assert len(calls) == 1
+    receipt = adapter.get_receipt(body.job_id, project_id=project)
+    assert receipt["state"] == "unknown" and receipt["generation_mode"] == mode
+
+
+@pytest.mark.parametrize("mode", ["freeform", "composed"])
+def test_transport_budget_zero_blocks_both(tmp_path, mode):
+    adapter = backend.setup(tmp_path, lambda _: pytest.fail("No provider call"), budget="0")
+    with pytest.raises(GatewayError):
+        adapter.generate(candidate(mode), project_id=uuid4())
