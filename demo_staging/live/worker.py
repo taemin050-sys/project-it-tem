@@ -107,6 +107,20 @@ def _run_locked(root:Path,flow:LivePipeline)->str:
                 text_model=os.environ.get("IT_TEM_TEXT_MODEL","gpt-6-luna"),
                 vision_model=os.environ.get("IT_TEM_VISION_MODEL","gpt-6-luna"))
             result_sha=result["copy_sha"]
+        elif item["stage"]=="copy_revision":
+            from .contracts import digest
+            payload=queue.revision_payload(item["id"])
+            text_model=os.environ.get("IT_TEM_TEXT_MODEL","gpt-6-luna")
+            context=flow.revision_context(
+                actor,jid,payload["instruction"],
+                payload["expected_generation"],payload["expected_review_sha"],
+                text_model=text_model)
+            if digest(context)!=item["context_sha"]:
+                raise LiveGateError("REVISION_CONTEXT_SHA_MISMATCH")
+            result=flow.revise_copy(
+                actor,jid,payload["instruction"],payload["expected_generation"],
+                payload["expected_review_sha"],offline=False,text_model=text_model)
+            result_sha=result["review_sha"]
         elif item["stage"]=="image_prompt":
             result=flow.prompt(actor,jid,offline=False,
                 text_model=os.environ.get("IT_TEM_TEXT_MODEL","gpt-6-luna"))

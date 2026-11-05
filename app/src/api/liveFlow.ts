@@ -77,7 +77,15 @@ export async function resumeImageFromApproved(id:string){
 }
 export async function reviseCopyFromInstruction(s:LiveSnapshot,instruction:string){
   if(!instruction.trim())throw Error('수정 요청을 입력해 주세요.')
-  await run(s.job_id,'ai/copy-review',async()=>{await reviseLiveCopy(s,instruction.trim())})
+  await run(s.job_id,'ai/copy-review',async()=>{
+    const result=await reviseLiveCopy(s,instruction.trim())
+    if('task_id' in result){
+      useProjectStore.getState().setLiveTask(result.task_id)
+      const updated=await waitLiveTask(s.job_id,result.task_id,'COPY_REVIEW_REQUIRED')
+      if(updated.generation<=s.generation || updated.review_sha===s.review_sha)
+        throw Error('TEXT_REVISION_NOT_COMMITTED')
+    }
+  })
 }
 export async function restorePreviousLiveCopy(s:LiveSnapshot){
   if(!s.previous_copy_available)throw Error('복원 가능한 이전 버전이 없습니다.')

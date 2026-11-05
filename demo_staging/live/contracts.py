@@ -9,7 +9,7 @@ from pydantic import BaseModel, ConfigDict, Field, TypeAdapter
 
 from src.text_generation.schemas import (
     AdCopyOutput, ImagePromptOutput, ProductAnalysisResult, ProductInput, ResearchResult,
-    ComplianceReport, FunctionalType
+    ComplianceReport, FunctionalType, EmojiLevel
 )
 from src.serving.text_v08_mapper import (
     verify_analysis, verify_copy, verify_research, verify_prompt,
@@ -30,9 +30,8 @@ def digest(value: Any) -> str:
 
 class LiveInput(BaseModel):
     model_config=ConfigDict(extra="forbid",strict=True)
-    # Serving-only additive compatibility. The frozen Text Owner v0.8 DTO
-    # must retain its pinned file SHA; user-selected FunctionalTypes are
-    # validated and durably recorded here, NOT attributed to Owner v0.8.
+    # Current Owner Text #25 (v0.10) defines functional_types and emoji_level.
+    # Existing snapshots remain immutable; only new inputs follow this DTO.
     product: dict
     # A new FE explicitly sends this final image ratio; old requests omit it
     # and continue to replay their exact historical A v1 snapshots.
@@ -46,22 +45,19 @@ def validate_input(value: dict, asset_rows: list[dict]) -> tuple[dict,str]:
         raw=incoming.product
         if not isinstance(raw,dict):
             raise LiveGateError("PRODUCT_INPUT_INVALID")
-        extras=set(raw)-set(ProductInput.model_fields)-{"functional_types"}
+        extras=set(raw)-set(ProductInput.model_fields)
         if extras:raise LiveGateError("PRODUCT_INPUT_UNKNOWN_FIELDS")
-        product=ProductInput.model_validate(
-            {k:v for k,v in raw.items() if k!="functional_types"},strict=True)
-        # This field is *not* silently discarded. It is validated and
-        # preserved in the immutable Serving snapshot, with an explicit
-        # 'Text Owner DTO pending' status in the private Job response.
-        if "functional_types" in raw:
-            types=TypeAdapter(list[FunctionalType]).validate_python(
-                raw["functional_types"],strict=True)
-            if (len(types)!=len(set(types)) or
-                (product.is_functional and not types) or
-                (not product.is_functional and bool(types))):
-                raise LiveGateError("FUNCTIONAL_TYPES_SELECTION_INVALID")
-        else:
-            types=[]
+        # Check unnormalized user intent before Owner model_validator
+        # de-duplicates functional types or sets is_functional=True.
+        types=TypeAdapter(list[FunctionalType]).validate_python(
+            raw.get("functional_types",[]),strict=True)
+        if (len(types)!=len(set(types)) or
+            (raw.get("is_functional") is True and not types) or
+            (raw.get("is_functional") is False and bool(types))):
+            raise LiveGateError("FUNCTIONAL_TYPES_SELECTION_INVALID")
+        product=ProductInput.model_validate(raw,strict=True)
+        if product.functional_types!=types:
+            raise LiveGateError("FUNCTIONAL_TYPES_SELECTION_INVALID")
         if not product.photo_verified:
             raise LiveGateError("PHOTO_RIGHTS_NOT_VERIFIED")
         products=[a for a in asset_rows if a["role"]=="product"]
@@ -74,7 +70,6 @@ def validate_input(value: dict, asset_rows: list[dict]) -> tuple[dict,str]:
             raise LiveGateError("PRODUCT_INPUT_INCOMPLETE")
         snapshot={"product":product.model_dump(mode="json"),
                   "customer_request_id":incoming.customer_request_id}
-        snapshot["product"]["functional_types"]=types
         if incoming.image_size is not None:
             snapshot["image_size"]=incoming.image_size
         snapshot["ordered_asset_hashes"]=[

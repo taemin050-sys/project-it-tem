@@ -1,6 +1,5 @@
-// 텍스트 모듈 스키마 v0.8(김다혜) 원본을 옮긴 타입.
-// 출처: origin/feat/text-generation c558539 src/text_generation/schemas.py (dev 미병합). 원본과 다르면 원본이 우선.
-// 서빙 응답에 어떻게 실릴지(필드 이름·감싸는 형식)는 이형기 님과 정하는 중이다
+// FE shapes derived from Text Owner PR25 src/text_generation/schemas.py v0.10.
+// Serving validates exact ProductInput enum/optional fields before Job commit.
 // 프론트가 쓰지 않는 ImagePromptOutput(이미지 담당용), LLMIssue(텍스트 내부용)는 옮기지 않았다.
 
 // ---------- 공통 선택값 (화면 버튼 목록으로도 쓴다) ----------
@@ -40,6 +39,8 @@ export type ProductInput = {
   is_functional: boolean
   /** User-selected functional types; selection alone is not regulatory proof. */
   functional_types?: FunctionalType[]
+  /** Owner Text v0.10 wire enum (FE labels map in emojiLevel.ts) */
+  emoji_level?: '없음'|'보통'|'많이'
   /** 사진 사용 권한 확인 체크 (권한을 AI가 증명하는 것은 아님) */
   photo_verified: boolean
   /** 2~5 */

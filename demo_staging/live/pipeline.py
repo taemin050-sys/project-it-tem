@@ -20,7 +20,7 @@ from PIL import Image
 
 from src.text_generation.schemas import (
     ProductInput, ProductAnalysisResult, ResearchResult, AdCopyOutput,
-    ImagePromptOutput, AdPlan
+    ImagePromptOutput, AdPlan, CopyRevisionOutput
 )
 from src.serving.job_store import JobStore
 from demo_staging.live_safety import AttemptLedger,LiveNotAuthorized
@@ -34,6 +34,7 @@ class TextProvider(Protocol):
     def research(self, product: ProductInput, analysis): ...
     def generate_copy(self, product: ProductInput, analysis, research): ...
     def generate_prompt(self, plan, analysis): ...
+    def revise_copy(self,product,analysis,research,previous,instruction): ...
 
 
 class OfficialTextProvider:
@@ -56,6 +57,11 @@ class OfficialTextProvider:
     def generate_prompt(self,plan,analysis):
         from src.text_generation.image_prompt_generator import generate_image_prompt
         return generate_image_prompt(plan,analysis,model=self.text_model)
+
+    def revise_copy(self,product,analysis,research,previous,instruction):
+        from src.text_generation.copy_generator import revise_copy
+        return revise_copy(product,analysis,research,previous,instruction,
+                           model=self.text_model)
 
 
 def atomic_write(path:Path,data:bytes):
@@ -213,6 +219,96 @@ class LivePipeline:
                 AdCopyOutput,lambda:provider.generate_copy(product,a.analysis,r))
         return self.state.store_text(
             actor,job_id,a,r,cp,mode=mode)
+
+    def revision_context(self,actor,job_id,instruction,
+                         expected_generation,expected_review_sha,*,text_model="gpt-6-luna"):
+        """Preflight without model imports, reservation, external calls or writes."""
+        job=self.state.get(actor,job_id)
+        if (job["state"]!="COPY_REVIEW_REQUIRED" or job["mode"] not in
+            ("LIVE","OFFLINE_FIXTURE")):
+            raise LiveGateError("COPY_REVISION_STATE_CONFLICT")
+        if (type(expected_generation) is not int or
+            type(expected_review_sha) is not str or
+            job["generation"]!=expected_generation or
+            job["review_sha"]!=expected_review_sha):
+            raise LiveGateError("STALE_REVIEW_OR_REVISION")
+        if (type(instruction) is not str or
+            not 1<=len(instruction.strip())<=300 or
+            instruction!=instruction.strip()):
+            raise LiveGateError("REVISION_INSTRUCTION_INVALID")
+        return {
+            "job_id":job_id,"generation":job["generation"],
+            "review_sha":job["review_sha"],"copy_sha":job["copy_sha"],
+            "input_sha":job["input_sha"],"instruction":instruction,
+            "model":text_model,
+        }
+
+    def revise_copy(self,actor,job_id,instruction,expected_generation,
+                    expected_review_sha,provider:TextProvider|None=None,*,offline=False,
+                    text_model="gpt-6-luna"):
+        """Owner #25 instruction-aware revision + mandatory rule re-review.
+
+        Live uses the same one-shot signed worker/Attempt Ledger as all Text
+        stages; paid calls are never performed by this method when disabled.
+        QA can inject a fake ONLY with explicit offline=True and remains
+        OFFLINE_FIXTURE in all stored snapshots.
+        """
+        context=self.revision_context(
+            actor,job_id,instruction,expected_generation,expected_review_sha,
+            text_model=text_model)
+        job=self.state.get(actor,job_id)
+        if bool(offline)!=(job["mode"]=="OFFLINE_FIXTURE"):
+            raise LiveGateError("COPY_REVISION_PROVENANCE_MISMATCH")
+        if offline:
+            if provider is None:
+                raise LiveGateError("OFFLINE_FAKE_REQUIRED")
+        else:
+            if not (self.live_enabled and self.pm_authorized and actor in self.approved_actors):
+                raise LiveNotAuthorized("LIVE_NOT_APPROVED")
+            if provider is not None:
+                raise LiveGateError("INJECTED_PROVIDER_FORBIDDEN_IN_LIVE")
+            provider=OfficialTextProvider(text_model,text_model)
+
+        from src.serving.text_v08_mapper import verify_analysis,verify_research,verify_copy
+        product=ProductInput.model_validate(
+            json.loads(job["input_json"])["product"],strict=True)
+        analysis=ProductAnalysisResult.model_validate(json.loads(job["analysis_json"]),strict=True)
+        if analysis.analysis_succeeded is not True or analysis.error is not None:
+            raise LiveGateError("VLM_FAIL_CLOSED")
+        research=ResearchResult.model_validate(json.loads(job["research_json"]),strict=True)
+        previous=AdCopyOutput.model_validate(json.loads(job["copy_json"]),strict=True)
+        fingerprint=digest(context)
+        mode="OFFLINE_FIXTURE" if offline else "LIVE"
+        result=self.checkpoints.load(actor,job_id,"copy_revision",
+                                     fingerprint,mode,CopyRevisionOutput)
+        if result is None:
+            action=lambda:provider.revise_copy(
+                product,analysis.analysis,research,previous,instruction)
+            proposed=(action() if offline else
+                self._guarded(actor,job_id,"copy_revision",context,action))
+            result=self.checkpoints.commit(
+                actor,job_id,"copy_revision",fingerprint,mode,
+                proposed,CopyRevisionOutput)
+        old=previous.model_dump(mode="json")
+        revised=result.revised.model_dump(mode="json")
+        actual=(
+            (["plan"] if revised["plan"]!=old["plan"] else [])+
+            [field for field in ("headline","subline","cta")
+             if revised["ad_copy"][field]!=old["ad_copy"][field]]+
+            [field for field in ("caption","hashtags")
+             if revised[field]!=old[field]])
+        if actual!=result.changed_fields and set(actual)!=set(result.changed_fields):
+            raise LiveGateError("REVISION_CHANGED_FIELDS_INVALID")
+        if not actual and not result.note:
+            raise LiveGateError("COPY_REVISION_UNCHANGED")
+        feedback={
+            "note":result.note,"changed_fields":result.changed_fields,
+            "context_sha":fingerprint,
+            "source":("OWNER_TEXT_V010_OFFLINE" if offline else "OWNER_TEXT_V010_LIVE"),
+        }
+        return self.state.apply_copy_revision(
+            actor,job_id,revised,instruction,
+            expected_generation,expected_review_sha,owner_feedback=feedback)
 
     def prompt(self,actor,job_id,provider:TextProvider|None=None,*,offline=False,
                text_model="gpt-6-luna"):

@@ -36,7 +36,7 @@ class CopyUpdate(BaseModel):
 
 class CopyRevisionRequest(BaseModel):
     model_config=ConfigDict(extra="forbid",strict=True)
-    instruction:str=Field(min_length=1,max_length=500)
+    instruction:str=Field(min_length=1,max_length=300)
     expected_generation:int
     expected_review_sha:str=Field(min_length=64,max_length=64)
 
@@ -114,7 +114,8 @@ def register_live_api(app:FastAPI, ledger, runtime_root:Path, cookie_name:str):
             code=error.code
             return HTTPException(status_code=409 if ("STATE" in code or "STALE" in code or
                              "APPROVAL" in code or "CONFLICT" in code or
-                             code=="REAL_COMPLIANCE_BLOCKED") else 422,
+                             code in ("REAL_COMPLIANCE_BLOCKED","REVISION_IN_PROGRESS"))
+                             else 422,
                                 detail={"code":code})
         return HTTPException(status_code=503,detail="LIVE_GATE_UNAVAILABLE")
 
@@ -128,6 +129,7 @@ def register_live_api(app:FastAPI, ledger, runtime_root:Path, cookie_name:str):
              "image_sha":job["image_sha"],"final_sha":job["final_sha"],"caption_sha":job["caption_sha"],
              "approval_current":bool(job["approval_sha"]),
              "previous_copy_available":flow.state.previous_copy_available(job["actor"],job["job_id"]),
+             "revision_feedback":flow.state.revision_feedback(job["actor"],job["job_id"]),
              "template_profile":profile["profile_id"] if profile else "PRE_POLICY_LEGACY",
              "image_size":json.loads(job["input_json"]).get("image_size","4:5"),
              "output_size":({"width":profile["safe_zone"]["final_size"][0],
@@ -135,8 +137,9 @@ def register_live_api(app:FastAPI, ledger, runtime_root:Path, cookie_name:str):
                      if profile and profile["profile_id"].startswith("OWNER_IMAGE_SIZE_")
                      else {"width":1080,"height":1350}),
              "functional_types":json.loads(job["input_json"])["product"].get("functional_types",[]),
-             "functional_types_status":"OWNER_TEXT_DTO_PENDING"
+             "functional_types_status":"OWNER_TEXT_V010_APPLIED"
                 if json.loads(job["input_json"])["product"].get("functional_types") else "NO_SELECTION",
+             "emoji_level":json.loads(job["input_json"])["product"].get("emoji_level","없음"),
              "product_protection_status":"MANUAL_REVIEW_REQUIRED"
                 if job["state"]=="COMPLETED" else "NOT_REVIEWED"}
         for stored,key in (("research_display_json","research_display"),
@@ -370,12 +373,32 @@ def register_live_api(app:FastAPI, ledger, runtime_root:Path, cookie_name:str):
         except (LiveGateError,ValueError) as e:raise safe_error(e) from None
 
     @app.post(prefix+"/jobs/{job_id}/revise-copy")
-    def paid_revision_requires_owner_contract(job_id:str,body:CopyRevisionRequest,request:Request):
-        authorized(request,job_id)
-        # The Text Owner's instruction-aware paid revision contract is not
-        # accepted yet. Never substitute a fake answer, direct user edit, or
-        # unaudited provider call into a live request.
-        raise HTTPException(status_code=423,detail="TEXT_OWNER_LIVE_REVISION_CONTRACT_PENDING")
+    def queue_owner_text_revision(job_id:str,body:CopyRevisionRequest,request:Request):
+        actor=authorized(request,job_id)
+        if not (flow.live_enabled and flow.pm_authorized and
+                actor in flow.approved_actors):
+            raise HTTPException(status_code=423,detail="LIVE_PROVIDER_NOT_APPROVED")
+        try:
+            job=flow.state.get(actor,job_id)
+            if job["mode"]!="LIVE":
+                raise LiveGateError("REVISION_REQUIRES_REAL_MODEL")
+            instruction=body.instruction.strip()
+            text_model=os.environ.get("IT_TEM_TEXT_MODEL","gpt-6-luna")
+            context=flow.revision_context(
+                actor,job_id,instruction,body.expected_generation,
+                body.expected_review_sha,text_model=text_model)
+            from .contracts import digest
+            task,new=queue.enqueue(
+                actor=actor,job_id=job_id,stage="copy_revision",
+                context_sha=digest(context),mode="LIVE",
+                revision_payload={
+                    "instruction":instruction,
+                    "expected_generation":body.expected_generation,
+                    "expected_review_sha":body.expected_review_sha})
+            return JSONResponse({"task_id":task["id"],"state":task["state"],
+                                  "new":new},status_code=202)
+        except (LiveGateError,ValueError) as e:
+            raise safe_error(e) from None
 
     @app.post(prefix+"/jobs/{job_id}/restore-copy")
     def live_restore_copy(job_id:str,body:CopyRestoreRequest,request:Request):

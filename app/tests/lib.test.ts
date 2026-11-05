@@ -1,17 +1,19 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { countChars, overLimits } from '../src/lib/copyLimits.ts'
-import { EMOJI_LEVELS, withEmojiGuide } from '../src/lib/emojiLevel.ts'
+import { EMOJI_LEVELS, toOwnerEmojiLevel } from '../src/lib/emojiLevel.ts'
 import { fitWithin } from '../src/lib/shrinkImage.ts'
 import { validateImages } from '../src/lib/validateImages.ts'
 
 const limits = { minFiles: 2, maxFiles: 5, acceptTypes: ['image/png'] }
 const png = (name: string, size = 1) => new File([new Uint8Array(size)], name, { type: 'image/png' })
 
-test('이모티콘 지시는 광고 목적을 유지하고 수준마다 다르며 이미지 문구에는 금지한다', () => {
-  const guides = EMOJI_LEVELS.map((level) => withEmojiGuide('신제품 홍보', level))
-  assert.equal(new Set(guides).size, 3)
-  for (const guide of guides) assert.match(guide, /^신제품 홍보 .*헤드라인·서브 문구·CTA에는 이모티콘 금지/)
+test('Text Owner #25 이모티콘 레벨은 고정 enum으로 전달하며 광고 목적에 문구를 몰래 추가하지 않는다', () => {
+  const mapped = EMOJI_LEVELS.map(toOwnerEmojiLevel)
+  assert.equal(toOwnerEmojiLevel('적음'), '보통')
+  assert.equal(toOwnerEmojiLevel('많음'), '많이')
+  assert.deepEqual(mapped, ['없음','보통','많이'])
+  assert.equal(new Set(mapped).size, 3)
 })
 
 test('글자 수: 공백 포함·줄바꿈 제외, 헤드 15·서브 25·CTA 10자 초과만 막는다', () => {

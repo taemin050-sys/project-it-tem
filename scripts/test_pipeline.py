@@ -1,20 +1,22 @@
-"""5종 전체 흐름 테스트 (조사 → 카피 → 1차 규제 검수 → 이미지 프롬프트)
+"""전체 흐름 테스트 (조사 → 카피 → 1차 규제 검수 → 이미지 프롬프트)
 
 검수에서 승인 차단(passed=False)이면 이미지 프롬프트는 생성하지 않음 (실제 서비스 흐름과 동일)
 
-python -m scripts.test_pipeline                 # 전체
-python -m scripts.test_pipeline 롬앤글래스팅스프링피버   # 특정 제품만
+python -m scripts.test_pipeline                                  # 전체 제품, config 모델(luna)만
+python -m scripts.test_pipeline 롬앤글래스팅스프링피버              # 특정 제품만
+python -m scripts.test_pipeline --models gpt-5.4-mini gpt-6-luna  # 모델 비교
 """
 
+import argparse
 import json
 import logging
-import sys
 import time
 from collections import Counter
 from datetime import datetime
 from pathlib import Path
 
 from src.text_generation.compliance.report_builder import review_copy
+from src.text_generation.config import MODEL_TEXT, MODEL_VISION, REASONING_EFFORT
 from src.text_generation.copy_generator import copy_lengths, generate_copy
 from src.text_generation.image_prompt_generator import generate_image_prompt
 from src.text_generation.llm_client import LLMError
@@ -24,8 +26,9 @@ from src.text_generation.schemas import ProductAnalysis, ProductInput
 logging.basicConfig(level=logging.INFO, format="%(levelname)s | %(name)s | %(message)s")
 logging.getLogger("httpx").setLevel(logging.WARNING)
 
-MODELS = [("gpt-5.4-mini", None), ("gpt-6-luna", "low")]
-ANALYSIS_MODEL = "gpt-6-luna"  # 사진 분석 결과는 이 모델 것을 우선 사용
+# 모델별 추론 강도 (목록에 없으면 config 기본값)
+MODEL_EFFORT: dict[str, str | None] = {"gpt-5.4-mini": None}
+ANALYSIS_MODEL = MODEL_VISION  # 사진 분석 결과는 이 모델 것을 우선 사용
 
 INPUTS_PATH = Path("data/test_products/inputs.json")
 ANALYSIS_DIR = Path("outputs/product_analysis")
@@ -165,8 +168,18 @@ def prompt_summary(record: dict) -> str | int:
 
 
 def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("names", nargs="*", help="inputs.json의 제품키 (생략하면 전체)")
+    parser.add_argument(
+        "--models",
+        nargs="+",
+        default=[MODEL_TEXT],
+        help="비교할 모델 (기본 : config 모델)",
+    )
+    args = parser.parse_args()
+
     inputs = json.loads(INPUTS_PATH.read_text(encoding="utf-8"))
-    names = sys.argv[1:] or list(inputs)
+    names = args.names or list(inputs)
     OUT_DIR.mkdir(parents=True, exist_ok=True)
     stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     summary = []
@@ -178,7 +191,8 @@ def main():
             photo_verified=True,
             product_image_count=min(max(photo_count, 2), 5),
         )
-        for model, effort in MODELS:
+        for model in args.models:
+            effort = MODEL_EFFORT.get(model, REASONING_EFFORT)
             print(f"\n===== {name} | {model} (reasoning={effort}) =====")
             record = run_one(name, product, analysis, model, effort)
             print_record(record)

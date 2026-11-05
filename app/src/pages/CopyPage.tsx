@@ -102,6 +102,7 @@ export default function CopyPage() {
   const approved = job !== undefined && ['COPY_APPROVED', 'IMAGE_REVIEW_REQUIRED', 'IMAGE_APPROVED', 'IMAGE_REJECTED', 'COMPLETED'].includes(job.status)
   const canApprove = job !== undefined && canApproveCopy(job) && liveReady
   const overs = copy ? overLimits(copy.ad_copy) : []
+  const revisionFeedback=(!mock && liveReady)?live?.revision_feedback:null
 
   // 글자 수를 넘었으면 줄여 달라는 요청을 미리 채워 둔다 (사용자가 기준을 몰라도 바로 보낼 수 있게)
   function openRevision() {
@@ -234,6 +235,13 @@ export default function CopyPage() {
       </>}
     >
       {job && <JobBadges job={job} />}
+      {revisionFeedback && <div className="notice" role="status">
+        <strong>텍스트 AI 수정 요청 결과</strong>
+        <p>변경된 항목: {revisionFeedback.changed_fields.length
+          ? revisionFeedback.changed_fields.join(', ') : '수정된 항목 없음'}</p>
+        {revisionFeedback.note && <p>{revisionFeedback.note}</p>}
+        <p>새 검수 버전의 승인·근거 확인은 다시 진행해야 합니다.</p>
+      </div>}
       <RunStatus />
       {rejected && (
         <div className="notice notice-warning" role="status">
@@ -249,7 +257,7 @@ export default function CopyPage() {
             <h2 id="revise-title" className="panel-title">수정 요청</h2>
             <label className="field">
               <span className="field-hint">어떻게 바꾸고 싶은지 적어 주세요. AI가 카피를 다시 만들고 다시 검수합니다. 지금 카피는 이전 버전으로 남습니다.</span>
-              <textarea rows={3} value={instruction} placeholder="예: 헤드라인을 더 짧고 산뜻하게, 할인 이벤트 느낌으로"
+              <textarea rows={3} maxLength={300} value={instruction} placeholder="예: 헤드라인을 더 짧고 산뜻하게, 할인 이벤트 느낌으로"
                 onChange={e=>setInstruction(e.target.value)}/>
             </label>
             {!mock && <p className="field-hint" role="status">

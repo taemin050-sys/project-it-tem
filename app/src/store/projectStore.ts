@@ -51,7 +51,7 @@ export const useProjectStore = create<ProjectState>()(persist((set) => ({
     functional_types: [],
     photo_verified: false,
   },
-  emoji: '적음',
+  emoji: '보통',
   setEmoji: (emoji) => set({ emoji }),
   ratio: '4:5',
   setRatio: (ratio) => set({ ratio }),
@@ -77,6 +77,9 @@ export const useProjectStore = create<ProjectState>()(persist((set) => ({
   // 이전 버전에 저장된 product에는 새 항목(functional_types)이 없어 기본값 위에 덮는다
   merge: (saved, current) => {
     const s = saved as Partial<ProjectState> | undefined
-    return { ...current, ...s, product: { ...current.product, ...s?.product } }
+    const oldEmoji=s?.emoji as string|undefined
+    const emoji=oldEmoji==='적음'?'보통':oldEmoji==='많음'?'많이'
+      :oldEmoji==='없음'||oldEmoji==='보통'?oldEmoji:current.emoji
+    return { ...current, ...s, emoji, product: { ...current.product, ...s?.product } }
   },
 }))

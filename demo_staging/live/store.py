@@ -61,6 +61,13 @@ class LiveStore:
                 origin_generation INTEGER NOT NULL,
                 reason_sha TEXT NOT NULL
             );
+            CREATE TABLE IF NOT EXISTS live_copy_revision_feedback (
+                job_id TEXT PRIMARY KEY,
+                generation INTEGER NOT NULL,
+                note TEXT, changed_fields_json TEXT NOT NULL,
+                request_context_sha TEXT NOT NULL,
+                source TEXT NOT NULL
+            );
             CREATE TABLE IF NOT EXISTS live_queue (
                 job_id TEXT NOT NULL, stage TEXT NOT NULL,
                 context_sha TEXT NOT NULL, state TEXT NOT NULL,
@@ -186,6 +193,7 @@ class LiveStore:
             # A legacy manual edit is a different edit path. Prevent a stale
             # QA previous-copy row from surviving an unrelated direct edit.
             c.execute("DELETE FROM live_copy_previous WHERE job_id=?",(job_id,))
+            c.execute("DELETE FROM live_copy_revision_feedback WHERE job_id=?",(job_id,))
             c.execute("""UPDATE live_jobs SET generation=?,state='COPY_REVIEW_REQUIRED',copy_json=?,
               copy_sha=?,compliance_json=?,review_sha=?,approval_sha=NULL,
               approved_generation=NULL,evidence_acknowledged=0,prompt_json=NULL,image_sha=NULL,
@@ -203,8 +211,17 @@ class LiveStore:
             return c.execute("SELECT 1 FROM live_copy_previous WHERE job_id=?",
                 (job_id,)).fetchone() is not None
 
+    def revision_feedback(self,actor,job_id):
+        with self.db() as c:
+            job=self._read(c,job_id,actor)
+            r=c.execute("""SELECT * FROM live_copy_revision_feedback
+                WHERE job_id=? AND generation=?""",(job_id,job["generation"])).fetchone()
+            if not r:return None
+            return {"note":r["note"],"changed_fields":json.loads(r["changed_fields_json"]),
+                    "source":r["source"]}
+
     def apply_copy_revision(self,actor,job_id,proposed_copy,instruction,
-                            expected_generation,expected_review_sha):
+                            expected_generation,expected_review_sha,*,owner_feedback=None):
         """Atomic, approval-invalidating QA revision.
 
         Caller MUST independently authorize the provider/QA mode before this
@@ -217,6 +234,23 @@ class LiveStore:
         if not isinstance(instruction,str) or not 1<=len(instruction.strip())<=500:
             raise LiveGateError("REVISION_INSTRUCTION_INVALID")
         parsed=verify_copy(proposed_copy,model=AdCopyOutput)
+        if owner_feedback is not None:
+            from src.text_generation.schemas import RevisableField
+            from pydantic import TypeAdapter
+            if (type(owner_feedback) is not dict or
+                set(owner_feedback)!={"note","changed_fields","context_sha","source"} or
+                owner_feedback["source"] not in ("OWNER_TEXT_V010_LIVE",
+                                                 "OWNER_TEXT_V010_OFFLINE") or
+                type(owner_feedback["context_sha"]) is not str or
+                len(owner_feedback["context_sha"])!=64 or
+                owner_feedback["note"] is not None and
+                (type(owner_feedback["note"]) is not str or
+                 len(owner_feedback["note"])>500)):
+                raise LiveGateError("REVISION_FEEDBACK_INVALID")
+            changed=TypeAdapter(list[RevisableField]).validate_python(
+                owner_feedback["changed_fields"],strict=True)
+            if len(changed)!=len(set(changed)):
+                raise LiveGateError("REVISION_FEEDBACK_INVALID")
         with self.db() as c:
             c.execute("BEGIN IMMEDIATE")
             job=self._read(c,job_id,actor)
@@ -224,7 +258,8 @@ class LiveStore:
                 raise LiveGateError("COPY_REVISION_STATE_CONFLICT")
             if job["generation"]!=expected_generation or job["review_sha"]!=expected_review_sha:
                 raise LiveGateError("STALE_REVIEW_OR_REVISION")
-            if parsed.sha256==job["copy_sha"]:
+            if parsed.sha256==job["copy_sha"] and not (
+                owner_feedback is not None and owner_feedback["note"]):
                 raise LiveGateError("COPY_REVISION_UNCHANGED")
             original=json.loads(job["copy_json"])
             context=json.loads(job["input_json"])
@@ -235,15 +270,19 @@ class LiveStore:
                                "copy":parsed.output,"report":report,"generation":generation})
             # One-step undo: retain the exact last approved-for-review content;
             # restoring never recreates an approval or external provider receipt.
-            c.execute("""INSERT INTO live_copy_previous
-                (job_id,copy_json,copy_sha,origin_generation,reason_sha)
-                VALUES (?,?,?,?,?)
-                ON CONFLICT(job_id) DO UPDATE SET
-                  copy_json=excluded.copy_json,copy_sha=excluded.copy_sha,
-                  origin_generation=excluded.origin_generation,
-                  reason_sha=excluded.reason_sha""",
-                (job_id,json.dumps(original,ensure_ascii=False),job["copy_sha"],
-                 job["generation"],digest({"instruction":instruction})))
+            if parsed.sha256!=job["copy_sha"]:
+                # A no-change Owner refusal with a meaningful note advances
+                # review generation but cannot fabricate a prior DIFFERENT copy.
+                # Preserve any existing genuine earlier-version pointer.
+                c.execute("""INSERT INTO live_copy_previous
+                    (job_id,copy_json,copy_sha,origin_generation,reason_sha)
+                    VALUES (?,?,?,?,?)
+                    ON CONFLICT(job_id) DO UPDATE SET
+                      copy_json=excluded.copy_json,copy_sha=excluded.copy_sha,
+                      origin_generation=excluded.origin_generation,
+                      reason_sha=excluded.reason_sha""",
+                    (job_id,json.dumps(original,ensure_ascii=False),job["copy_sha"],
+                     job["generation"],digest({"instruction":instruction})))
             c.execute("""UPDATE live_jobs SET generation=?,state='COPY_REVIEW_REQUIRED',
                 copy_json=?,copy_sha=?,compliance_json=?,review_sha=?,
                 approval_sha=NULL,approved_generation=NULL,evidence_acknowledged=0,
@@ -252,8 +291,26 @@ class LiveStore:
                 (generation,json.dumps(parsed.output,ensure_ascii=False),
                  parsed.sha256,json.dumps(report,ensure_ascii=False),report_sha,job_id))
             updated=self._read(c,job_id,actor)
-            self._event(c,updated,"copy_revision_review_started",updated["state"],
-                        digest({"instruction_sha":digest(instruction),"new_copy_sha":parsed.sha256}))
+            if owner_feedback is None:
+                c.execute("DELETE FROM live_copy_revision_feedback WHERE job_id=?",(job_id,))
+            else:
+                c.execute("""INSERT INTO live_copy_revision_feedback
+                    (job_id,generation,note,changed_fields_json,request_context_sha,source)
+                    VALUES (?,?,?,?,?,?)
+                    ON CONFLICT(job_id) DO UPDATE SET
+                      generation=excluded.generation,note=excluded.note,
+                      changed_fields_json=excluded.changed_fields_json,
+                      request_context_sha=excluded.request_context_sha,
+                      source=excluded.source""",(
+                        job_id,generation,owner_feedback["note"],
+                        json.dumps(owner_feedback["changed_fields"],ensure_ascii=False),
+                        owner_feedback["context_sha"],owner_feedback["source"]))
+            self._event(c,updated,("copy_revision_owner_committed_v010"
+                if owner_feedback is not None else "copy_revision_review_started"),
+                updated["state"],digest({
+                    "instruction_sha":digest(instruction),
+                    "new_copy_sha":parsed.sha256,
+                    "feedback_sha":digest(owner_feedback) if owner_feedback else None}))
             c.commit()
             return updated
 
@@ -293,6 +350,7 @@ class LiveStore:
                 final_sha=NULL,caption_sha=NULL WHERE job_id=?""",
                 (generation,json.dumps(parsed.output,ensure_ascii=False),parsed.sha256,
                  json.dumps(report,ensure_ascii=False),report_sha,job_id))
+            c.execute("DELETE FROM live_copy_revision_feedback WHERE job_id=?",(job_id,))
             updated=self._read(c,job_id,actor)
             self._event(c,updated,"copy_previous_restored_review_started",
                         updated["state"],report_sha)

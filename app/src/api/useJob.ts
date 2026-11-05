@@ -1,6 +1,6 @@
 import { useQuery } from '@tanstack/react-query'
 import { useMemo } from 'react'
-import { withEmojiGuide } from '../lib/emojiLevel'
+import { toOwnerEmojiLevel } from '../lib/emojiLevel'
 import { nextStep, type Flow, type Step } from '../lib/pipeline'
 import { useObjectUrls } from '../lib/useObjectUrls'
 import { useProjectStore } from '../store/projectStore'
@@ -70,12 +70,12 @@ export function resetJob() {
   queryClient.clear()
 }
 
-// 업로드·복구가 같은 입력을 보내야 서버 입력 스냅샷이 어긋나지 않는다
-// shortcut: 텍스트 ProductInput에 functional_types가 아직 없어 서버(모르는 항목 거절)로 보내지 않는다, 필드가 생기면 그대로 보낸다
+// Match Owner Text #25's exact v0.10 DTO; keep the original user ad_purpose
+// free of stealth instructions and bind the emoji preference to the Job hash.
 export function productPayload() {
   const { product, emoji } = useProjectStore.getState()
   return { ...product, functional_types: product.is_functional ? product.functional_types : [],
-    ad_purpose: withEmojiGuide(product.ad_purpose, emoji) }
+    emoji_level:toOwnerEmojiLevel(emoji) }
 }
 
 // first(업로드·승인)를 보낸 뒤 사용자 승인이 필요한 곳까지 단계를 차례로 보낸다.

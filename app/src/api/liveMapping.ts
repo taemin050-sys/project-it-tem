@@ -11,7 +11,9 @@ export type LiveSnapshot={
   image_sha:string|null;final_sha:string|null;caption_sha:string|null;
   approval_current:boolean;previous_copy_available?:boolean;
   functional_types?:string[];
-  functional_types_status?:'OWNER_TEXT_DTO_PENDING'|'NO_SELECTION';
+  functional_types_status?:'OWNER_TEXT_V010_APPLIED'|'OWNER_TEXT_DTO_PENDING'|'NO_SELECTION';
+  emoji_level?:'없음'|'보통'|'많이';
+  revision_feedback?:{note:string|null;changed_fields:string[];source:string}|null;
   analysis?:{analysis:ProductAnalysis;analysis_succeeded:boolean;error?:string|null};
   research_display?:ResearchResult;copy?:AdCopyOutput;compliance?:ComplianceReport;
   image_prompt?:unknown

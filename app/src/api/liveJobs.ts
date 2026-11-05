@@ -27,14 +27,16 @@ export const getLiveTask=(id:string)=>request<LiveTask>(
   prefix+'/tasks/'+encodeURIComponent(id))
 export const editLiveCopy=(id:string,copy:AdCopyOutput)=>
   request<LiveSnapshot>(url(id)+'/copy',json({copy_output:copy}))
-/** User initiated, expected revision-bound. QA returns synthetic Fixture only.
- * Paid mode currently blocks until instruction-aware Text Owner contract exists.
+/** User initiated only. QA gives an explicit Fixture snapshot.
+ * LIVE accepts an asynchronous, one-shot, signed Text Owner worker task.
+ * Never perform a paid model request directly from the browser.
  */
 export function reviseLiveCopy(s:LiveSnapshot,instruction:string){
   guardCopyApproval(s)
   const root=import.meta.env?.VITE_QA_OFFLINE_FIXTURE==='YES'
     ? '/demo/api/qa/jobs/' : '/demo/api/live/jobs/'
-  return request<LiveSnapshot>(root+encodeURIComponent(s.job_id)+'/revise-copy',
+  return request<LiveSnapshot | {task_id:string;state:string;new:boolean}>(
+    root+encodeURIComponent(s.job_id)+'/revise-copy',
     json({instruction,expected_generation:s.generation,expected_review_sha:s.review_sha}))
 }
 export function restoreLiveCopy(s:LiveSnapshot){
