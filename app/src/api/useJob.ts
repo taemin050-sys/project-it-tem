@@ -2,7 +2,7 @@ import { useQuery } from '@tanstack/react-query'
 import { useMemo, type MouseEvent } from 'react'
 import { nextStep, type Flow, type Step } from '../lib/pipeline'
 import { useObjectUrls } from '../lib/useObjectUrls'
-import { useProjectStore } from '../store/projectStore'
+import { INITIAL_PRODUCT, INITIAL_RATIO, useProjectStore, type ProductForm } from '../store/projectStore'
 import type { Job } from '../types/draft'
 import { ApiError, isUnreachable } from './client'
 import { getBlob, getJob, runStep } from './jobs'
@@ -74,15 +74,22 @@ export function hasUnfinishedJob() {
   return jobId !== null && jobId !== finishedJobId
 }
 
+// 처음 화면 값에서 하나라도 바꿨는지 (카테고리·목적·기능성·이모티콘·사진 확인 체크 포함). 글자는 앞뒤 공백, 빈 브랜드는 미입력과 같게 본다
+const normalized = (p: ProductForm) => ({ ...p, brand_name: p.brand_name?.trim() || null, product_name: p.product_name.trim(), features: p.features.trim() })
+function changedFromInitial(product: ProductForm) {
+  const a = normalized(product), b = normalized(INITIAL_PRODUCT)
+  return (Object.keys(b) as (keyof ProductForm)[]).some((k) => JSON.stringify(a[k]) !== JSON.stringify(b[k]))
+}
+
 const CONFIRM_NEW_AD = '진행 중인 광고가 있습니다. 새 광고를 시작하면 이 화면의 입력과 진행 상황이 지워집니다. 이전 작업은 서버에 남습니다. 새로 시작할까요?'
 
 // 새 광고: 이 브라우저의 작업·입력·결과 캐시만 비운다 (서버 요청 없음, 로그인 정보·mock 설정은 그대로).
 // 결과까지 끝나지 않은 작업이나 입력해 둔 값이 있으면 확인을 받는다. AI 요청 중에는 시작하지 않는다
 // (끝난 요청이 이전 job_id를 다시 써넣지 않게). 시작했으면 true
 export function startNewAd(): boolean {
-  const { jobId, images, references, product, run, clearInputs } = useProjectStore.getState()
+  const { jobId, images, references, product, ratio, run, clearInputs } = useProjectStore.getState()
   if (run.busy) return false
-  const typed = images.length + references.length > 0 || [product.brand_name ?? '', product.product_name, product.features].some((v) => v.trim())
+  const typed = images.length + references.length > 0 || ratio !== INITIAL_RATIO || changedFromInitial(product)
   const unfinished = jobId !== null ? hasUnfinishedJob() : typed
   if (unfinished && !window.confirm(CONFIRM_NEW_AD)) return false
   resetJob()
