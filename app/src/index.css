@@ -218,6 +218,7 @@ img { max-width: 100%; }
 .stepper-item.current > span { background: var(--accent); border-color: var(--text); color: var(--text); font-weight: 700; }
 .stepper-item.current .stepper-dot { background: var(--text); border-color: var(--text); color: var(--accent); }
 .stepper-item.todo .stepper-dot { border-style: dashed; }
+.new-ad { flex-shrink: 0; }
 .stepper-bar { display: grid; grid-template-columns: repeat(5, 1fr); gap: 2px; height: 3px; }
 .stepper-bar span { background: var(--border); }
 .stepper-bar span.on { background: var(--text); }
@@ -230,7 +231,7 @@ img { max-width: 100%; }
 @media (max-width: 639px) {
   .create-header { position: static; }
   .create-header-inner { flex-wrap: wrap; padding-block: 10px 12px; }
-  .stepper { width: 100%; }
+  .stepper { width: 100%; order: 1; }
   .stepper ol { justify-content: space-between; }
   .stepper-item { flex: 1 1 auto; }
   .stepper-item.current { flex: 0 0 auto; }

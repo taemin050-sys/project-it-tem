@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query'
-import { useMemo } from 'react'
+import { useMemo, type MouseEvent } from 'react'
 import { nextStep, type Flow, type Step } from '../lib/pipeline'
 import { useObjectUrls } from '../lib/useObjectUrls'
 import { useProjectStore } from '../store/projectStore'
@@ -67,6 +67,39 @@ export function resetJob() {
   setJobId(null)
   setRun({ error: null, offline: false })
   queryClient.clear()
+}
+
+// 결과(COMPLETED)까지 가지 않은 작업이 이 브라우저에 걸려 있는지
+export function hasUnfinishedJob() {
+  const { jobId, finishedJobId } = useProjectStore.getState()
+  return jobId !== null && jobId !== finishedJobId
+}
+
+const CONFIRM_NEW_AD = '진행 중인 광고가 있습니다. 새 광고를 시작하면 이 화면의 입력과 진행 상황이 지워집니다. 이전 작업은 서버에 남습니다. 새로 시작할까요?'
+
+// 새 광고: 이 브라우저의 작업·입력·결과 캐시만 비운다 (서버 요청 없음, 로그인 정보·mock 설정은 그대로).
+// 결과까지 끝나지 않은 작업이나 입력해 둔 값이 있으면 확인을 받는다. AI 요청 중에는 시작하지 않는다
+// (끝난 요청이 이전 job_id를 다시 써넣지 않게). 시작했으면 true
+export function startNewAd(): boolean {
+  const { jobId, images, references, product, run, clearInputs } = useProjectStore.getState()
+  if (run.busy) return false
+  const typed = images.length + references.length > 0 || [product.brand_name ?? '', product.product_name, product.features].some((v) => v.trim())
+  const unfinished = jobId !== null ? hasUnfinishedJob() : typed
+  if (unfinished && !window.confirm(CONFIRM_NEW_AD)) return false
+  resetJob()
+  clearInputs()
+  return true
+}
+
+// 랜딩의 광고 만들기: 결과까지 끝난 작업이면 새로 시작하고, 진행 중이면 그대로 이어간다
+export function continueOrStartNew() {
+  const { jobId, finishedJobId } = useProjectStore.getState()
+  if (jobId !== null && jobId === finishedJobId) startNewAd()
+}
+
+// 링크용: 새 광고 시작을 취소하면 이동하지 않는다
+export function startNewAdLink(e: MouseEvent) {
+  if (!startNewAd()) e.preventDefault()
 }
 
 // 업로드·복구가 같은 입력을 보내야 서버 입력 스냅샷이 어긋나지 않는다

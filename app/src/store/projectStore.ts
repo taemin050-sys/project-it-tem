@@ -10,7 +10,7 @@ export type ProductForm = Omit<ProductInput, 'product_image_count' | 'reference_
 /** 지금 보내고 있는 요청과 마지막 실패. 화면 진행 표시는 이 값만 쓴다 (추정 진행률 없음) */
 export type RunState = { busy: boolean; step: Step | null; error: string | null; offline?: boolean }
 
-// 처음 화면의 입력값 (이모티콘은 가운데 값을 기본으로)
+// 처음 화면의 입력값. 새 광고를 시작하면 이 값으로 되돌린다 (이모티콘은 가운데 값을 기본으로)
 const INITIAL_PRODUCT: ProductForm = {
   brand_name: null,
   product_name: '',
@@ -31,6 +31,9 @@ type ProjectState = {
   ratio: Ratio
   setRatio: (ratio: Ratio) => void
   jobId: string | null
+  /** 결과(COMPLETED)까지 끝난 작업. 지금 작업이 이 값이면 새 광고를 확인 없이 시작한다 */
+  finishedJobId: string | null
+  setFinishedJob: (jobId: string) => void
   identityScope: string | null
   liveTaskId: string | null
   setIdentityScope: (scope: string | null) => void
@@ -41,6 +44,8 @@ type ProjectState = {
   setImages: (images: File[]) => void
   setReferences: (references: File[]) => void
   setProduct: (patch: Partial<ProductForm>) => void
+  /** 사진·제품 정보·선택값을 처음 화면 값으로 되돌린다 (로그인 정보·mock 설정은 그대로) */
+  clearInputs: () => void
   setJobId: (jobId: string | null) => void
   setRun: (patch: Partial<RunState>) => void
   /** 서버가 바뀌면 이전 작업은 쓸 수 없어 작업·진행 상태를 비운다 (입력값·사진은 유지) */
@@ -56,6 +61,8 @@ export const useProjectStore = create<ProjectState>()(persist((set) => ({
   ratio: INITIAL_RATIO,
   setRatio: (ratio) => set({ ratio }),
   jobId: null,
+  finishedJobId: null,
+  setFinishedJob: (finishedJobId) => set({ finishedJobId }),
   identityScope: null,
   liveTaskId: null,
   setIdentityScope: (scope) => set((s)=>s.identityScope===scope?{}:
@@ -66,13 +73,14 @@ export const useProjectStore = create<ProjectState>()(persist((set) => ({
   setImages: (images) => set({ images }),
   setReferences: (references) => set({ references }),
   setProduct: (patch) => set((s) => ({ product: { ...s.product, ...patch } })),
+  clearInputs: () => set({ images: [], references: [], product: INITIAL_PRODUCT, ratio: INITIAL_RATIO }),
   setJobId: (jobId) => set({ jobId,liveTaskId:null }),
   setRun: (patch) => set((s) => ({ run: { ...s.run, ...patch } })),
   setMock: (mock) => set({ mock: import.meta.env.DEV && mock, jobId: null, run: { busy: false, step: null, error: null } }),
 }), {
   name: 'it-tem-project',
   storage: createJSONStorage(() => sessionStorage),
-  partialize: (s) => ({ jobId: s.jobId, product: s.product, ratio: s.ratio, mock: s.mock,
+  partialize: (s) => ({ jobId: s.jobId, finishedJobId: s.finishedJobId, product: s.product, ratio: s.ratio, mock: s.mock,
     identityScope:s.identityScope,liveTaskId:s.liveTaskId }),
   // 이전 버전에 저장된 product에는 새 항목(functional_types·emoji_level)이 없어 기본값 위에 덮는다
   merge: (saved, current) => {
