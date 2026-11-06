@@ -7,7 +7,7 @@ export const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? ''
 export const MOCK_DEFAULT = import.meta.env.DEV && import.meta.env.VITE_USE_MOCK === 'true'
 
 // 사진 수는 10/23·10/26 회의 결정. 용량·해상도 제한은 두지 않고 큰 사진은 올리기 전에 줄인다
-export const PRODUCT_PHOTOS = { minFiles: 2, maxFiles: 5, acceptTypes: ['image/jpeg', 'image/png', 'image/webp'] } as const
+export const PRODUCT_PHOTOS = { minFiles: 2, maxFiles: 5, acceptTypes: ['image/jpeg', 'image/png', 'image/webp', '.mpo', '.MPO'] } as const
 export const REFERENCE_PHOTOS = { ...PRODUCT_PHOTOS, minFiles: 0 } as const
 // shortcut: 축소 기준은 미정(계약 7.4 BLOCKED_BY_DECISION), 레거시 서버 한도(파일당 10MiB·40MP) 안쪽으로 임시값
 export const SHRINK = { maxSide: 2048, maxBytes: 10 * 1024 * 1024 } as const

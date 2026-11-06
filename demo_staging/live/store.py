@@ -8,6 +8,7 @@ from __future__ import annotations
 import json
 import sqlite3
 from pathlib import Path
+from uuid import uuid4
 
 from .contracts import LiveGateError, digest, validate_input, strict_review, live_prompt, owner_text_snapshots
 from .template_contract import (A_ID,A_VERSION,LEGACY_ID,LEGACY_VERSION,SIZE_PREFIX,
@@ -67,6 +68,16 @@ class LiveStore:
                 note TEXT, changed_fields_json TEXT NOT NULL,
                 request_context_sha TEXT NOT NULL,
                 source TEXT NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS live_image_attempts (
+                job_id TEXT NOT NULL, attempt_version INTEGER NOT NULL,
+                attempt_id TEXT NOT NULL UNIQUE, request_key TEXT NOT NULL,
+                actor TEXT NOT NULL, approval_sha TEXT NOT NULL,
+                prompt_sha TEXT NOT NULL, state TEXT NOT NULL,
+                candidate_sha TEXT, provider_attempt_id TEXT,
+                candidate_receipt_sha TEXT,
+                created_utc TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                PRIMARY KEY(job_id,attempt_version), UNIQUE(job_id,request_key)
             );
             CREATE TABLE IF NOT EXISTS live_queue (
                 job_id TEXT NOT NULL, stage TEXT NOT NULL,
@@ -258,13 +269,33 @@ class LiveStore:
                 raise LiveGateError("COPY_REVISION_STATE_CONFLICT")
             if job["generation"]!=expected_generation or job["review_sha"]!=expected_review_sha:
                 raise LiveGateError("STALE_REVIEW_OR_REVISION")
-            if parsed.sha256==job["copy_sha"] and not (
-                owner_feedback is not None and owner_feedback["note"]):
-                raise LiveGateError("COPY_REVISION_UNCHANGED")
             original=json.loads(job["copy_json"])
             context=json.loads(job["input_json"])
             analysis=json.loads(job["analysis_json"])
             report=strict_review(parsed.output,context["product"],analysis)
+            previous_report=json.loads(job["compliance_json"])
+            if (parsed.sha256==job["copy_sha"] and
+                    digest(report)==digest(previous_report)):
+                # Owner note does not create a new copy/review. Keep approval,
+                # evidence acknowledgement and previous-copy pointer intact.
+                # CAS, ownership and review-policy equivalence are checked
+                # inside the *same* SQLite write transaction.
+                if owner_feedback is not None:
+                    note=owner_feedback["note"] or "수정된 항목이 없습니다. 기존 카피를 유지합니다."
+                    c.execute("""INSERT INTO live_copy_revision_feedback
+                        (job_id,generation,note,changed_fields_json,request_context_sha,source)
+                        VALUES (?,?,?,?,?,?)
+                        ON CONFLICT(job_id) DO UPDATE SET
+                          generation=excluded.generation,note=excluded.note,
+                          changed_fields_json=excluded.changed_fields_json,
+                          request_context_sha=excluded.request_context_sha,
+                          source=excluded.source""",
+                        (job_id,job["generation"],note,"[]",
+                         owner_feedback["context_sha"],owner_feedback["source"]))
+                self._event(c,job,"copy_revision_no_change",job["state"],
+                            digest({"request":instruction,"copy_sha":job["copy_sha"]}))
+                c.commit()
+                return self._read(c,job_id,actor)
             generation=job["generation"]+1
             report_sha=digest({"input_sha":job["input_sha"],"analysis":analysis,
                                "copy":parsed.output,"report":report,"generation":generation})
@@ -414,7 +445,7 @@ class LiveStore:
             return updated
 
     def _approved(self,job):
-        if not (job["state"] in {"COPY_APPROVED","PROMPT_READY","IMAGE_REVIEW_REQUIRED","IMAGE_APPROVED"}
+        if not (job["state"] in {"COPY_APPROVED","PROMPT_READY","IMAGE_REVIEW_REQUIRED","IMAGE_APPROVED","IMAGE_REJECTED"}
                 and job["approval_sha"] and job["approved_generation"]==job["generation"]
                 and job["approval_sha"]==self.approval_binding(job)
                 and json.loads(job["compliance_json"])["passed"]):
@@ -442,6 +473,66 @@ class LiveStore:
             row=c.execute("SELECT * FROM live_job_templates WHERE job_id=?",(job_id,)).fetchone()
             return verify_policy(row)
 
+    def current_image_attempt(self,actor,job_id):
+        """An additive per-Job attempt view; legacy jobs have no attempt row."""
+        with self.db() as c:
+            self._read(c,job_id,actor)
+            row=c.execute("""SELECT * FROM live_image_attempts WHERE job_id=?
+                ORDER BY attempt_version DESC LIMIT 1""",(job_id,)).fetchone()
+            return dict(row) if row is not None else None
+
+    def begin_image_retry(self,actor,job_id,expected_sha,request_key):
+        """User-driven CAS from rejected candidate to ONE new attempt.
+
+        Preserve approved copy, analysis, research, and Image Prompt. The
+        original image file must already be archived by the pipeline.
+        """
+        if (type(expected_sha) is not str or len(expected_sha)!=64 or
+            type(request_key) is not str or len(request_key)!=32 or
+            any(x not in "0123456789abcdef" for x in request_key)):
+            raise LiveGateError("IMAGE_RETRY_INPUT_INVALID")
+        with self.db() as c:
+            c.execute("BEGIN IMMEDIATE")
+            job=self._read(c,job_id,actor)
+            previous=c.execute("""SELECT * FROM live_image_attempts WHERE job_id=?
+                ORDER BY attempt_version DESC LIMIT 1""",(job_id,)).fetchone()
+            if (job["state"]=="PROMPT_READY" and previous is not None
+                    and previous["request_key"]==request_key
+                    and previous["state"]=="REQUESTED"):
+                return dict(previous)
+            if job["state"]!="IMAGE_REJECTED" or job["image_sha"]!=expected_sha:
+                raise LiveGateError("IMAGE_RETRY_STALE_REJECTION")
+            self._approved(job)
+            if previous is None:
+                # Old Jobs made before the new audit table are not rewritten.
+                c.execute("""INSERT INTO live_image_attempts
+                    (job_id,attempt_version,attempt_id,request_key,actor,
+                    approval_sha,prompt_sha,state,candidate_sha)
+                    VALUES (?,?,?,?,?,?,?,?,?)""",
+                    (job_id,1,uuid4().hex,"historical-v1",actor,
+                     job["approval_sha"],digest(json.loads(job["prompt_json"])),
+                     "REJECTED",job["image_sha"]))
+                next_version=2
+            else:
+                if previous["state"]!="REJECTED" or previous["candidate_sha"]!=expected_sha:
+                    raise LiveGateError("IMAGE_RETRY_LEDGER_MISMATCH")
+                next_version=previous["attempt_version"]+1
+            attempt_id=uuid4().hex
+            c.execute("""INSERT INTO live_image_attempts
+                (job_id,attempt_version,attempt_id,request_key,actor,
+                 approval_sha,prompt_sha,state)
+                VALUES (?,?,?,?,?,?,?,?)""",
+                (job_id,next_version,attempt_id,request_key,actor,
+                 job["approval_sha"],digest(json.loads(job["prompt_json"])),"REQUESTED"))
+            c.execute("""UPDATE live_jobs SET state='PROMPT_READY',image_sha=NULL,
+                image_approval_sha=NULL WHERE job_id=?""",(job_id,))
+            updated=self._read(c,job_id,actor)
+            self._event(c,updated,"image_retry_explicit_requested",updated["state"],
+                        digest({"attempt_id":attempt_id,"prior_sha":expected_sha}))
+            c.commit()
+            return dict(c.execute("SELECT * FROM live_image_attempts WHERE attempt_id=?",
+                                  (attempt_id,)).fetchone())
+
     def image_request(self,actor,job_id,images,references):
         from src.image_generation import BackendImageInput
         from src.image_generation.contracts import content_hash
@@ -463,6 +554,14 @@ class LiveStore:
                 metadata["layout_selection"]=selection.model_dump(mode="json")
             elif policy is not None:
                 metadata["safe_zone"]=policy["safe_zone"]
+            saved=json.loads(job["input_json"])
+            selected_mode=saved.get("generation_mode","composed")
+            if selected_mode=="freeform":
+                metadata["generation_mode"]="freeform"
+                metadata["copy_output"]=json.loads(job["copy_json"])
+                # Neither a composed copy region nor automatic text overlay
+                # may be attached to a freeform Owner request.
+                metadata.pop("safe_zone",None)
             owner=BackendImageInput.model_validate({
                 **metadata,
                 "job_id":job_id,"copy_revision":job["generation"],
@@ -478,15 +577,40 @@ class LiveStore:
                 raise LiveGateError("APPROVED_COPY_CHANGED")
             return owner
 
-    def store_image_candidate(self,actor,job_id,sha):
+    def store_image_candidate(self,actor,job_id,sha,*,provider_attempt_id=None,
+                              candidate_receipt_sha=None):
         if not isinstance(sha,str) or len(sha)!=64:
             raise LiveGateError("IMAGE_HASH_INVALID")
+        if candidate_receipt_sha is not None and (
+                type(candidate_receipt_sha) is not str or
+                len(candidate_receipt_sha)!=64):
+            raise LiveGateError("CANDIDATE_RECEIPT_SHA_INVALID")
         with self.db() as c:
             c.execute("BEGIN IMMEDIATE")
             job=self._read(c,job_id,actor)
             if job["state"]!="PROMPT_READY":
                 raise LiveGateError("IMAGE_STATE_CONFLICT")
             self._approved(job)
+            prior=c.execute("""SELECT * FROM live_image_attempts WHERE job_id=?
+                ORDER BY attempt_version DESC LIMIT 1""",(job_id,)).fetchone()
+            if prior is None:
+                c.execute("""INSERT INTO live_image_attempts
+                    (job_id,attempt_version,attempt_id,request_key,actor,
+                     approval_sha,prompt_sha,state,candidate_sha,provider_attempt_id,
+                     candidate_receipt_sha)
+                    VALUES (?,?,?,?,?,?,?,?,?,?,?)""",
+                    (job_id,1,uuid4().hex,"baseline",actor,job["approval_sha"],
+                     digest(json.loads(job["prompt_json"])),"IMAGE_REVIEW_REQUIRED",
+                     sha,provider_attempt_id,candidate_receipt_sha))
+            elif (prior["state"]=="REQUESTED" and prior["approval_sha"]==job["approval_sha"]
+                  and prior["prompt_sha"]==digest(json.loads(job["prompt_json"]))
+                  and prior["actor"]==actor):
+                c.execute("""UPDATE live_image_attempts SET state='IMAGE_REVIEW_REQUIRED',
+                    candidate_sha=?,provider_attempt_id=?,candidate_receipt_sha=?
+                    WHERE attempt_id=?""",
+                    (sha,provider_attempt_id,candidate_receipt_sha,prior["attempt_id"]))
+            else:
+                raise LiveGateError("IMAGE_ATTEMPT_LEDGER_CONFLICT")
             c.execute("UPDATE live_jobs SET state='IMAGE_REVIEW_REQUIRED',image_sha=? WHERE job_id=?",
                      (sha,job_id))
             updated=self._read(c,job_id,actor)
@@ -506,6 +630,9 @@ class LiveStore:
                        "evidence_acknowledged":bool(job["evidence_acknowledged"])})
             c.execute("""UPDATE live_jobs SET state='IMAGE_APPROVED',image_approval_sha=?
                 WHERE job_id=?""",(bind,job_id))
+            c.execute("""UPDATE live_image_attempts SET state='APPROVED'
+                WHERE job_id=? AND candidate_sha=? AND state='IMAGE_REVIEW_REQUIRED'""",
+                (job_id,expected_sha))
             updated=self._read(c,job_id,actor)
             self._event(c,updated,"real_image_approved",updated["state"],bind)
             c.commit()
@@ -520,6 +647,9 @@ class LiveStore:
             self._approved(job)
             c.execute("""UPDATE live_jobs SET state='IMAGE_REJECTED',
               image_approval_sha=NULL WHERE job_id=?""",(job_id,))
+            c.execute("""UPDATE live_image_attempts SET state='REJECTED'
+                WHERE job_id=? AND candidate_sha=? AND state='IMAGE_REVIEW_REQUIRED'""",
+                (job_id,expected_sha))
             updated=self._read(c,job_id,actor)
             self._event(c,updated,"image_rejected",updated["state"],expected_sha)
             c.commit()
@@ -623,6 +753,9 @@ class LiveStore:
             caption_sha=? WHERE job_id=? AND state='IMAGE_APPROVED'""",
             (final_sha,caption_sha,job_id))
         updated=self._read(connection,job_id,actor)
+        connection.execute("""UPDATE live_image_attempts SET state='COMPLETED'
+            WHERE job_id=? AND candidate_sha=? AND state='APPROVED'""",
+            (job_id,job["image_sha"]))
         self._event(connection,updated,"composed",updated["state"],final_sha)
         return updated
 
@@ -661,7 +794,12 @@ class LiveStore:
                     envelope["image_sha"]!=job["image_sha"] or
                     envelope["approval_sha"]!=job["approval_sha"] or
                     envelope["image_approval_sha"]!=job["image_approval_sha"] or
-                    receipt["font_sha256"]!=profile["bound_font_sha"] or
+                    (receipt.get("font_sha256")!=profile["bound_font_sha"]
+                      if receipt.get("generation_mode")!="freeform" else
+                      receipt.get("rendering")!="provider_drawn_text" or
+                      receipt.get("font_sha256") is not None or
+                      profile["bound_font_sha"]!=digest({
+                          "generation_mode":"freeform","font":None,"version":1})) or
                     job["state"]!="COMPLETED" or
                     job["final_sha"]!=r["final_sha"] or job["caption_sha"]!=r["caption_sha"] or
                     envelope["final_sha"]!=r["final_sha"] or

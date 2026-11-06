@@ -118,19 +118,20 @@ def test_offline_owner_revision_changes_only_requested_field_and_restores(tmp_pa
             WHERE job_id=? AND stage='copy_revision'""",(jid,)).fetchone()[0]==2
 
 
-def test_owner_refusal_note_keeps_copy_but_issues_new_review_without_old_approval(tmp_path):
+def test_owner_refusal_note_preserves_copy_and_review_generation_without_fake_edit(tmp_path):
     flow,jid,job,fake=create_ready(tmp_path)
     refusing=FakeRevision(same=True)
     rev=flow.revise_copy("alice",jid,"피부 치료 효과가 있다고 써",
        job["generation"],job["review_sha"],provider=refusing,offline=True)
-    assert rev["copy_sha"]==job["copy_sha"] and rev["generation"]==2
-    assert rev["review_sha"]!=job["review_sha"]
+    assert rev["copy_sha"]==job["copy_sha"] and rev["generation"]==job["generation"]
+    assert rev["review_sha"]==job["review_sha"]
     assert flow.state.previous_copy_available("alice",jid) is False
     assert flow.state.revision_feedback("alice",jid)=={
         "note":"요청한 치료 표현은 광고에 사용할 수 없습니다.",
         "changed_fields":[],"source":"OWNER_TEXT_V010_OFFLINE"}
-    with pytest.raises(LiveGateError,match="STALE_REVIEW_OR_REVISION"):
-        flow.state.approve_copy("alice",jid,job["generation"],job["review_sha"])
+    # No change: existing version remains approvable, not a phantom review.
+    approved=flow.state.approve_copy("alice",jid,job["generation"],job["review_sha"])
+    assert approved["state"]=="COPY_APPROVED"
 
 
 def test_owner_mismatched_changed_fields_cannot_commit_revision(tmp_path):

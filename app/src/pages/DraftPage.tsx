@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { restorePrevious, review, reviseJob } from '../api/jobs'
 import { advance, resetJob, useBlob, useBlobUrl, useJob, useLiveSnapshot, useLiveProgress } from '../api/useJob'
-import {approveImageAndCompose,rejectImage,resumeImageFromApproved,retryCompose} from '../api/liveFlow'
+import {approveImageAndCompose,rejectImage,resumeImageFromApproved,retryCompose,regenerateRejectedImage} from '../api/liveFlow'
 import {getLiveSnapshot} from '../api/liveJobs'
 import {sameImageCandidate} from '../api/liveMapping'
 import JobBadges from '../components/JobBadges'
@@ -85,7 +85,13 @@ export default function DraftPage() {
         : approved
         ? <Link className="button" to="/create/export">다음: 최종 결과</Link>
         : rejected
-          ? <Link className="button" to="/create/product" onClick={resetJob}>제품 정보에서 다시 시작</Link>
+          ? <div className="button-row">
+              {!mock && live?.state==='IMAGE_REJECTED' && <button className="button"
+                disabled={run.busy} onClick={()=>void regenerateRejectedImage(live).catch(()=>{})}>
+                승인 카피 유지하고 이미지 다시 만들기
+              </button>}
+              <Link className="button secondary" to="/create/product" onClick={resetJob}>처음부터 다시 시작</Link>
+            </div>
           : (
             <div className="button-row">
               {mock

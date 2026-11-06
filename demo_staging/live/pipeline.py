@@ -236,11 +236,29 @@ class LivePipeline:
             not 1<=len(instruction.strip())<=300 or
             instruction!=instruction.strip()):
             raise LiveGateError("REVISION_INSTRUCTION_INVALID")
+        report=json.loads(job["compliance_json"])
+        analysis=json.loads(job["analysis_json"])
+        current_copy=json.loads(job["copy_json"])
+        # The review proof binds exactly the report the user saw, not a
+        # stale saved issue list or a newly inferred regulatory verdict.
+        from src.image_generation.contracts import content_hash
+        if (content_hash(current_copy)!=job["copy_sha"] or
+            digest({"input_sha":job["input_sha"],"analysis":analysis,
+                    "copy":current_copy,"report":report,
+                    "generation":job["generation"]})!=job["review_sha"]):
+            raise LiveGateError("REVISION_REVIEW_CONTEXT_INTEGRITY_FAILED")
+        issues=[{k:record.get(k) for k in (
+            "field","text","risk_level","reason","suggestion","basis")}
+            for record in report.get("issues",[])]
         return {
             "job_id":job_id,"generation":job["generation"],
             "review_sha":job["review_sha"],"copy_sha":job["copy_sha"],
             "input_sha":job["input_sha"],"instruction":instruction,
             "model":text_model,
+            "compliance_context_contract":"BP13_OWNER_TEXT_PROPOSED_V1",
+            "compliance_report_sha":digest(report),
+            "compliance_issues":issues,
+            "basis_verification":"UNVERIFIED_FREE_TEXT_NOT_LEGAL_ADVICE",
         }
 
     def revise_copy(self,actor,job_id,instruction,expected_generation,
@@ -299,8 +317,10 @@ class LivePipeline:
              if revised[field]!=old[field]])
         if actual!=result.changed_fields and set(actual)!=set(result.changed_fields):
             raise LiveGateError("REVISION_CHANGED_FIELDS_INVALID")
+        # A refusal/no-op is a legitimate, billable Owner response, but not
+        # a new Copy version. The Store compares review-policy output atomically.
         if not actual and not result.note:
-            raise LiveGateError("COPY_REVISION_UNCHANGED")
+            result.note="수정된 항목이 없습니다. 기존 카피와 검수 상태를 유지합니다."
         feedback={
             "note":result.note,"changed_fields":result.changed_fields,
             "context_sha":fingerprint,
@@ -342,6 +362,42 @@ class LivePipeline:
                                         mode,proposed,ImagePromptOutput)
         return self.state.store_prompt(actor,job_id,out)
 
+    def begin_image_retry(self,actor,job_id,expected_sha,request_key):
+        """Explicit rejection recovery. No Text/VLM/Research/Prompt rerun."""
+        current=self.state.get(actor,job_id)
+        prior=self.state.current_image_attempt(actor,job_id)
+        if (current["state"]=="PROMPT_READY" and prior and
+            prior["request_key"]==request_key and prior["state"]=="REQUESTED"):
+            return prior
+        if current["state"]!="IMAGE_REJECTED" or current["image_sha"]!=expected_sha:
+            raise LiveGateError("IMAGE_RETRY_STALE_REJECTION")
+        original=self.image_path(job_id)
+        try:raw=original.read_bytes()
+        except OSError:raise LiveGateError("REJECTED_IMAGE_BYTES_UNAVAILABLE") from None
+        if hashlib.sha256(raw).hexdigest()!=expected_sha:
+            raise LiveGateError("REJECTED_IMAGE_INTEGRITY_FAILED")
+        version=prior["attempt_version"] if prior else 1
+        archive=self.root/"outputs"/job_id/"attempts"/f"v{version}-{expected_sha}.png"
+        if archive.exists():
+            if hashlib.sha256(archive.read_bytes()).hexdigest()!=expected_sha:
+                raise LiveGateError("REJECTED_IMAGE_ARCHIVE_CHANGED")
+        else:
+            atomic_write(archive,raw)
+        if json.loads(current["input_json"]).get("generation_mode")=="freeform":
+            receipt_file=self.root/"outputs"/job_id/"owner_candidate_receipt.json"
+            try:receipt_bytes=receipt_file.read_bytes()
+            except OSError:raise LiveGateError("REJECTED_RECEIPT_UNAVAILABLE") from None
+            if (prior is None or prior["candidate_receipt_sha"] is None or
+                hashlib.sha256(receipt_bytes).hexdigest()!=prior["candidate_receipt_sha"]):
+                raise LiveGateError("REJECTED_RECEIPT_INTEGRITY_FAILED")
+            archived_receipt=self.root/"outputs"/job_id/"attempts"/f"v{version}-receipt.json"
+            if archived_receipt.exists():
+                if hashlib.sha256(archived_receipt.read_bytes()).hexdigest()!=prior["candidate_receipt_sha"]:
+                    raise LiveGateError("REJECTED_RECEIPT_ARCHIVE_CHANGED")
+            else:
+                atomic_write(archived_receipt,receipt_bytes)
+        return self.state.begin_image_retry(actor,job_id,expected_sha,request_key)
+
     def image_input(self,actor,job_id):
         job=self.state.get(actor,job_id)
         snapshot=json.loads(job["input_json"])
@@ -358,6 +414,10 @@ class LivePipeline:
             raise LiveGateError("IMAGE_BINDING_MISMATCH")
         if not output.receipt:
             raise LiveGateError("PROVIDER_RECEIPT_REQUIRED")
+        mode=json.loads(job["input_json"]).get("generation_mode","composed")
+        if mode=="freeform" and (output.receipt.get("generation_mode")!="freeform"
+               or output.receipt.get("state")!="succeeded"):
+            raise LiveGateError("FREEFORM_OWNER_RECEIPT_UNVERIFIED")
         sha=hashlib.sha256(output.image_bytes).hexdigest()
         if sha!=output.sha256:
             raise LiveGateError("IMAGE_HASH_MISMATCH")
@@ -372,8 +432,20 @@ class LivePipeline:
             if (im.format!="PNG" or im.size!=expected_native
                     or (output.width,output.height)!=im.size):
                 raise LiveGateError("OWNER_IMAGE_SIZE_INVALID")
+        receipt_sha=None
+        if mode=="freeform":
+            receipt={"source_sha256":sha,"copy_sha":job["copy_sha"],
+                     "generation":job["generation"],"owner_receipt":output.receipt}
+            receipt_bytes=json.dumps(receipt,sort_keys=True,ensure_ascii=False).encode("utf-8")
+            receipt_sha=hashlib.sha256(receipt_bytes).hexdigest()
+            atomic_write(self.root/"outputs"/job_id/"owner_candidate_receipt.json",
+                         receipt_bytes)
         atomic_write(self.image_path(job_id),output.image_bytes)
-        return self.state.store_image_candidate(actor,job_id,sha)
+        provider_id=output.receipt.get("attempt_id")
+        if provider_id is not None and not isinstance(provider_id,str):
+            raise LiveGateError("IMAGE_PROVIDER_ATTEMPT_INVALID")
+        return self.state.store_image_candidate(actor,job_id,sha,
+                provider_attempt_id=provider_id,candidate_receipt_sha=receipt_sha)
 
     def image_path(self,job_id):
         if not len(job_id)==32 or not all(x in "0123456789abcdef" for x in job_id):
@@ -412,11 +484,19 @@ class LivePipeline:
     def compose(self,actor,job_id,*,layout=None,font_path):
         from src.image_generation import compose_ad_png,CompositionInput
         from .template_contract import canonical
-        font=Path(font_path)
-        try:
-            font_hash=hashlib.sha256(font.read_bytes()).hexdigest()
-        except OSError:
-            raise LiveGateError("COMPOSITION_FONT_UNAVAILABLE") from None
+        before=self.state.get(actor,job_id)
+        selected_mode=json.loads(before["input_json"]).get("generation_mode","composed")
+        if selected_mode=="freeform" and layout is not None:
+            raise LiveGateError("FREEFORM_MUST_NOT_COMPOSE_TEXT")
+        font=Path(font_path) if font_path is not None else None
+        if selected_mode=="freeform":
+            # No font is loaded: this digest marks the ABSENCE of any overlay.
+            font_hash=digest({"generation_mode":"freeform","font":None,"version":1})
+        else:
+            try:
+                font_hash=hashlib.sha256(font.read_bytes()).hexdigest()
+            except (OSError,AttributeError):
+                raise LiveGateError("COMPOSITION_FONT_UNAVAILABLE") from None
         directory=self.root/"outputs"/job_id
         plan=self.state.plan_compose(actor,job_id,layout,font_hash,has_prior_files=any(
             (directory/name).exists() for name in ("final.png","caption.txt","receipt.json")))
@@ -442,22 +522,49 @@ class LivePipeline:
             if image_sha!=job["image_sha"]:
                 raise LiveGateError("IMAGE_BYTES_CHANGED")
             cp=json.loads(job["copy_json"])
-            from src.image_generation.composition import CompositionLayout
-            # SQLite stores canonical JSON arrays; Owner's new strict typed
-            # tuple field is reconstructed via its JSON-mode DTO validator.
-            layout_obj=CompositionLayout.model_validate_json(
-                json.dumps(plan["layout"],ensure_ascii=False))
-            input_obj=CompositionInput(
-                job_id=job_id,image_bytes=raw,image_sha256=image_sha,
-                copy_revision=job["generation"],copy_hash=job["copy_sha"],
-                copy_output=cp,layout=layout_obj)
             from src.image_generation.errors import GatewayError
-            try:
-                result=compose_ad_png(input_obj,font_path=font)
-            except (GatewayError,ValueError):
-                # Owner detail stays in controlled logs, not public HTTP.
-                # No Provider attempt occurs and IMAGE_APPROVED is preserved.
-                raise LiveGateError("COMPOSITION_RENDER_FAILED") from None
+            if selected_mode=="freeform":
+                from src.image_generation.backend_adapter import BackendGeneratedImage
+                from src.image_generation.candidate_export import export_candidate
+                from PIL import Image as PILImage
+                try:
+                    receipt_bytes=(directory/"owner_candidate_receipt.json").read_bytes()
+                    current=self.state.current_image_attempt(actor,job_id)
+                    if (current is None or current["candidate_receipt_sha"] is None or
+                        hashlib.sha256(receipt_bytes).hexdigest()!=current["candidate_receipt_sha"]):
+                        raise ValueError
+                    binding=json.loads(receipt_bytes)
+                    if (binding["source_sha256"]!=image_sha or
+                        binding["copy_sha"]!=job["copy_sha"] or
+                        binding["generation"]!=job["generation"] or
+                        binding["owner_receipt"].get("state")!="succeeded" or
+                        binding["owner_receipt"].get("generation_mode")!="freeform"):
+                        raise ValueError
+                    with PILImage.open(BytesIO(raw)) as decoded:
+                        native=decoded.size
+                    candidate=BackendGeneratedImage(
+                        image_bytes=raw,mime_type="image/png",width=native[0],
+                        height=native[1],sha256=image_sha,job_id=job_id,
+                        copy_revision=job["generation"],copy_hash=job["copy_sha"],
+                        mock=job["mode"]=="OFFLINE_FIXTURE",
+                        receipt=binding["owner_receipt"])
+                    # This owner function RESIZES only; NO text overlay/font.
+                    result=export_candidate(candidate,copy_output=cp)
+                except (OSError,KeyError,TypeError,ValueError,GatewayError):
+                    raise LiveGateError("FREEFORM_CANDIDATE_EXPORT_INVALID") from None
+            else:
+                from src.image_generation.composition import CompositionLayout
+                # Preserve the historical immutable Layout and Font contract.
+                layout_obj=CompositionLayout.model_validate_json(
+                    json.dumps(plan["layout"],ensure_ascii=False))
+                input_obj=CompositionInput(
+                    job_id=job_id,image_bytes=raw,image_sha256=image_sha,
+                    copy_revision=job["generation"],copy_hash=job["copy_sha"],
+                    copy_output=cp,layout=layout_obj)
+                try:
+                    result=compose_ad_png(input_obj,font_path=font)
+                except (GatewayError,ValueError):
+                    raise LiveGateError("COMPOSITION_RENDER_FAILED") from None
             receipt=result.receipt
             expected_size=(tuple(snapshot["safe_zone"]["final_size"])
                if snapshot and snapshot["profile_id"].startswith("OWNER_IMAGE_SIZE_")
@@ -468,7 +575,10 @@ class LivePipeline:
                 hashlib.sha256(result.image_bytes).hexdigest()!=result.sha256 or
                 (result.width,result.height)!=expected_size or
                 not isinstance(receipt,dict) or
-                receipt.get("font_sha256")!=font_hash or
+                (receipt.get("font_sha256")!=font_hash if selected_mode=="composed"
+                 else receipt.get("generation_mode")!="freeform" or
+                      receipt.get("rendering")!="provider_drawn_text" or
+                      receipt.get("font_sha256") is not None) or
                 receipt.get("provider_calls")!=0):
                 raise LiveGateError("COMPOSED_RESULT_BINDING_FAILED")
             caption_sha=hashlib.sha256(result.caption_bytes).hexdigest()

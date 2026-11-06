@@ -2,7 +2,8 @@ import { useEffect,useState, type FormEvent } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { isUnreachable } from '../api/client'
 import { createJob } from '../api/jobs'
-import {getTextCostEstimate,type TextCostEstimate} from '../api/liveJobs'
+import {getTextCostEstimate,getTotalCostEstimate,
+  type TextCostEstimate,type CombinedCostEstimate} from '../api/liveJobs'
 import { advance,hasUnfinishedJob,productPayload,recoverLiveInput,resetJob } from '../api/useJob'
 import Field from '../components/Field'
 import MockFallback from '../components/MockFallback'
@@ -42,11 +43,12 @@ const describedBy = (...ids: (string | false | undefined)[]) => ids.filter(Boole
 
 export default function ProductPage() {
   const navigate = useNavigate()
-  const { images, references, product, ratio, mock, run, jobId, setImages, setReferences, setRatio, setProduct: saveProduct } = useProjectStore()
+  const { images, references, product, ratio, generationMode, mock, run, jobId, setImages, setReferences, setRatio, setGenerationMode, setProduct: saveProduct } = useProjectStore()
   const [errors, setErrors] = useState<ProductErrors>({})
   const [uploading, setUploading] = useState(false)
   const [uploadError, setUploadError] = useState<{ message: string; offline: boolean }>()
   const [textEstimate,setTextEstimate]=useState<{photoCount:number;estimate:TextCostEstimate}>()
+  const [combinedEstimate,setCombinedEstimate]=useState<{key:string;estimate:CombinedCostEstimate}>()
   useEffect(()=>{
     let active=true
     if(!mock && images.length>=2 && images.length<=5){
@@ -58,6 +60,18 @@ export default function ProductPage() {
   },[images.length,mock])
   const currentEstimate=(!mock && images.length===textEstimate?.photoCount)
     ? textEstimate.estimate:undefined
+  const estimateKey=images.length+':'+ratio+':'+generationMode
+  useEffect(()=>{
+    let active=true
+    if(!mock && images.length>=2 && images.length<=5){
+      void getTotalCostEstimate(images.length,ratio,generationMode).then(value=>{
+        if(active)setCombinedEstimate({key:estimateKey,estimate:value})
+      }).catch(()=>{if(active)setCombinedEstimate(undefined)})
+    }
+    return ()=>{active=false}
+  },[estimateKey,images.length,mock,ratio,generationMode])
+  const currentCombined=!mock && combinedEstimate?.key===estimateKey
+    ? combinedEstimate.estimate:undefined
 
   // 사용자가 항목을 고치면 그 항목의 오류는 바로 지운다 (나머지는 다음 제출 때 다시 검사)
   const setError = (key: keyof ProductErrors, message?: string) => setErrors((e) => ({ ...e, [key]: message }))
@@ -123,9 +137,19 @@ export default function ProductPage() {
           {!mock && <p className="field-hint" role="status">
             {currentEstimate
               ? <>텍스트 AI 예상 비용: <strong>{currentEstimate.display}</strong>
-                  {' '}({images.length}장 기준, 실제 과금 아님)</>
+                  {' '}({images.length}장 기준)</>
               : '텍스트 AI 예상 비용: 제품 사진 2~5장을 선택하면 서버에서 조회합니다.'}
-            {' '}이미지 생성 비용·실제 과금액은 포함되지 않습니다.
+            {currentCombined && <>
+              {' '}이미지 1장 참고 비용:{' '}
+              {currentCombined.image.reference_median_usd===null
+                ? '동일 생성 방식의 표본 부족으로 산출 불가'
+                : <strong>${currentCombined.image.reference_median_usd.toFixed(4)}</strong>}
+              {currentCombined.total_display && <>
+                {' '}텍스트+이미지 참고 합계: <strong>{currentCombined.total_display}</strong>
+              </>}
+              {' '}(<span>{currentCombined.image.sample_count}건 관측 표본, 실제 청구액·상한 보장 아님</span>)
+            </>}
+            {' '}선택한 모델·품질·화면비·방식이 관측값과 다르면 비용을 추정하지 않습니다.
           </p>}
         {!import.meta.env.DEV && jobId && !run.busy &&
           <button type="button" className="button secondary small"
@@ -276,6 +300,16 @@ export default function ProductPage() {
           )}
         </section>
 
+        <section className="panel" aria-label="이미지 생성 방식">
+          <OptionGroup legend="이미지 생성 방식 · 이미지 1장" name="generation-mode"
+            value={generationMode} onChange={setGenerationMode}
+            disabled={Boolean(jobId) && hasUnfinishedJob()}
+            options={[
+              {value:'composed' as const,label:'합성형',desc:'AI로 제품·배경을 생성하고 서버가 승인 문구를 한글 폰트로 합성'},
+              {value:'freeform' as const,label:'자유형',desc:'AI가 승인 문구와 제품을 이미지에 직접 그림 · 정확도 수동 검수 필요'},
+            ]} />
+          <p className="field-hint">생성 방식은 서버 Job에 고정됩니다. 자유형의 한글·제품 형태·라벨 정확도는 보장되지 않습니다.</p>
+        </section>
         <section className="panel" aria-label="이미지 비율">
           <OptionGroup
             legend="이미지 비율"

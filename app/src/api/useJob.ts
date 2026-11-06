@@ -2,7 +2,7 @@ import { useQuery } from '@tanstack/react-query'
 import { useMemo, type MouseEvent } from 'react'
 import { nextStep, type Flow, type Step } from '../lib/pipeline'
 import { useObjectUrls } from '../lib/useObjectUrls'
-import { INITIAL_PRODUCT, INITIAL_RATIO, useProjectStore, type ProductForm } from '../store/projectStore'
+import { INITIAL_PRODUCT, INITIAL_RATIO, INITIAL_GENERATION_MODE, useProjectStore, type ProductForm } from '../store/projectStore'
 import type { Job } from '../types/draft'
 import { ApiError, isUnreachable } from './client'
 import { getBlob, getJob, runStep } from './jobs'
@@ -88,9 +88,9 @@ const CONFIRM_NEW_AD = '진행 중인 광고가 있습니다. 새 광고를 시�
 // 결과까지 끝나지 않은 작업이나 입력해 둔 값이 있으면 확인을 받는다. AI 요청 중에는 시작하지 않는다
 // (끝난 요청이 이전 job_id를 다시 써넣지 않게). 시작했으면 true
 export function startNewAd(): boolean {
-  const { jobId, images, references, product, ratio, run, clearInputs } = useProjectStore.getState()
+  const { jobId, images, references, product, ratio, generationMode, run, clearInputs } = useProjectStore.getState()
   if (run.busy) return false
-  const typed = images.length + references.length > 0 || ratio!==INITIAL_RATIO || changedFromInitial(product)
+  const typed = images.length + references.length > 0 || ratio!==INITIAL_RATIO || generationMode!==INITIAL_GENERATION_MODE || changedFromInitial(product)
   const unfinished = jobId !== null ? hasUnfinishedJob() : typed
   if (unfinished && !window.confirm(CONFIRM_NEW_AD)) return false
   resetJob()
@@ -140,7 +140,7 @@ export async function advance(first: () => Promise<Job>, step: Step | null = nul
       const input:ProductInput={...product,brand_name:product.brand_name?.trim()||null,
         product_image_count:imageCount,reference_image_count:refCount}
       const selectedSize=useProjectStore.getState().ratio
-      const current=await createLiveInput(job,input,selectedSize)
+      const current=await createLiveInput(job,input,selectedSize, useProjectStore.getState().generationMode)
       if(current.state==='INPUT_STORED'){
         setRun({step:'ai/analyze'})
         if(QA_OFFLINE_FIXTURE){
@@ -195,7 +195,7 @@ export async function recoverLiveInput(){
       throw Error('기존 사진 기록이 없습니다.')
     const selectedSize=useProjectStore.getState().ratio
     const current=await createLiveInput(original,
-      {...productPayload(),product_image_count,reference_image_count},selectedSize)
+      {...productPayload(),product_image_count,reference_image_count},selectedSize, useProjectStore.getState().generationMode)
     if(current.state==='INPUT_STORED'){
       const s=await getLiveSnapshot(jobId)
       if(s.state==='INPUT_STORED'){

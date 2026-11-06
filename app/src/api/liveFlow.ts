@@ -3,7 +3,7 @@ import {queryClient} from './queryClient'
 import {useProjectStore} from '../store/projectStore'
 import {approveLiveCopy,rejectLiveCopy,queueLive,waitLiveTask,approveLiveImage,
     rejectLiveImage,composeLive,getLiveSnapshot,qaPromptImage,qaCompose,
-  reviseLiveCopy,restoreLiveCopy} from './liveJobs'
+  reviseLiveCopy,restoreLiveCopy,regenerateLiveImage,qaRegenerateImage} from './liveJobs'
 import { AD_LAYOUT, QA_OFFLINE_FIXTURE } from '../config'
 import {guardCopyApproval,guardImageApproval,type LiveSnapshot} from './liveMapping'
 // Legacy-only composition layout. Managed A Jobs NEVER receive this value.
@@ -84,8 +84,12 @@ export async function reviseCopyFromInstruction(s:LiveSnapshot,instruction:strin
     if('task_id' in result){
       useProjectStore.getState().setLiveTask(result.task_id)
       const updated=await waitLiveTask(s.job_id,result.task_id,'COPY_REVIEW_REQUIRED')
-      if(updated.generation<=s.generation || updated.review_sha===s.review_sha)
-        throw Error('TEXT_REVISION_NOT_COMMITTED')
+      const changed=updated.generation>s.generation && updated.review_sha!==s.review_sha
+      const unchanged=updated.generation===s.generation &&
+        updated.copy_sha===s.copy_sha && updated.review_sha===s.review_sha &&
+        updated.revision_feedback?.changed_fields.length===0 &&
+        Boolean(updated.revision_feedback?.note)
+      if(!changed && !unchanged)throw Error('TEXT_REVISION_NOT_COMMITTED')
     }
   })
 }
@@ -111,6 +115,22 @@ export const retryCompose=(id:string)=>retryApprovedComposition(id)
 export async function rejectImage(s:LiveSnapshot){
   guardImageApproval(s)
   await run(s.job_id,'ai/image',async()=>{await rejectLiveImage(s)})
+}
+/** Explicitly user-triggered retry of ONE rejected image only. No Text,
+ * Research, Copy, Image Prompt or previous attempt replay.
+ */
+export async function regenerateRejectedImage(s:LiveSnapshot){
+  if(s.state!=='IMAGE_REJECTED'||!s.image_sha||!s.approval_current)
+    throw Error('IMAGE_RETRY_NOT_AVAILABLE')
+  const requestKey=crypto.randomUUID().replaceAll('-','')
+  await run(s.job_id,'ai/image',async()=>{
+    if(QA_OFFLINE_FIXTURE){
+      await qaRegenerateImage(s,requestKey)
+    }else{
+      const task=await regenerateLiveImage(s,requestKey)
+      useProjectStore.getState().setLiveTask(task.task_id)
+    }
+  })
 }
 
 /** Explicit, cost-free retry only for a previously approved candidate.

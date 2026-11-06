@@ -95,6 +95,17 @@ class LiveQueue:
             db.commit()
             return dict(item),True
 
+    def assert_image_retry_safe(self,actor,job_id):
+        """No paid replay while any old image attempt is queued/uncertain."""
+        with self.db() as c:
+            rows=c.execute("""SELECT actor,state FROM queued_ops
+                WHERE job_id=? AND stage='image' AND state IN
+                ('QUEUED','RUNNING','BILLING_UNKNOWN')""",(job_id,)).fetchall()
+        if any(row["actor"]!=actor for row in rows):
+            raise LiveGateError("IMAGE_RETRY_ACTOR_CONFLICT")
+        if rows:
+            raise LiveGateError("IMAGE_RETRY_OUTSTANDING_OR_UNKNOWN")
+
     def revision_payload(self,task_id):
         with self.db() as db:
             row=db.execute("""SELECT p.payload_json FROM queued_revision_payloads p

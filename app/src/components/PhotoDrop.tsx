@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { useObjectUrls } from '../lib/useObjectUrls'
 import { validateImages, type Limits } from '../lib/validateImages'
+import {hasMpoPrimarySignature,isMpoFile} from '../lib/mpo'
 
 type Props = {
   id: string
@@ -24,13 +25,20 @@ export default function PhotoDrop({ id, title, limits, hint, files, error, onCha
   const full = files.length >= limits.maxFiles
   const required = limits.minFiles > 0
 
-  function add(list: FileList | null) {
+  async function add(list: FileList | null) {
     if (!list || list.length === 0) return
     const next = [...files, ...Array.from(list)]
     // 개수 미달은 제출 시점에만 알린다
     const errs = validateImages(next, { ...limits, minFiles: 0 }, title)
     onError(errs.length > 0 ? errs.join(' ') : undefined)
-    if (errs.length === 0) onChange(next)
+    if(errs.length)return
+    for(const file of next){
+      if(isMpoFile(file) && !(await hasMpoPrimarySignature(file))){
+        onError(file.name+': MPO 사진의 MPF 구조가 올바르지 않습니다. JPEG로 변환해 주세요.')
+        return
+      }
+    }
+    onChange(next)
   }
 
   return (
@@ -44,7 +52,7 @@ export default function PhotoDrop({ id, title, limits, hint, files, error, onCha
         className={['dropzone', dragOver && 'drag-over', full && 'is-full', error && 'has-error'].filter(Boolean).join(' ')}
         onDragOver={(e) => { e.preventDefault(); setDragOver(true) }}
         onDragLeave={() => setDragOver(false)}
-        onDrop={(e) => { e.preventDefault(); setDragOver(false); add(e.dataTransfer.files) }}
+        onDrop={(e) => { e.preventDefault(); setDragOver(false); void add(e.dataTransfer.files) }}
       >
         <input
           id={id}
@@ -56,7 +64,7 @@ export default function PhotoDrop({ id, title, limits, hint, files, error, onCha
           aria-describedby={[`${id}-hint`, error && `${id}-error`].filter(Boolean).join(' ')}
           aria-invalid={Boolean(error)}
           onChange={(e) => {
-            add(e.target.files)
+            void add(e.target.files)
             e.target.value = ''
           }}
         />
@@ -72,7 +80,8 @@ export default function PhotoDrop({ id, title, limits, hint, files, error, onCha
         <ul className="thumbs" aria-label={`추가한 ${title}`}>
           {files.map((file, i) => (
             <li key={`${i}-${file.name}`} className="thumb">
-              {previews[i] && <img src={previews[i]} alt={`${title} ${i + 1}`} />}
+              {previews[i] && !isMpoFile(file) && <img src={previews[i]} alt={`${title} ${i + 1}`} />}
+              {isMpoFile(file) && <span className="muted" aria-label="MPO 첫 프레임 JPEG 변환">MPO · 서버에서 첫 프레임 변환</span>}
               <div className="thumb-info">
                 <span className="thumb-name" title={file.name}>{file.name}</span>
                 <span className="thumb-meta">✓ 추가됨 · {formatSize(file.size)}</span>

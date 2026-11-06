@@ -128,13 +128,30 @@ def _run_locked(root:Path,flow:LivePipeline)->str:
             import json
             result_sha=digest(json.loads(result["prompt_json"]))
         elif item["stage"]=="image":
+            from uuid import uuid5
+            from .contracts import digest
+            job=flow.state.get(actor,jid)
+            current=flow.state.current_image_attempt(actor,jid)
+            retry=current is not None and current["attempt_version"]>1
+            expected_context=(digest({"approval_sha":job["approval_sha"],
+                "attempt_id":current["attempt_id"]}) if retry else job["approval_sha"])
+            if item["context_sha"]!=expected_context:
+                raise LiveGateError("IMAGE_ATTEMPT_QUEUE_CONTEXT_CHANGED")
+            if retry and (current["state"]!="REQUESTED" or
+                          current["approval_sha"]!=job["approval_sha"]):
+                raise LiveGateError("IMAGE_ATTEMPT_NOT_REQUESTED")
             req=flow.image_input(actor,jid)
             adapter=live_image_adapter(root/"live"/"owner_image",req)
-            result=flow._guarded(actor,jid,"image",{
-                "copy_sha":req.copy_hash,"revision":req.copy_revision,
-                "image_model":adapter.model},
-                lambda:adapter.generate(req,project_id=flow.project_id),
-                image=True)
+            fingerprint={"copy_sha":req.copy_hash,"revision":req.copy_revision,
+                         "image_model":adapter.model}
+            # Distinct Owner project UUID and attempt fingerprint prevent
+            # replaying the old immutable provider binding on an explicit retry.
+            project_id=flow.project_id
+            if retry:
+                fingerprint["image_attempt_id"]=current["attempt_id"]
+                project_id=uuid5(flow.project_id,"image-attempt/"+current["attempt_id"])
+            result=flow._guarded(actor,jid,"image",fingerprint,
+                lambda:adapter.generate(req,project_id=project_id),image=True)
             committed=flow.accept_image_result(actor,jid,result,offline=False)
             result_sha=committed["image_sha"]
         else:

@@ -6,12 +6,13 @@ type Props<T extends string> = {
   options: readonly Option<T>[]
   value: T
   onChange: (value: T) => void
+  disabled?:boolean
 }
 
 // 라디오 기반 선택 카드: 방향키 이동·스크린리더 선택 상태는 네이티브 라디오가 처리한다
-export default function OptionGroup<T extends string>({ legend, name, options, value, onChange }: Props<T>) {
+export default function OptionGroup<T extends string>({ legend, name, options, value, onChange, disabled=false }: Props<T>) {
   return (
-    <fieldset className="option-group">
+    <fieldset className="option-group" disabled={disabled}>
       <legend className="group-label">{legend}</legend>
       <div className="options">
         {options.map((o) => (

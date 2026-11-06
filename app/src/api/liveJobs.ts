@@ -2,6 +2,7 @@ import { request } from './client'
 import type { Job } from '../types/draft'
 import type { ProductInput,AdCopyOutput } from '../types/textSchema'
 import type { Ratio } from '../config'
+import type {GenerationMode} from '../store/projectStore'
 import { asProductJob,guardCopyApproval,guardCopyReviewMutation,guardImageApproval,
   type LiveSnapshot,type LiveTask,type LivePerformance } from './liveMapping'
 import { getJob } from './jobs'
@@ -13,6 +14,23 @@ export type TextCostEstimate={
   mode:'NON_BILLABLE_ESTIMATE';scope:'TEXT_ONLY';model:string;
   total_usd:number;display:string;steps:Record<string,number>;
   includes_image_generation:false;actual_charges_known:false
+}
+export type CombinedCostEstimate={
+  mode:'NON_BILLABLE_ESTIMATE';scope:'TEXT_PLUS_ONE_IMAGE';
+  text:{model:string;steps:Record<string,number>;estimate_usd:number;display:string};
+  image:{status:'LIMITED_EMPIRICAL_REFERENCE'|'NO_MATCHING_PROFILE_EVIDENCE';
+    model:string;quality:string;ratio:string;generation_mode:'composed'|'freeform';
+    sample_count:number;reference_median_usd:number|null;
+    observed_min_usd:number|null;observed_max_usd:number|null;
+    reason:string;pricing_source:string;billing_cap:false;
+    actual_charges_known:false};
+  total_reference_usd:number|null;total_display:string|null;
+  actual_charges_known:false;billing_cap:false;cost_policy:'MONITOR_ONLY'
+}
+export function getTotalCostEstimate(photoCount:number,ratio:Ratio,mode:GenerationMode){
+  const q=new URLSearchParams({photo_count:String(photoCount),image_size:ratio,
+    generation_mode:mode})
+  return request<CombinedCostEstimate>(prefix+'/total-cost-estimate?'+q.toString())
 }
 export function getTextCostEstimate(photoCount:number,revisionTarget?:'copy'|'image_prompt'){
   const q=new URLSearchParams({photo_count:String(photoCount)})
@@ -27,9 +45,9 @@ export async function getProductLiveJob(id:string):Promise<Job>{
   return asProductJob(snapshot,original)
 }
 // Owner #26: bind selected ratio at Live input, never submit it again on image queue.
-export function createLiveInput(b0:Job,product:ProductInput,imageSize:Ratio){
+export function createLiveInput(b0:Job,product:ProductInput,imageSize:Ratio, generationMode:GenerationMode='composed'){
   return request<LiveSnapshot>(url(b0.job_id)+'/input',
-    json({customer_request_id:'product-live-'+b0.job_id,product,image_size:imageSize}))
+    json({customer_request_id:'product-live-'+b0.job_id,product,image_size:imageSize, generation_mode:generationMode}))
 }
 export const queueLive=(id:string,stage:'text'|'prompt'|'image')=>
   request<{task_id:string;state:string;new:boolean}>(url(id)+'/queue-'+stage,
@@ -73,6 +91,19 @@ export const approveLiveImage=(s:LiveSnapshot)=>{
 export const rejectLiveImage=(s:LiveSnapshot)=>{
   guardImageApproval(s)
   return request<LiveSnapshot>(url(s.job_id)+'/reject-image',json({image_sha:s.image_sha}))
+}
+export function regenerateLiveImage(s:LiveSnapshot,requestKey:string){
+  if(s.state!=='IMAGE_REJECTED'||!s.image_sha||!s.approval_current)
+    throw Error('IMAGE_RETRY_CONTEXT_INVALID')
+  return request<{task_id:string;state:string;new:boolean;attempt_version:number}>(
+    url(s.job_id)+'/regenerate-image',
+    json({expected_image_sha:s.image_sha,request_key:requestKey}))
+}
+export function qaRegenerateImage(s:LiveSnapshot,requestKey:string){
+  if(s.state!=='IMAGE_REJECTED'||!s.image_sha||!s.approval_current)
+    throw Error('QA_IMAGE_RETRY_CONTEXT_INVALID')
+  return request<LiveSnapshot>('/demo/api/qa/jobs/'+encodeURIComponent(s.job_id)+'/regenerate-image',
+    json({expected_image_sha:s.image_sha,request_key:requestKey}))
 }
 export const composeLive=(id:string,layout?:unknown)=>request<LiveSnapshot>(
   url(id)+'/compose',json(layout===undefined?{}:{layout}))

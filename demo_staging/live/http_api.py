@@ -14,7 +14,7 @@ from fastapi import FastAPI,HTTPException,Request
 from fastapi.responses import FileResponse,JSONResponse
 from pydantic import BaseModel,ConfigDict,Field
 
-from .contracts import LiveGateError
+from .contracts import LiveGateError,digest
 from .pipeline import LivePipeline
 from .queue import LiveQueue
 from .reviews import LiveShares
@@ -26,6 +26,7 @@ class InputPayload(BaseModel):
     model_config=ConfigDict(extra="forbid",strict=True)
     product: dict
     image_size: str | None = None
+    generation_mode: str | None = None
     customer_request_id: str
 
 
@@ -57,6 +58,12 @@ class CopyApproval(BaseModel):
 class ImageApproval(BaseModel):
     model_config=ConfigDict(extra="forbid",strict=True)
     image_sha:str
+
+
+class ImageRegenerateRequest(BaseModel):
+    model_config=ConfigDict(extra="forbid",strict=True)
+    expected_image_sha:str=Field(pattern=r"^[0-9a-f]{64}$")
+    request_key:str=Field(pattern=r"^[0-9a-f]{32}$")
 
 
 class ComposeRequest(BaseModel):
@@ -114,13 +121,17 @@ def register_live_api(app:FastAPI, ledger, runtime_root:Path, cookie_name:str):
             code=error.code
             return HTTPException(status_code=409 if ("STATE" in code or "STALE" in code or
                              "APPROVAL" in code or "CONFLICT" in code or
-                             code in ("REAL_COMPLIANCE_BLOCKED","REVISION_IN_PROGRESS"))
+                             code in ("REAL_COMPLIANCE_BLOCKED","REVISION_IN_PROGRESS",
+                                      "IMAGE_RETRY_OUTSTANDING_OR_UNKNOWN",
+                                      "IMAGE_RETRY_STALE_REJECTION",
+                                      "IMAGE_RETRY_LEDGER_MISMATCH"))
                              else 422,
                                 detail={"code":code})
         return HTTPException(status_code=503,detail="LIVE_GATE_UNAVAILABLE")
 
     def visible(job):
         profile=flow.state.template(job["actor"],job["job_id"])
+        attempt=flow.state.current_image_attempt(job["actor"],job["job_id"])
         # Never return internal Provider errors, signed URLs, input file paths
         # or private reference image contents to the browser.
         out={"job_id":job["job_id"],"state":job["state"],"mode":job["mode"],
@@ -130,8 +141,10 @@ def register_live_api(app:FastAPI, ledger, runtime_root:Path, cookie_name:str):
              "approval_current":bool(job["approval_sha"]),
              "previous_copy_available":flow.state.previous_copy_available(job["actor"],job["job_id"]),
              "revision_feedback":flow.state.revision_feedback(job["actor"],job["job_id"]),
+             "image_attempt_version":attempt["attempt_version"] if attempt else 1,
              "template_profile":profile["profile_id"] if profile else "PRE_POLICY_LEGACY",
              "image_size":json.loads(job["input_json"]).get("image_size","4:5"),
+             "generation_mode":json.loads(job["input_json"]).get("generation_mode","composed"),
              "output_size":({"width":profile["safe_zone"]["final_size"][0],
                              "height":profile["safe_zone"]["final_size"][1]}
                      if profile and profile["profile_id"].startswith("OWNER_IMAGE_SIZE_")
@@ -204,14 +217,29 @@ def register_live_api(app:FastAPI, ledger, runtime_root:Path, cookie_name:str):
                 if owner_request.layout_selection is not None else (1152,1440))
             # Synthetic pixel image, not an OpenAI result. Immutable copy and
             # candidate SHA still go through the real Serving binding gate.
-            img=png((215,225,235),size=native)
+            attempt=flow.state.current_image_attempt(actor,job_id)
+            version=attempt["attempt_version"] if attempt else 1
+            img=png((215+version%8,225+version%10,235-version%10),size=native)
+            receipt={"mode":"OFFLINE_FIXTURE","provider_calls":0}
+            if owner_request.generation_mode=="freeform":
+                receipt.update({"generation_mode":"freeform","state":"succeeded",
+                                "rendering":"QA_FIXTURE_NO_ACTUAL_MODEL_TEXT"})
             candidate=BackendGeneratedImage(
                 image_bytes=img,mime_type="image/png",width=native[0],height=native[1],
                 sha256=hashlib.sha256(img).hexdigest(),job_id=job_id,
                 copy_revision=owner_request.copy_revision,
-                copy_hash=owner_request.copy_hash,mock=True,
-                receipt={"mode":"OFFLINE_FIXTURE","provider_calls":0})
+                copy_hash=owner_request.copy_hash,mock=True,receipt=receipt)
             return visible(flow.accept_image_result(actor,job_id,candidate,offline=True))
+        except (LiveGateError,ValueError) as e:raise safe_error(e) from None
+
+    @app.post("/demo/api/qa/jobs/{job_id}/regenerate-image")
+    def qa_regenerate_image(job_id:str,body:ImageRegenerateRequest,request:Request):
+        actor=qa_access(request,job_id)
+        try:
+            queue.assert_image_retry_safe(actor,job_id)
+            flow.begin_image_retry(actor,job_id,body.expected_image_sha,body.request_key)
+            # This is a deterministic offline candidate, never a new paid request.
+            return qa_prompt_image(job_id,request)
         except (LiveGateError,ValueError) as e:raise safe_error(e) from None
 
     @app.post("/demo/api/qa/jobs/{job_id}/compose")
@@ -291,6 +319,33 @@ def register_live_api(app:FastAPI, ledger, runtime_root:Path, cookie_name:str):
             "includes_image_generation":False,
             "actual_charges_known":False,
         }
+
+    @app.get(prefix+"/total-cost-estimate")
+    def total_cost_estimate(request:Request,photo_count:int=5,
+                            image_size:str="4:5",generation_mode:str="composed"):
+        """No-provider authenticated estimate: text+one image, no billable IO."""
+        authorized(request)
+        from src.text_generation.cost import estimate_generation_cost,format_usd
+        from .image_cost_estimate import estimate_image_once
+        text_model=os.environ.get("IT_TEM_TEXT_MODEL","gpt-6-luna")
+        vision_model=os.environ.get("IT_TEM_VISION_MODEL","gpt-6-luna")
+        image_model=os.environ.get("IT_TEM_IMAGE_MODEL","gpt-image-2.6-sunburst")
+        try:
+            txt=estimate_generation_cost(photo_count=photo_count,
+                 model=text_model,vision_model=vision_model)
+            image=estimate_image_once(ratio=image_size,generation_mode=generation_mode,
+                 model=image_model)
+        except ValueError:
+            raise HTTPException(status_code=422,detail="TOTAL_ESTIMATE_UNAVAILABLE") from None
+        median=image["reference_median_usd"]
+        return {"mode":"NON_BILLABLE_ESTIMATE","scope":"TEXT_PLUS_ONE_IMAGE",
+            "text":{"model":txt.model,"steps":txt.steps,
+                    "estimate_usd":txt.total_usd,"display":format_usd(txt.total_usd)},
+            "image":image,
+            "total_reference_usd":round(txt.total_usd+median,6) if median is not None else None,
+            "total_display":format_usd(txt.total_usd+median) if median is not None else None,
+            "actual_charges_known":False,"billing_cap":False,
+            "cost_policy":"MONITOR_ONLY"}
 
     @app.get(prefix+"/capabilities")
     def capabilities(request:Request):
@@ -477,10 +532,32 @@ def register_live_api(app:FastAPI, ledger, runtime_root:Path, cookie_name:str):
         j=flow.state.get(actor,job_id)
         if j["state"]!="PROMPT_READY" or not j["prompt_json"]:
             raise HTTPException(status_code=409,detail="IMAGE_NOT_READY")
+        attempt=flow.state.current_image_attempt(actor,job_id)
+        ctx=(digest({"approval_sha":j["approval_sha"],"attempt_id":attempt["attempt_id"]})
+             if attempt and attempt["attempt_version"]>1 else j["approval_sha"])
         task,new=queue.enqueue(actor=actor,job_id=job_id,stage="image",
-                         context_sha=j["approval_sha"],mode="LIVE")
+                         context_sha=ctx,mode="LIVE")
         return JSONResponse({"task_id":task["id"],"state":task["state"],"new":new},
                             status_code=202)
+
+    @app.post(prefix+"/jobs/{job_id}/regenerate-image")
+    def regenerate_image(job_id:str,body:ImageRegenerateRequest,request:Request):
+        actor=authorized(request,job_id)
+        if not (flow.live_enabled and flow.pm_authorized and actor in flow.approved_actors):
+            raise HTTPException(423,"LIVE_PROVIDER_NOT_APPROVED")
+        try:
+            queue.assert_image_retry_safe(actor,job_id)
+            attempt=flow.begin_image_retry(actor,job_id,body.expected_image_sha,
+                                           body.request_key)
+            current=flow.state.get(actor,job_id)
+            ctx=digest({"approval_sha":current["approval_sha"],
+                        "attempt_id":attempt["attempt_id"]})
+            task,new=queue.enqueue(actor=actor,job_id=job_id,stage="image",
+                                   context_sha=ctx,mode="LIVE")
+            return JSONResponse({"task_id":task["id"],"state":task["state"],
+                                 "new":new,"attempt_version":attempt["attempt_version"]},
+                                status_code=202)
+        except LiveGateError as e:raise safe_error(e) from None
 
     @app.get(prefix+"/tasks/{task_id}")
     def task_status(task_id:str,request:Request):
