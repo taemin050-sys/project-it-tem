@@ -125,7 +125,7 @@ export async function advance(first: () => Promise<Job>, step: Step | null = nul
       if(imageCount===undefined || refCount===undefined)throw Error('원본 사진 메타데이터를 확인하지 못했습니다.')
       const input:ProductInput={...product,brand_name:product.brand_name?.trim()||null,
         product_image_count:imageCount,reference_image_count:refCount}
-      const current=await createLiveInput(job,input)
+      const current=await createLiveInput(job,input,useProjectStore.getState().ratio)
       if(current.state==='INPUT_STORED'){
         setRun({step:'ai/analyze'})
         const task=await queueLive(jobId,'text')
@@ -150,7 +150,7 @@ export async function advance(first: () => Promise<Job>, step: Step | null = nul
   }
 }
 
-// shortcut: 비율은 mock(v2 ai/image)에만 보낸다. 이미지·서빙이 비율을 받으면 Live 입력에도 넣는다
+// mock(v2)은 ai/image 단계에 비율을 보낸다. Live는 입력(createLiveInput)의 image_size로 보낸다
 function stepBody(step: Step) {
   if (step === 'mock/plan') return legacyPlanBody()
   if (step === 'ai/image') return { aspect_ratio: useProjectStore.getState().ratio }
@@ -174,7 +174,8 @@ export async function recoverLiveInput(){
     const reference_image_count=original.assets?.filter(a=>a.role==='reference').length
     if(product_image_count===undefined||reference_image_count===undefined)
       throw Error('기존 사진 기록이 없습니다.')
-    const current=await createLiveInput(original,{...productPayload(),product_image_count,reference_image_count})
+    const current=await createLiveInput(original,{...productPayload(),product_image_count,reference_image_count},
+      useProjectStore.getState().ratio)
     if(current.state==='INPUT_STORED'){
       const s=await getLiveSnapshot(jobId)
       if(s.state==='INPUT_STORED'){

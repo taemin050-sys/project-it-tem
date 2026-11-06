@@ -11,6 +11,7 @@ export type LiveSnapshot={
   approval_current:boolean;analysis?:{analysis:ProductAnalysis;analysis_succeeded:boolean;error?:string|null};
   research_display?:ResearchResult;copy?:AdCopyOutput;compliance?:ComplianceReport;
   image_prompt?:unknown
+  output_size?:{width:number;height:number}
 }
 export type LiveTask={task_id:string;job_id:string;stage:string;state:
   'QUEUED'|'RUNNING'|'SUCCEEDED'|'BILLING_UNKNOWN';error_code?:string|null}
@@ -44,7 +45,9 @@ export function asProductJob(snapshot:LiveSnapshot,b0:Job):Job{
     ...(snapshot.analysis?.analysis_succeeded?{product_analysis:snapshot.analysis.analysis}:{}),
     research_result:snapshot.research_display,copy_output:snapshot.copy,
     compliance_report:snapshot.compliance,image_candidate:candidate,
-    final_output:snapshot.state==='COMPLETED'?{mock:false,width:1080,height:1350,format:'png'}:undefined
+    // shortcut: output_size 형태({width,height})는 서빙 답변서 기준, GCP 응답으로 확인되면 주석 삭제. 없으면 예전 기본 4:5
+    final_output:snapshot.state==='COMPLETED'?{mock:false,width:snapshot.output_size?.width??1080,
+      height:snapshot.output_size?.height??1350,format:'png'}:undefined
   }
 }
 export function guardCopyApproval(s:LiveSnapshot){

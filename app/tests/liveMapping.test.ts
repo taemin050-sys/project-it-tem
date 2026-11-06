@@ -38,6 +38,12 @@ test('real final download maps to the owner-scoped server, no offline artifacts'
   assert.equal(job.final_output?.mock,false)
   assert.equal(job.artifacts?.final?.download_url,
     '/demo/api/live/jobs/'+raw.job_id+'/artifacts/final')
+  assert.equal(job.final_output?.height,1350)
+})
+test('final size follows the snapshot output_size (selected ratio)',()=>{
+  const job=asProductJob({...example,state:'COMPLETED',mode:'LIVE',
+    output_size:{width:1080,height:1920}},raw)
+  assert.deepEqual([job.final_output?.width,job.final_output?.height],[1080,1920])
 })
 test('offline fixture and cross-job DTOs never pass as live',()=>{
   assert.throws(()=>asProductJob({...example,mode:'OFFLINE_FIXTURE'},raw))

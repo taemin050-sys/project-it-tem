@@ -63,7 +63,7 @@ export default function ExportPage() {
   const [copied, setCopied] = useState<'idle' | 'done' | 'error'>('idle')
 
   const ready = job?.status === 'COMPLETED' && finalUrl !== undefined && caption !== undefined
-  // 서버가 알려준 최종 크기(mock은 고른 비율, Live는 4:5) 기준으로 확인한다
+  // 서버가 알려준 최종 크기(mock은 고른 비율, Live는 스냅샷 output_size) 기준으로 확인한다
   const target = job?.final_output ?? CANVAS
   const sizeOk = size?.width === target.width && size?.height === target.height
   const expected = job && approvedText(job)
