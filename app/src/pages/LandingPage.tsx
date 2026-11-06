@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
+import { continueOrStartNew } from '../api/useJob'
 import FluidAdPreview from '../components/FluidAdPreview'
 import { SERVICE_NAME } from '../config'
 import { adExamples, mockCopyReview } from '../mocks/sampleResult'
@@ -90,7 +91,7 @@ function SiteHeader() {
             <a key={n.href} href={n.href} onClick={() => setOpen(false)}>{n.label}</a>
           ))}
         </nav>
-        <Link className="button small header-cta" to="/create">광고 만들기</Link>
+        <Link className="button small header-cta" to="/create" onClick={continueOrStartNew}>광고 만들기</Link>
         <button
           type="button"
           className="menu-toggle"
@@ -123,7 +124,7 @@ export default function LandingPage() {
             </h1>
             <p className="hero-lead">제품 사진만 준비하세요. 복잡한 디자인 작업 없이 광고 시안을 만들어보세요.</p>
             <div className="hero-actions">
-              <Link className="button" to="/create">광고 시안 만들기</Link>
+              <Link className="button" to="/create" onClick={continueOrStartNew}>광고 시안 만들기</Link>
               <a className="text-link" href="#how">만드는 방법 보기</a>
             </div>
             <p className="hero-note">제품 사진 업로드부터 PNG 저장까지</p>
@@ -228,7 +229,7 @@ export default function LandingPage() {
               <h2 id="cta-title">시작은 제품 사진.</h2>
               <p>내 제품으로 광고 시안을 만들어보세요.</p>
             </div>
-            <Link className="button dark" to="/create">광고 시안 만들기</Link>
+            <Link className="button dark" to="/create" onClick={continueOrStartNew}>광고 시안 만들기</Link>
           </div>
         </section>
       </main>

@@ -1,4 +1,5 @@
-import { Link, Outlet, useLocation } from 'react-router-dom'
+import { Link, Outlet, useLocation, useNavigate } from 'react-router-dom'
+import { startNewAd } from '../api/useJob'
 import { SERVICE_NAME } from '../config'
 import { STEPS, stepIndex } from '../steps'
 import { useProjectStore } from '../store/projectStore'
@@ -8,6 +9,8 @@ const STATE_TEXT = { done: '완료', current: '현재 단계', todo: '진행 전
 // 지나온 단계만 되돌아갈 수 있고, 다음 단계는 각 화면의 버튼으로만 넘어간다
 export default function CreateLayout() {
   const { pathname } = useLocation()
+  const navigate = useNavigate()
+  const busy = useProjectStore((s) => s.run.busy)
   const mock = useProjectStore((s) => s.mock)
   const setMock = useProjectStore((s) => s.setMock)
   const current = stepIndex(pathname)
@@ -39,6 +42,11 @@ export default function CreateLayout() {
               })}
             </ol>
           </nav>
+          {/* 어느 단계에서든 새 광고로: 끝나지 않은 작업이면 확인을 받고, AI 요청 중에는 막는다 */}
+          <button type="button" className="button secondary small new-ad" disabled={busy}
+            onClick={() => { if (startNewAd()) navigate('/create/product') }}>
+            새 광고
+          </button>
         </div>
         <div className="stepper-bar" aria-hidden="true">
           {STEPS.map((s, i) => <span key={s.path} className={i <= current ? 'on' : undefined} />)}

@@ -2,7 +2,7 @@ import { useState, type FormEvent } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { isUnreachable } from '../api/client'
 import { createJob } from '../api/jobs'
-import { advance,productPayload,recoverLiveInput,resetJob } from '../api/useJob'
+import { advance,hasUnfinishedJob,productPayload,recoverLiveInput,resetJob } from '../api/useJob'
 import Field from '../components/Field'
 import MockFallback from '../components/MockFallback'
 import OptionGroup from '../components/OptionGroup'
@@ -64,6 +64,8 @@ export default function ProductPage() {
       document.getElementById(first[1])?.focus()
       return
     }
+    // 진행 중인 작업이 있는데 새로 제출하면 그 작업은 이 화면에서 사라진다 (서버 Job은 남음)
+    if (hasUnfinishedJob() && !window.confirm('진행 중인 광고가 있습니다. 이 정보로 새로 만들면 진행 중인 광고는 이 화면에서 사라집니다. 이전 작업은 서버에 남습니다. 새로 만들까요?')) return
     setUploading(true)
     setUploadError(undefined)
     try {

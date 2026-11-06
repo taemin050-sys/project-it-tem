@@ -1,8 +1,8 @@
 import { useQuery } from '@tanstack/react-query'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { getBlob } from '../api/jobs'
-import { resetJob, useBlobUrl, useJob, useLiveSnapshot } from '../api/useJob'
+import { startNewAdLink, useBlobUrl, useJob, useLiveSnapshot } from '../api/useJob'
 import {retryCompose} from '../api/liveFlow'
 import {shareLive,listPublishedLive} from '../api/liveJobs'
 import {isPublishedFinal} from '../api/liveMapping'
@@ -22,6 +22,9 @@ const approvedText = (job: Job) => job.copy_output?.caption ?? job.copy_candidat
 export default function ExportPage() {
   const run = useProjectStore((s) => s.run)
   const { data: job } = useJob()
+  // 결과까지 끝난 작업을 기억해 둔다: 이후 홈·광고 만들기에서 확인 없이 새 광고로 시작한다 (새로고침 뒤에도 유지)
+  const completedId = job?.status === 'COMPLETED' ? job.job_id : null
+  useEffect(() => { if (completedId) useProjectStore.getState().setFinishedJob(completedId) }, [completedId])
   const mock=useProjectStore(s=>s.mock)
   const [shared,setShared]=useState(false)
   const [sharing,setSharing]=useState(false)
@@ -91,7 +94,10 @@ export default function ExportPage() {
       back={{ to: '/create/draft', label: '이미지 검토' }}
       actions={
         <div className="button-row">
-          {job?.status === 'COMPLETED' && <Link className="button secondary" to="/" onClick={resetJob}>홈으로</Link>}
+          {job?.status === 'COMPLETED' && <>
+            <Link className="button secondary" to="/" onClick={startNewAdLink}>홈으로</Link>
+            <Link className="button secondary" to="/create/product" onClick={startNewAdLink}>새 광고 만들기</Link>
+          </>}
           {composeFailed && <button className="button secondary" onClick={() => void retryCompose(live.data!.job_id).catch(() => {})}>합성만 다시 시도</button>}
           <button className="button" disabled={!ready} onClick={() => download(finalUrl!, `ad_${target.width}x${target.height}.${ext}`)}>
             광고 이미지 저장 ({ext.toUpperCase()})
