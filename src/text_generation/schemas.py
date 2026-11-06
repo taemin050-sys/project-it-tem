@@ -1,20 +1,23 @@
-"""텍스트 모듈 스키마 (v0.8)
+"""텍스트 모듈 스키마 (v0.10)
 
 흐름 : 사용자 입력 → 제품 분석(VLM) → 기획 AI 사전 조사 → 콘셉트·카피 생성 → 규제 검수
       → 카피 승인 → 이미지 프롬프트 → (이미지 생성·합성은 이미지/서비스 파트)
       → 최종 출력(이미지 + 게시글 본문 + 해시태그)
 
-- ProductInput       : 사용자 입력 (브랜드명, 제품명, 카테고리, 특징, 광고 목적, 기능성 여부, 사진 검증)
+- ProductInput       : 사용자 입력 (브랜드명, 제품명, 카테고리, 특징, 광고 목적, 기능성 여부·종류, 이모티콘 정도, 사진 검증)
 - ProductAnalysis    : VLM 제품 분석 결과 (제품 사진 2~5장을 함께 분석)
 - ProductAnalysisResult : ProductAnalysis + 분석 성공 여부 + 실패 이유 (코드에서 조립)
 - ResearchOutput     : 기획 AI 사전 조사 + 광고 방향 + 화면용 요약 (LLM 출력)
 - ResearchResult     : ResearchOutput + 실제 인용 출처 + 검색 수행 여부 + 실패 이유 (코드에서 조립)
 - AdCopyOutput       : 광고 콘셉트 + 카피 1개 + 게시글 본문 + 해시태그
+- CopyRevisionOutput : 수정 요청을 반영한 카피 + 고친 항목 + 사용자 안내
 - ImagePromptOutput  : 서빙을 거쳐 이미지 담당에게 넘길 배경 생성 프롬프트
+- ImagePromptRevisionOutput : 수정 요청을 반영한 이미지 프롬프트 + 사용자 안내
 - ComplianceReport   : 규제 검수 리포트 (4단계 사용자 카피 검토 때 경고로 표시)
 
-* LLM이 직접 출력하는 스키마(ProductAnalysis, ResearchOutput, AdCopyOutput, ImagePromptOutput, LLMIssue)는
-  Structured Outputs용이라 기본값 없이 모든 필드를 필수로 둠 (값이 없으면 None 또는 빈 리스트)
+* LLM이 직접 출력하는 스키마(ProductAnalysis, ResearchOutput, AdCopyOutput, CopyRevisionOutput,
+  ImagePromptOutput, ImagePromptRevisionOutput, LLMIssue)는 Structured Outputs용이라
+  기본값 없이 모든 필드를 필수로 둠 (값이 없으면 None 또는 빈 리스트)
 
 변경 이력
 - v0.4 : AdCopyOutput.copy → ad_copy (Pydantic BaseModel.copy와 이름 충돌)
@@ -29,11 +32,17 @@
 - v0.6 : ContainerType에 "어플리케이터"(립글로스·틴트 등 팁으로 바르는 용기), "스틱"(립스틱·립밤 등) 추가
 - v0.7 : ProductAnalysisResult 추가 (제품 분석 성공 여부·실패 이유를 서빙에 함께 전달)
 - v0.8 : ResearchResult에 error 추가 (기획 AI 조사·검색 실패 이유를 서빙에 함께 전달)
+- v0.9 : 고도화 입력값 추가 (둘 다 기본값이 있어 기존 입력과 호환)
+    · ProductInput.functional_types : 기능성 종류별 허용 표현 분기
+    · ProductInput.emoji_level : 게시글 본문 이모티콘 정도·말투 (없음 / 보통 / 많이)
+- v0.10 : 수정 요청 반영 (카피·이미지를 거절해도 처음으로 돌아가지 않게)
+    · CopyRevisionOutput : 고친 카피 + 고친 항목(changed_fields) + 반영 못 한 이유(note)
+    · ImagePromptRevisionOutput : 고친 이미지 프롬프트 + 반영 못 한 이유(note)
 """
 
 from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 # ---------- 공통 선택값 ----------
 
@@ -68,6 +77,10 @@ FunctionalType = Literal[
     "튼살붉은선완화",
 ]
 
+EmojiLevel = Literal[
+    "없음", "보통", "많이"
+]  # 게시글 본문에만 적용 (이미지 위 문구·해시태그에는 안 넣음)
+
 SourceType = Literal[
     "사용자 입력", "검색 결과", "AI 추론"
 ]  # AI 추론 = 사진 분석 + AI 판단
@@ -88,6 +101,9 @@ RiskCategory = Literal[
 CopyField = Literal[
     "product_name", "headline", "subline", "cta", "caption", "hashtags", "user_text"
 ]
+RevisableField = Literal[
+    "plan", "headline", "subline", "cta", "caption", "hashtags"
+]  # 수정 요청으로 고칠 수 있는 항목
 
 
 # ---------- 1. 사용자 입력 (1단계) ----------
@@ -107,14 +123,29 @@ class ProductInput(BaseModel):
     )
     is_functional: bool = Field(
         ...,
-        description="기능성 화장품 여부 (MVP는 종류를 모르므로 기능성 표현은 '근거 확인 필요'로 처리)",
+        description="기능성 화장품 여부 (종류를 고르지 않으면 기능성 표현은 모두 '근거 확인 필요'로 처리)",
     )
-    # functional_types: list[FunctionalType]  → 고도화 때 추가 (기능성 종류별 허용 표현 분기)
+    functional_types: list[FunctionalType] = Field(
+        default_factory=list,
+        description="심사(보고)받은 기능성 종류, 예: ['자외선차단'] (고른 종류만 '근거 확인 필요', 나머지 기능성 표현은 '위반 의심')",
+    )
+    emoji_level: EmojiLevel = Field(
+        "없음",
+        description="게시글 본문 이모티콘 정도 (없음 : 이모티콘 없이 차분하게 / 보통 : 문단마다 1~2개 / 많이 : 거의 모든 줄 + 친근한 말투)",
+    )
     photo_verified: bool = Field(
         ..., description="사진 검증 체크박스 (직접 촬영했거나 사용 권한이 있는 사진)"
     )
     product_image_count: int = Field(..., ge=2, le=5, description="제품 사진 장수")
     reference_image_count: int = Field(0, ge=0, le=5, description="배경 참고 사진 장수")
+
+    @model_validator(mode="after")
+    def _sync_functional(self) -> "ProductInput":
+        """기능성 종류를 골랐으면 기능성 화장품으로 처리, 중복 종류 제거"""
+        self.functional_types = list(dict.fromkeys(self.functional_types))
+        if self.functional_types:
+            self.is_functional = True
+        return self
 
 
 # ---------- 2. 제품 분석 결과 (VLM 출력, 제품 사진 2~5장 함께 분석) ----------
@@ -225,6 +256,20 @@ class AdCopyOutput(BaseModel):
     hashtags: list[str]
 
 
+class CopyRevisionOutput(BaseModel):
+    """카피 수정 요청 결과 (LLM 출력, changed_fields는 코드에서 실제로 바뀐 항목만 남김)"""
+
+    revised: AdCopyOutput = Field(..., description="수정 요청을 반영한 카피 전체")
+    changed_fields: list[RevisableField] = Field(
+        ...,
+        description="실제로 고친 항목 (목록에 없는 항목은 코드에서 이전 값으로 되돌림)",
+    )
+    note: str | None = Field(
+        ...,
+        description="요청 중 반영하지 못한 부분과 이유 한 문장 (사용자 화면에 표시, 모두 반영했으면 None)",
+    )
+
+
 # ---------- 5. 이미지 프롬프트 (LLM 출력 → 이미지 담당) ----------
 
 
@@ -235,6 +280,18 @@ class ImagePromptOutput(BaseModel):
     )
     mood: list[str] = Field(
         ..., description="AdPlan.mood와 같은 값 (VisualBrief.mood로 전달)"
+    )
+
+
+class ImagePromptRevisionOutput(BaseModel):
+    """이미지 프롬프트 수정 요청 결과 (LLM 출력)"""
+
+    revised: ImagePromptOutput = Field(
+        ..., description="수정 요청을 반영한 이미지 프롬프트"
+    )
+    note: str | None = Field(
+        ...,
+        description="요청 중 반영하지 못한 부분과 이유 한 문장 (사용자 화면에 표시, 모두 반영했으면 None)",
     )
 
 
@@ -291,3 +348,10 @@ class ComplianceReport(BaseModel):
         default_factory=list, description="게시 전 사용자가 직접 확인할 항목"
     )
     notice: str = "검수 결과는 참고용이며 법적 판단이 아닙니다. 게시 전 최종 확인 책임은 사용자에게 있습니다."
+
+
+def functional_label(product: ProductInput) -> str:
+    """프롬프트·체크리스트용 기능성 표시, 예: '예 (자외선차단)', '예 (종류 미입력)', '아니오'"""
+    if not product.is_functional:
+        return "아니오"
+    return f"예 ({', '.join(product.functional_types) or '종류 미입력'})"
