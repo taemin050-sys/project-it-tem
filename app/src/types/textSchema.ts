@@ -1,5 +1,5 @@
-// 텍스트 모듈 스키마 v0.8(김다혜) 원본을 옮긴 타입.
-// 출처: origin/feat/text-generation c558539 src/text_generation/schemas.py (dev 미병합). 원본과 다르면 원본이 우선.
+// 텍스트 모듈 스키마 v0.10(김다혜) 원본을 옮긴 타입.
+// 출처: dev src/text_generation/schemas.py (#25 병합본). 원본과 다르면 원본이 우선.
 // 서빙 응답에 어떻게 실릴지(필드 이름·감싸는 형식)는 이형기 님과 정하는 중이다
 // 프론트가 쓰지 않는 ImagePromptOutput(이미지 담당용), LLMIssue(텍스트 내부용)는 옮기지 않았다.
 
@@ -17,6 +17,10 @@ export const RISK_CATEGORIES = [
   '순위·최상급 표현', '전문가·매체 추천', '가상 후기', '확정 정보 불일치', '기타',
 ] as const
 export const COPY_FIELDS = ['product_name', 'headline', 'subline', 'cta', 'caption', 'hashtags', 'user_text'] as const
+// 화장품법 시행규칙 제2조 기능성화장품의 범위 (텍스트 schemas.py FunctionalType과 같은 순서). 여드름완화는 인체세정용 제품만
+export const FUNCTIONAL_TYPES = ['미백', '주름개선', '태닝', '자외선차단', '모발색상변화', '체모제거', '탈모완화', '여드름완화', '가려움개선', '튼살붉은선완화'] as const
+// 게시글 본문 이모티콘 정도 (헤드·서브·CTA·해시태그에는 텍스트 쪽에서 넣지 않음)
+export const EMOJI_LEVELS = ['없음', '보통', '많이'] as const
 
 export type ProductType = (typeof PRODUCT_TYPES)[number]
 export type ContainerType = (typeof CONTAINER_TYPES)[number]
@@ -24,6 +28,8 @@ export type SourceType = (typeof SOURCE_TYPES)[number]
 export type RiskLevel = (typeof RISK_LEVELS)[number]
 export type RiskCategory = (typeof RISK_CATEGORIES)[number]
 export type CopyField = (typeof COPY_FIELDS)[number]
+export type FunctionalType = (typeof FUNCTIONAL_TYPES)[number]
+export type EmojiLevel = (typeof EMOJI_LEVELS)[number]
 
 // ---------- 1. 사용자 입력 (React → 서빙 → 텍스트) ----------
 
@@ -35,6 +41,9 @@ export type ProductInput = {
   features: string
   ad_purpose: string
   is_functional: boolean
+  /** 심사(보고)받은 기능성 종류. 고르면 서버에서 is_functional=true로 맞춘다 */
+  functional_types: FunctionalType[]
+  emoji_level: EmojiLevel
   /** 사진 사용 권한 확인 체크 (권한을 AI가 증명하는 것은 아님) */
   photo_verified: boolean
   /** 2~5 */

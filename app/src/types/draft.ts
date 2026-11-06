@@ -59,4 +59,7 @@ export type Job = {
   copy_candidate?: LegacyCopy
   image_candidate?: ImageCandidate
   final_output?: { mock: boolean; width: number; height: number; format: string }
+  // shortcut: 수정 요청 직전 버전(되돌리기용)은 mock 제안 필드, 서빙 API 명세가 오면 그 이름으로 바꾼다
+  previous_copy_output?: AdCopyOutput
+  previous_image_candidate?: ImageCandidate
 }

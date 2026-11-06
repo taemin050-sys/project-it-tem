@@ -11,7 +11,7 @@ const limits = { product: { minFiles: 2, maxFiles: 5, acceptTypes: accept }, ref
 const png = new File([new Uint8Array(1)], 'a.png', { type: 'image/png' })
 const base: ProductForm = {
   brand_name: null, product_name: '글로우 세럼', product_category: null, features: '가벼운 보습 세럼',
-  ad_purpose: '신제품 홍보', is_functional: false, photo_verified: true,
+  ad_purpose: '신제품 홍보', is_functional: false, functional_types: [], emoji_level: '보통', photo_verified: true,
 }
 
 test('제품 정보 검사: 제품 사진 2장·배경 0장·브랜드/카테고리 없음은 정상', () => {
@@ -21,6 +21,11 @@ test('제품 정보 검사: 제품 사진 2장·배경 0장·브랜드/카테고
 test('제품 정보 검사: 누락 항목마다 해당 필드에 오류', () => {
   const errors = validateProduct([png], Array(6).fill(png), { ...base, product_name: ' ', features: '', photo_verified: false }, limits)
   assert.deepEqual(Object.keys(errors).sort(), ['features', 'images', 'photo_verified', 'product_name', 'references'])
+})
+
+test('제품 정보 검사: 기능성 화장품은 기능성 종류를 하나 이상 골라야 한다', () => {
+  assert.deepEqual(Object.keys(validateProduct([png, png], [], { ...base, is_functional: true }, limits)), ['functional_types'])
+  assert.deepEqual(validateProduct([png, png], [], { ...base, is_functional: true, functional_types: ['미백'] }, limits), {})
 })
 
 const job = (patch: Partial<Job>): Job => ({ job_id: 'j', status: 'INPUTS_VALIDATED', ...patch })
