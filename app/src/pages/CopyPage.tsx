@@ -7,7 +7,7 @@ import { advance, resetJob, useJob, useLiveProgress, useLiveSnapshot } from '../
 import JobBadges from '../components/JobBadges'
 import RunStatus from '../components/RunStatus'
 import StepPage from '../components/StepPage'
-import { COPY_LIMITS, countChars, overLimits } from '../lib/copyLimits'
+import { COPY_LIMITS, countChars, overLimits, SUBLINE_LINE_MAX, SUBLINE_MAX_LINES } from '../lib/copyLimits'
 import { copyFieldText, splitByIssues } from '../lib/highlight'
 import { canApproveCopy } from '../lib/pipeline'
 import { isCopyReviewHydrated } from '../api/liveMapping'
@@ -121,7 +121,7 @@ export default function CopyPage() {
   // 글자 수를 넘었으면 줄여 달라는 요청을 미리 채워 둔다 (사용자가 기준을 몰라도 바로 보낼 수 있게)
   function openRevision() {
     if (overs.length > 0 && !instruction.trim()) {
-      setInstruction(`글자 수를 줄여 주세요 (헤드 ${COPY_LIMITS.headline}자, 서브 ${COPY_LIMITS.subline}자, CTA ${COPY_LIMITS.cta}자 이내)`)
+      setInstruction(`글자 수를 줄여 주세요 (헤드 ${COPY_LIMITS.headline}자 1줄, 서브 ${COPY_LIMITS.subline}자·한 줄 ${SUBLINE_LINE_MAX}자·${SUBLINE_MAX_LINES}줄, CTA ${COPY_LIMITS.cta}자 1줄 이내)`)
     }
     setRevising(true)
   }

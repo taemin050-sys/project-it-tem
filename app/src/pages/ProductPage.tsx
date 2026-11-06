@@ -10,11 +10,10 @@ import OptionGroup from '../components/OptionGroup'
 import PhotoDrop from '../components/PhotoDrop'
 import StepPage from '../components/StepPage'
 import { PRODUCT_PHOTOS, RATIOS, REFERENCE_PHOTOS, SHRINK, type Ratio } from '../config'
-import { EMOJI_LEVELS } from '../lib/emojiLevel'
 import { shrinkImage } from '../lib/shrinkImage'
 import { validateProduct, type ProductErrors } from '../lib/validateProduct'
 import { useProjectStore } from '../store/projectStore'
-import { AD_PURPOSES, FUNCTIONAL_TYPES, PRODUCT_TYPES, type FunctionalType } from '../types/textSchema'
+import { AD_PURPOSES, EMOJI_LEVELS, FUNCTIONAL_TYPES, PRODUCT_TYPES, type EmojiLevel, type FunctionalType } from '../types/textSchema'
 
 const LIMITS = { product: PRODUCT_PHOTOS, reference: REFERENCE_PHOTOS }
 
@@ -28,6 +27,13 @@ const FOCUS_ORDER: [keyof ProductErrors, string][] = [
   ['photo_verified', 'photo_verified'],
 ]
 
+// 텍스트 schemas.py emoji_level 설명과 같은 뜻
+const EMOJI_DESC: Record<EmojiLevel, string> = {
+  없음: '이모티콘 없이 차분하게',
+  보통: '문단마다 1~2개',
+  많이: '거의 모든 줄 + 친근한 말투',
+}
+
 // 기능성 종류 목록 순서를 유지한 채 켜고 끈다
 const toggle = (list: FunctionalType[], t: FunctionalType, on: boolean) =>
   FUNCTIONAL_TYPES.filter((x) => (x === t ? on : list.includes(x)))
@@ -36,7 +42,7 @@ const describedBy = (...ids: (string | false | undefined)[]) => ids.filter(Boole
 
 export default function ProductPage() {
   const navigate = useNavigate()
-  const { images, references, product, emoji, ratio, mock, run, jobId, setImages, setReferences, setEmoji, setRatio, setProduct: saveProduct } = useProjectStore()
+  const { images, references, product, ratio, mock, run, jobId, setImages, setReferences, setRatio, setProduct: saveProduct } = useProjectStore()
   const [errors, setErrors] = useState<ProductErrors>({})
   const [uploading, setUploading] = useState(false)
   const [uploadError, setUploadError] = useState<{ message: string; offline: boolean }>()
@@ -222,11 +228,12 @@ export default function ProductPage() {
         <section className="panel" aria-label="이모티콘">
           <OptionGroup
             legend="게시글 이모티콘"
-            name="emoji"
-            value={emoji}
-            options={EMOJI_LEVELS.map((v) => ({ value: v, label: v }))}
-            onChange={setEmoji}
+            name="emoji_level"
+            value={product.emoji_level}
+            options={EMOJI_LEVELS.map((v) => ({ value: v, label: v, desc: EMOJI_DESC[v] }))}
+            onChange={(v) => setProduct({ emoji_level: v })}
           />
+          <p className="field-hint panel-footnote">게시글 본문에만 들어갑니다. 이미지 위 문구·해시태그에는 넣지 않습니다.</p>
         </section>
 
         <section className="panel" aria-label="화장품 구분">

@@ -1,20 +1,16 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { countChars, overLimits } from '../src/lib/copyLimits.ts'
-import { EMOJI_LEVELS, toOwnerEmojiLevel } from '../src/lib/emojiLevel.ts'
+import { EMOJI_LEVELS } from '../src/types/textSchema.ts'
 import { fitWithin } from '../src/lib/shrinkImage.ts'
 import { validateImages } from '../src/lib/validateImages.ts'
 
+test('Owner Text #25 official emoji enum is transmitted as ProductInput, not ad_purpose prompt text', () => {
+  assert.deepEqual(EMOJI_LEVELS, ['없음','보통','많이'])
+})
+
 const limits = { minFiles: 2, maxFiles: 5, acceptTypes: ['image/png'] }
 const png = (name: string, size = 1) => new File([new Uint8Array(size)], name, { type: 'image/png' })
-
-test('Text Owner #25 이모티콘 레벨은 고정 enum으로 전달하며 광고 목적에 문구를 몰래 추가하지 않는다', () => {
-  const mapped = EMOJI_LEVELS.map(toOwnerEmojiLevel)
-  assert.equal(toOwnerEmojiLevel('적음'), '보통')
-  assert.equal(toOwnerEmojiLevel('많음'), '많이')
-  assert.deepEqual(mapped, ['없음','보통','많이'])
-  assert.equal(new Set(mapped).size, 3)
-})
 
 test('글자 수: 공백 포함·줄바꿈 제외, 헤드 15·서브 25·CTA 10자 초과만 막는다', () => {
   assert.equal(countChars('가볍게 스며드는\n데일리 보습'), 14)
@@ -22,6 +18,14 @@ test('글자 수: 공백 포함·줄바꿈 제외, 헤드 15·서브 25·CTA 10�
   const ok = { headline: '가'.repeat(15), subline: `${'나'.repeat(15)}\n${'다'.repeat(10)}`, cta: '라'.repeat(10) }
   assert.deepEqual(overLimits(ok), [])
   assert.deepEqual(overLimits({ ...ok, headline: '가'.repeat(16), cta: '라'.repeat(11) }), ['헤드 16자 (기준 15자)', 'CTA 11자 (기준 10자)'])
+})
+
+test('서브: 총 25자 안이어도 한 줄 15자·2줄을 넘으면 막고, 헤드·CTA는 1줄만', () => {
+  const ok = { headline: '헤드', subline: '서브', cta: 'CTA' }
+  assert.deepEqual(overLimits({ ...ok, subline: `${'가'.repeat(16)}\n${'나'.repeat(9)}` }), ['서브 한 줄 16자 (기준 15자)'])
+  assert.deepEqual(overLimits({ ...ok, subline: `${'가'.repeat(15)}\n${'나'.repeat(10)}` }), [])
+  assert.deepEqual(overLimits({ ...ok, subline: '가\n나\n다' }), ['서브 3줄 (기준 2줄)'])
+  assert.deepEqual(overLimits({ ...ok, headline: '헤드\n둘', cta: '보기\n하기' }), ['헤드에 줄바꿈 있음 (기준 1줄)', 'CTA에 줄바꿈 있음 (기준 1줄)'])
 })
 
 test('정상 파일은 오류 없음 (용량 제한 없음)', () => {

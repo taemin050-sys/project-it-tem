@@ -1,22 +1,33 @@
 import { create } from 'zustand'
 import { createJSONStorage, persist } from 'zustand/middleware'
 import { MOCK_DEFAULT, type Ratio } from '../config'
-import type { EmojiLevel } from '../lib/emojiLevel'
 import type { Step } from '../lib/pipeline'
-import { AD_PURPOSES, type FunctionalType, type ProductInput } from '../types/textSchema'
+import { AD_PURPOSES, type ProductInput } from '../types/textSchema'
 
-// 사진 수는 전송 직전에 채운다. Owner Text v0.10에 functional_types·emoji_level 전달.
-export type ProductForm = Omit<ProductInput, 'product_image_count' | 'reference_image_count'> & { functional_types: FunctionalType[] }
+// 사진 수는 보낼 때 실제 파일 수로 채운다
+export type ProductForm = Omit<ProductInput, 'product_image_count' | 'reference_image_count'>
 
 /** 지금 보내고 있는 요청과 마지막 실패. 화면 진행 표시는 이 값만 쓴다 (추정 진행률 없음) */
 export type RunState = { busy: boolean; step: Step | null; error: string | null; offline?: boolean }
+
+// 처음 화면의 입력값 (이모티콘은 가운데 값을 기본으로)
+const INITIAL_PRODUCT: ProductForm = {
+  brand_name: null,
+  product_name: '',
+  product_category: null,
+  features: '',
+  ad_purpose: AD_PURPOSES[0],
+  is_functional: false,
+  functional_types: [],
+  emoji_level: '보통',
+  photo_verified: false,
+}
+const INITIAL_RATIO: Ratio = '4:5'
 
 type ProjectState = {
   images: File[]
   references: File[]
   product: ProductForm
-  emoji: EmojiLevel
-  setEmoji: (emoji: EmojiLevel) => void
   ratio: Ratio
   setRatio: (ratio: Ratio) => void
   jobId: string | null
@@ -41,19 +52,8 @@ type ProjectState = {
 export const useProjectStore = create<ProjectState>()(persist((set) => ({
   images: [],
   references: [],
-  product: {
-    brand_name: null,
-    product_name: '',
-    product_category: null,
-    features: '',
-    ad_purpose: AD_PURPOSES[0],
-    is_functional: false,
-    functional_types: [],
-    photo_verified: false,
-  },
-  emoji: '보통',
-  setEmoji: (emoji) => set({ emoji }),
-  ratio: '4:5',
+  product: INITIAL_PRODUCT,
+  ratio: INITIAL_RATIO,
   setRatio: (ratio) => set({ ratio }),
   jobId: null,
   identityScope: null,
@@ -72,14 +72,16 @@ export const useProjectStore = create<ProjectState>()(persist((set) => ({
 }), {
   name: 'it-tem-project',
   storage: createJSONStorage(() => sessionStorage),
-  partialize: (s) => ({ jobId: s.jobId, product: s.product, emoji: s.emoji, ratio: s.ratio, mock: s.mock,
+  partialize: (s) => ({ jobId: s.jobId, product: s.product, ratio: s.ratio, mock: s.mock,
     identityScope:s.identityScope,liveTaskId:s.liveTaskId }),
-  // 이전 버전에 저장된 product에는 새 항목(functional_types)이 없어 기본값 위에 덮는다
+  // 이전 버전에 저장된 product에는 새 항목(functional_types·emoji_level)이 없어 기본값 위에 덮는다
   merge: (saved, current) => {
-    const s = saved as Partial<ProjectState> | undefined
-    const oldEmoji=s?.emoji as string|undefined
-    const emoji=oldEmoji==='적음'?'보통':oldEmoji==='많음'?'많이'
-      :oldEmoji==='없음'||oldEmoji==='보통'?oldEmoji:current.emoji
-    return { ...current, ...s, emoji, product: { ...current.product, ...s?.product } }
+    const s = saved as (Partial<ProjectState> & { emoji?: string }) | undefined
+    const legacy = s?.emoji
+    const emoji_level = s?.product?.emoji_level ??
+      (legacy === '적음' ? '보통' : legacy === '많음' ? '많이' :
+        legacy === '없음' || legacy === '보통' ? legacy : current.product.emoji_level)
+    // A prior Live Job retains its own server snapshot; this migrates UI form only.
+    return { ...current, ...s, product: { ...current.product, ...s?.product, emoji_level } }
   },
 }))
