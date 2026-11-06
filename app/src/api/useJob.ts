@@ -1,6 +1,5 @@
 import { useQuery } from '@tanstack/react-query'
 import { useMemo } from 'react'
-import { withEmojiGuide } from '../lib/emojiLevel'
 import { nextStep, type Flow, type Step } from '../lib/pipeline'
 import { useObjectUrls } from '../lib/useObjectUrls'
 import { useProjectStore } from '../store/projectStore'
@@ -60,8 +59,8 @@ export async function refreshJob() {
   await queryClient.invalidateQueries({ queryKey: jobKey(jobId) })
 }
 
-// 새로 시작할 때 이전 작업의 상태와 결과 캐시를 비운다 (입력값·사진은 유지).
-// shortcut: 서버에 Job 삭제 API가 없어 서버 저장본은 남는다, 서빙에 삭제 API가 생기면 여기서 호출한다
+// 다시 만들 때 이전 작업의 상태와 결과 캐시를 비운다 (입력값·사진은 유지).
+// 서버의 이전 Job·결과물은 지우지 않고 보존한다. 새 Job은 제품 정보를 제출할 때 createJob으로 만든다
 export function resetJob() {
   const { setJobId, setRun } = useProjectStore.getState()
   setJobId(null)
@@ -70,10 +69,8 @@ export function resetJob() {
 }
 
 // 업로드·복구가 같은 입력을 보내야 서버 입력 스냅샷이 어긋나지 않는다
-// shortcut: 텍스트 ProductInput에 functional_types가 아직 없어 서버(모르는 항목 거절)로 보내지 않는다, 필드가 생기면 그대로 보낸다
 export function productPayload() {
-  const { product: { functional_types: _types, ...product }, emoji } = useProjectStore.getState()
-  return { ...product, ad_purpose: withEmojiGuide(product.ad_purpose, emoji) }
+  return useProjectStore.getState().product
 }
 
 // first(업로드·승인)를 보낸 뒤 사용자 승인이 필요한 곳까지 단계를 차례로 보낸다.

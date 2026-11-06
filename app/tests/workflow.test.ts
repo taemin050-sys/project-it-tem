@@ -11,7 +11,7 @@ const limits = { product: { minFiles: 2, maxFiles: 5, acceptTypes: accept }, ref
 const png = new File([new Uint8Array(1)], 'a.png', { type: 'image/png' })
 const base: ProductForm = {
   brand_name: null, product_name: '글로우 세럼', product_category: null, features: '가벼운 보습 세럼',
-  ad_purpose: '신제품 홍보', is_functional: false, functional_types: [], photo_verified: true,
+  ad_purpose: '신제품 홍보', is_functional: false, functional_types: [], emoji_level: '보통', photo_verified: true,
 }
 
 test('제품 정보 검사: 제품 사진 2장·배경 0장·브랜드/카테고리 없음은 정상', () => {
