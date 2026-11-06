@@ -81,6 +81,15 @@ export function isCopyReviewHydrated(
     s.compliance && job.copy_output && job.compliance_report &&
     job.compliance_report.passed===s.compliance.passed)
 }
+/** Revision/restore are remediation actions. Unlike approval they must
+ * remain available for a failed compliance review; the server still binds
+ * the authenticated actor, current Job, Generation and Review SHA via CAS.
+ */
+export function guardCopyReviewMutation(s:LiveSnapshot){
+  if(!s.job_id || s.state!=='COPY_REVIEW_REQUIRED'||!s.review_sha||!s.copy_sha||
+      !Number.isSafeInteger(s.generation)||s.generation<1)
+    throw Error('COPY_REVIEW_REVISION_NOT_CURRENT')
+}
 export function guardCopyApproval(s:LiveSnapshot){
   if(s.state!=='COPY_REVIEW_REQUIRED'||!s.review_sha||!s.copy_sha||
       !Number.isSafeInteger(s.generation)||s.generation<1||!s.compliance?.passed)

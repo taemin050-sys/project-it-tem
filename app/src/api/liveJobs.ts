@@ -1,7 +1,7 @@
 import { request } from './client'
 import type { Job } from '../types/draft'
 import type { ProductInput,AdCopyOutput } from '../types/textSchema'
-import { asProductJob,guardCopyApproval,guardImageApproval,
+import { asProductJob,guardCopyApproval,guardCopyReviewMutation,guardImageApproval,
   type LiveSnapshot,type LiveTask,type LivePerformance } from './liveMapping'
 import { getJob } from './jobs'
 
@@ -43,7 +43,7 @@ export const editLiveCopy=(id:string,copy:AdCopyOutput)=>
  * Never perform a paid model request directly from the browser.
  */
 export function reviseLiveCopy(s:LiveSnapshot,instruction:string){
-  guardCopyApproval(s)
+  guardCopyReviewMutation(s)
   const root=import.meta.env?.VITE_QA_OFFLINE_FIXTURE==='YES'
     ? '/demo/api/qa/jobs/' : '/demo/api/live/jobs/'
   return request<LiveSnapshot | {task_id:string;state:string;new:boolean}>(
@@ -51,7 +51,7 @@ export function reviseLiveCopy(s:LiveSnapshot,instruction:string){
     json({instruction,expected_generation:s.generation,expected_review_sha:s.review_sha}))
 }
 export function restoreLiveCopy(s:LiveSnapshot){
-  guardCopyApproval(s)
+  guardCopyReviewMutation(s)
   const root=import.meta.env?.VITE_QA_OFFLINE_FIXTURE==='YES'
     ? '/demo/api/qa/jobs/' : '/demo/api/live/jobs/'
   return request<LiveSnapshot>(root+encodeURIComponent(s.job_id)+'/restore-copy',
