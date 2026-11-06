@@ -137,8 +137,7 @@ export default function CopyPage() {
            current.generation!==live?.generation ||
            current.state!=='COPY_REVIEW_REQUIRED' || current.compliance?.passed!==true)
           throw Error('COPY_APPROVAL_SERVER_REVISION_CHANGED')
-        navigate('/create/draft')
-        return approveCopyAndCreateImage(current,evidenceAck)
+        return approveCopyAndCreateImage(current,evidenceAck,()=>navigate('/create/draft'))
       }).catch(e=>useProjectStore.getState().setRun({
         error:e instanceof Error?e.message:'승인 상태 조회 실패. 재호출하지 마세요.'
       })).finally(()=>{approvalInFlight.current=false})

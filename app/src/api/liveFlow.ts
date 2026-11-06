@@ -58,10 +58,12 @@ async function queuePromptAndImage(id:string){
   const image=await queueLive(id,'image')
   useProjectStore.getState().setLiveTask(image.task_id)
 }
-export async function approveCopyAndCreateImage(s:LiveSnapshot,ack:boolean){
+export async function approveCopyAndCreateImage(s:LiveSnapshot,ack:boolean,onApproved:()=>void=()=>{}){
   guardCopyApproval(s)
   await run(s.job_id,'ai/image',async()=>{
     await approveLiveCopy(s,ack)
+    // Owner #26: navigate only after actual approval POST success.
+    onApproved()
     await queuePromptAndImage(s.job_id)
   })
 }
@@ -95,11 +97,13 @@ export async function rejectCopy(s:LiveSnapshot){
   if(s.state!=='COPY_REVIEW_REQUIRED')throw Error('카피 거절 상태 오류')
   await run(s.job_id,'ai/image',async()=>{await rejectLiveCopy(s.job_id)})
 }
-export async function approveImageAndCompose(s:LiveSnapshot){
+export async function approveImageAndCompose(s:LiveSnapshot,onComposed:()=>void=()=>{}){
   guardImageApproval(s)
   await run(s.job_id,'compose',async()=>{
     await approveLiveImage(s)
     await composePinned(s)
+    // Only show final result after a successful composition response.
+    onComposed()
   })
 }
 /** FE Owner alias: a manual retry is composition-only, never image regeneration. */

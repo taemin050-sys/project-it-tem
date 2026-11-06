@@ -97,6 +97,18 @@ export function guardCopyApproval(s:LiveSnapshot){
       !Number.isSafeInteger(s.generation)||s.generation<1||!s.compliance?.passed)
     throw Error('COPY_COMPLIANCE_OR_REVISION_NOT_APPROVED')
 }
+// Owner #26: bind approval to the exact copy/image the user saw, not merely fresh GET.
+export const sameCopyReview=(seen:LiveSnapshot,current:LiveSnapshot)=>
+  seen.job_id===current.job_id && seen.state==='COPY_REVIEW_REQUIRED' &&
+  current.state==='COPY_REVIEW_REQUIRED' && seen.copy_sha!==null &&
+  seen.copy_sha===current.copy_sha && seen.review_sha!==null &&
+  seen.review_sha===current.review_sha && seen.generation===current.generation
+export const sameImageCandidate=(seen:LiveSnapshot,current:LiveSnapshot)=>
+  seen.job_id===current.job_id && seen.state==='IMAGE_REVIEW_REQUIRED' &&
+  current.state==='IMAGE_REVIEW_REQUIRED' && seen.image_sha!==null &&
+  seen.image_sha===current.image_sha && seen.generation===current.generation &&
+  seen.copy_sha===current.copy_sha && seen.review_sha===current.review_sha &&
+  current.approval_current
 export function guardImageApproval(s:LiveSnapshot){
   if(s.state!=='IMAGE_REVIEW_REQUIRED'||!s.image_sha||!s.approval_current)
     throw Error('IMAGE_SHA_OR_COPY_APPROVAL_MISMATCH')
