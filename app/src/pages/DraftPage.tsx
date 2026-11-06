@@ -82,7 +82,10 @@ export default function DraftPage() {
           : (
             <div className="button-row">
               {mock
-                ? <button className="button secondary" disabled={!reviewing || run.busy} onClick={() => setRevising(true)}>수정 요청</button>
+                ? <button className="button secondary" disabled={!reviewing || run.busy} onClick={() => setRevising(true)}>
+                    {/* 이미지 수정·되돌리기는 Live API가 아직 없다 (서빙 11/06 답변): mock 전용임을 표시 */}
+                    수정 요청 <span className="badge badge-warning">mock</span>
+                  </button>
                 : <button className="button secondary" disabled={!reviewing || run.busy} onClick={() =>
                     jobId && void getLiveSnapshot(jobId).then(rejectImage).catch(e=>
                       useProjectStore.getState().setRun({error:String(e)}))}>
@@ -142,7 +145,7 @@ export default function DraftPage() {
           <aside className="stack">
             {reviewing && revising && (
               <section className="panel" aria-labelledby="revise-image-title">
-                <h2 id="revise-image-title" className="panel-title">이미지 수정 요청</h2>
+                <h2 id="revise-image-title" className="panel-title">이미지 수정 요청 <span className="badge badge-warning">mock</span></h2>
                 <label className="field">
                   <span className="field-hint">어떻게 바꾸고 싶은지 적어 주세요. AI가 이미지를 다시 만듭니다. 지금 이미지는 이전 버전으로 남습니다.</span>
                   <textarea className="revise-input" rows={7} value={instruction} placeholder="예: 배경을 더 밝게, 제품을 조금 더 크게"

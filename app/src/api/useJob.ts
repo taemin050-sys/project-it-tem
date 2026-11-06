@@ -91,10 +91,16 @@ export function startNewAd(): boolean {
   return true
 }
 
-// 랜딩의 광고 만들기: 결과까지 끝난 작업이면 새로 시작하고, 진행 중이면 그대로 이어간다
+// Owner #26 resume: refresh GET-only Job/Live caches; never POST or restart AI.
 export function continueOrStartNew() {
   const { jobId, finishedJobId } = useProjectStore.getState()
-  if (jobId !== null && jobId === finishedJobId) startNewAd()
+  if (jobId === null) return
+  if (jobId === finishedJobId) {
+    startNewAd()
+    return
+  }
+  void queryClient.invalidateQueries({ queryKey: jobKey(jobId) })
+  void queryClient.invalidateQueries({ queryKey: ['live-snapshot', jobId] })
 }
 
 // 링크용: 새 광고 시작을 취소하면 이동하지 않는다

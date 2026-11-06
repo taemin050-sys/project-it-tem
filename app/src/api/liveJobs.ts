@@ -1,6 +1,7 @@
 import { request } from './client'
 import type { Job } from '../types/draft'
 import type { ProductInput,AdCopyOutput } from '../types/textSchema'
+import type { Ratio } from '../config'
 import { asProductJob,guardCopyApproval,guardCopyReviewMutation,guardImageApproval,
   type LiveSnapshot,type LiveTask,type LivePerformance } from './liveMapping'
 import { getJob } from './jobs'
@@ -25,7 +26,8 @@ export async function getProductLiveJob(id:string):Promise<Job>{
   const [snapshot,original]=await Promise.all([getLiveSnapshot(id),getJob(id)])
   return asProductJob(snapshot,original)
 }
-export function createLiveInput(b0:Job,product:ProductInput,imageSize:'3:4'|'4:5'|'9:16'){
+// Owner #26: bind selected ratio at Live input, never submit it again on image queue.
+export function createLiveInput(b0:Job,product:ProductInput,imageSize:Ratio){
   return request<LiveSnapshot>(url(b0.job_id)+'/input',
     json({customer_request_id:'product-live-'+b0.job_id,product,image_size:imageSize}))
 }

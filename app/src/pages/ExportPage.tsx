@@ -63,7 +63,7 @@ export default function ExportPage() {
   const [copied, setCopied] = useState<'idle' | 'done' | 'error'>('idle')
 
   const ready = job?.status === 'COMPLETED' && finalUrl !== undefined && caption !== undefined
-  // 서버에 고정된 Owner 선택 크기와 실제 PNG 바이트를 대조한다.
+  // Owner #26: 서버에 고정된 Live output_size와 최종 PNG 실제 크기를 대조한다.
   const target = job?.final_output ?? CANVAS
   const sizeOk = size?.width === target.width && size?.height === target.height
   const expected = job && approvedText(job)

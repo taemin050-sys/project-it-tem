@@ -90,6 +90,8 @@ export function guardCopyReviewMutation(s:LiveSnapshot){
       !Number.isSafeInteger(s.generation)||s.generation<1)
     throw Error('COPY_REVIEW_REVISION_NOT_CURRENT')
 }
+// Owner #26 naming retained as a single alias, never a second/looser approval gate.
+export const guardCopyRevision=guardCopyReviewMutation
 export function guardCopyApproval(s:LiveSnapshot){
   if(s.state!=='COPY_REVIEW_REQUIRED'||!s.review_sha||!s.copy_sha||
       !Number.isSafeInteger(s.generation)||s.generation<1||!s.compliance?.passed)

@@ -258,7 +258,7 @@ export default function CopyPage() {
       {revisionFeedback && <div className="notice" role="status">
         <strong>텍스트 AI 수정 요청 결과</strong>
         <p>변경된 항목: {revisionFeedback.changed_fields.length
-          ? revisionFeedback.changed_fields.join(', ') : '수정된 항목 없음'}</p>
+          ? revisionFeedback.changed_fields.map((f) => FIELD_LABELS[f as CopyField] ?? f).join(', ') : '수정된 항목 없음'}</p>
         {revisionFeedback.note && <p>{revisionFeedback.note}</p>}
         <p>새 검수 버전의 승인·근거 확인은 다시 진행해야 합니다.</p>
       </div>}

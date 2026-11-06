@@ -5,7 +5,7 @@
 
 // ---------- 공통 선택값 (화면 버튼 목록으로도 쓴다) ----------
 
-export const PRODUCT_TYPES = ['스킨케어', '색조', '바디', '헤어', '기타'] as const
+export const PRODUCT_TYPES = ['스킨케어', '선케어', '베이스 메이크업', '색조', '클렌징', '마스크팩', '바디', '헤어', '기타'] as const
 export const CONTAINER_TYPES = ['병', '튜브', '펌프', '스포이드', '자', '콤팩트', '스프레이', '파우치', '어플리케이터', '스틱', '기타'] as const
 // v0.5 ad_purpose는 자유 문자열. 화면 선택지는 v0.3 목록 유지 (10/23 사용자 결정)
 export const AD_PURPOSES = ['신제품 홍보', '할인 프로모션', '효능 강조', '감성 브랜딩'] as const

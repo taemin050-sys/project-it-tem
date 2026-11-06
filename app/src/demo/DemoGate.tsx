@@ -5,6 +5,7 @@ import DemoEvaluation from './DemoEvaluation'
 import DemoLiveConsole from './DemoLiveConsole'
 import { Link, useLocation } from 'react-router-dom'
 import {QA_OFFLINE_FIXTURE} from '../config'
+import { continueOrStartNew } from '../api/useJob'
 
 type Identity = { authenticated: true; evaluator_id: string; role: 'evaluator' | 'admin';
   auth_provider?: 'TAILSCALE_SERVE'|'INVITE_COOKIE'; mode: string }
@@ -72,7 +73,7 @@ export default function DemoGate() {
     </aside>
     <nav style={{padding:'10px 18px',display:'flex',gap:18}}>
       <Link to="/">정식 IT-TEM 시작</Link>
-      <Link to="/create/product">{QA_OFFLINE_FIXTURE ? 'QA 시험 광고 생성' : '실제 AI 광고 생성'}</Link>
+      <Link to="/create" onClick={continueOrStartNew}>{QA_OFFLINE_FIXTURE ? 'QA 시험 광고 생성' : '실제 AI 광고 생성'}</Link>
       {!QA_OFFLINE_FIXTURE && <Link to="/team/evaluations">팀 공동 품질 평가</Link>}
       {identity.role==='admin' && <Link to="/internal/live-diagnostics">내부 진단</Link>}
     </nav>

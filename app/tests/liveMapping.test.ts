@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import {asProductJob,guardCopyApproval,guardCopyReviewMutation,guardImageApproval,isPublishedFinal,isCopyReviewHydrated,type LiveSnapshot} from '../src/api/liveMapping.ts'
+import {asProductJob,guardCopyApproval,guardCopyReviewMutation,guardCopyRevision,guardImageApproval,isPublishedFinal,isCopyReviewHydrated,type LiveSnapshot} from '../src/api/liveMapping.ts'
 import type {Job} from '../src/types/draft.ts'
 const raw:Job={job_id:'a'.repeat(32),status:'INPUTS_VALIDATED',assets:[{
   asset_id:'A',role:'product',original_filename:'a.png',content_type:'image/png',
@@ -42,6 +42,9 @@ test('failed compliance copy can be revised/restored but never approved; stale C
   assert.doesNotThrow(()=>guardCopyApproval({...review,compliance:{...review.compliance!,passed:true}}))
 })
 
+test('Owner FE #26 guard name uses the identical BP11 failed-review repair fence',()=>{
+  assert.equal(guardCopyRevision,guardCopyReviewMutation)
+})
 test('image approval requires an active copy approval and candidate SHA',()=>{
   const candidate={...example,state:'IMAGE_REVIEW_REQUIRED' as const,image_sha:'a'.repeat(64),
     approval_current:true,mode:'LIVE'}
