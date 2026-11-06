@@ -84,7 +84,12 @@ export const useProjectStore = create<ProjectState>()(persist((set) => ({
     identityScope:s.identityScope,liveTaskId:s.liveTaskId }),
   // 이전 버전에 저장된 product에는 새 항목(functional_types·emoji_level)이 없어 기본값 위에 덮는다
   merge: (saved, current) => {
-    const s = saved as Partial<ProjectState> | undefined
-    return { ...current, ...s, product: { ...current.product, ...s?.product } }
+    const s = saved as (Partial<ProjectState> & { emoji?: string }) | undefined
+    const legacy = s?.emoji
+    const emoji_level = s?.product?.emoji_level ??
+      (legacy === '적음' ? '보통' : legacy === '많음' ? '많이' :
+        legacy === '없음' || legacy === '보통' ? legacy : current.product.emoji_level)
+    // A prior Live Job retains its own server snapshot; this migrates UI form only.
+    return { ...current, ...s, product: { ...current.product, ...s?.product, emoji_level } }
   },
 }))

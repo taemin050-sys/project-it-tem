@@ -10,6 +10,8 @@ import sqlite3
 from pathlib import Path
 
 from .contracts import LiveGateError, digest, validate_input, strict_review, live_prompt, owner_text_snapshots
+from .template_contract import (A_ID,A_VERSION,LEGACY_ID,LEGACY_VERSION,SIZE_PREFIX,
+    owner_a_policy,owner_size_policy,historical_a_v1_layout,normalize_layout,verify_policy,canonical)
 
 
 class LiveStore:
@@ -38,6 +40,34 @@ class LiveStore:
                 generation INTEGER NOT NULL, event TEXT NOT NULL,
                 status TEXT NOT NULL, payload_sha TEXT, recorded_utc TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
             );
+            CREATE TABLE IF NOT EXISTS live_job_templates (
+                job_id TEXT PRIMARY KEY,
+                profile_id TEXT NOT NULL, profile_version TEXT NOT NULL,
+                safe_zone_json TEXT, safe_zone_sha TEXT NOT NULL,
+                layout_json TEXT NOT NULL, layout_sha TEXT NOT NULL,
+                bound_font_sha TEXT, bound_context_sha TEXT,
+                created_utc TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+            );
+            CREATE TABLE IF NOT EXISTS live_compose_manifests (
+                job_id TEXT PRIMARY KEY,
+                receipt_json TEXT NOT NULL, envelope_json TEXT NOT NULL,
+                receipt_sha TEXT NOT NULL, envelope_sha TEXT NOT NULL,
+                final_sha TEXT NOT NULL, caption_sha TEXT NOT NULL,
+                created_utc TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+            );
+            CREATE TABLE IF NOT EXISTS live_copy_previous (
+                job_id TEXT PRIMARY KEY,
+                copy_json TEXT NOT NULL, copy_sha TEXT NOT NULL,
+                origin_generation INTEGER NOT NULL,
+                reason_sha TEXT NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS live_copy_revision_feedback (
+                job_id TEXT PRIMARY KEY,
+                generation INTEGER NOT NULL,
+                note TEXT, changed_fields_json TEXT NOT NULL,
+                request_context_sha TEXT NOT NULL,
+                source TEXT NOT NULL
+            );
             CREATE TABLE IF NOT EXISTS live_queue (
                 job_id TEXT NOT NULL, stage TEXT NOT NULL,
                 context_sha TEXT NOT NULL, state TEXT NOT NULL,
@@ -63,8 +93,18 @@ class LiveStore:
         c.execute("""INSERT INTO live_events(job_id,generation,event,status,payload_sha)
             VALUES (?,?,?,?,?)""",(job["job_id"],job["generation"],ev,status,sha))
 
-    def create(self,actor,job_id,input_body,assets):
+    def create(self,actor,job_id,input_body,assets,*,template_profile="LEGACY"):
+        if template_profile not in ("LEGACY","A"):
+            raise LiveGateError("TEMPLATE_PROFILE_INVALID")
+        # Validate the complete Owner policy before opening the DB transaction.
         snapshot,sha=validate_input(input_body,assets)
+        # No migration/overwrite of stored A v1 Jobs. Explicit new FE input
+        # selects an Owner #23 size profile before the immutable Job is saved.
+        new_size=snapshot.get("image_size")
+        if template_profile=="LEGACY" and new_size is not None:
+            raise LiveGateError("OWNER_SIZE_REQUIRES_VERSIONED_PROFILE")
+        a_policy=(owner_size_policy(new_size) if new_size is not None
+                  else owner_a_policy()) if template_profile=="A" else None
         with self.db() as c:
             c.execute("BEGIN IMMEDIATE")
             existing=c.execute("SELECT * FROM live_jobs WHERE job_id=?",(job_id,)).fetchone()
@@ -78,8 +118,29 @@ class LiveStore:
                 (job_id,actor,state,mode,input_json,input_sha)
                 VALUES (?,?,?,'INPUT_ONLY',?,?)""",
                 (job_id,actor,"INPUT_STORED",json.dumps(snapshot,ensure_ascii=False),sha))
+            if a_policy is not None:
+                zone,layout=a_policy["safe_zone"],a_policy["layout"]
+                c.execute("""INSERT INTO live_job_templates
+                    (job_id,profile_id,profile_version,safe_zone_json,safe_zone_sha,
+                     layout_json,layout_sha) VALUES (?,?,?,?,?,?,?)""",
+                    (job_id,a_policy["profile_id"],a_policy["profile_version"],
+                     canonical(zone),digest(zone),canonical(layout),digest(layout)))
             r=self._read(c,job_id,actor)
             self._event(c,r,"input_committed",r["state"],sha)
+            if template_profile=="A":
+                # Owner Image size v2 and frozen A v1 use distinct immutable
+                # marker events. Neither may be silently imported into the other.
+                self._event(c,r,("template_owner_size_ingress_v2" if new_size
+                    else "template_a_ingress_contract_v1"),r["state"],digest({
+                    "profile_id":a_policy["profile_id"],
+                    "profile_version":a_policy["profile_version"],
+                    "input_sha":sha,"safe_zone_sha":digest(zone),
+                    "layout_sha":digest(layout)}))
+            if template_profile=="LEGACY":
+                # Distinguish known new internal legacy fixtures from old,
+                # pre-policy IMAGE_APPROVED jobs whose original compose layout
+                # cannot be reconstructed. Never silently import old layouts.
+                self._event(c,r,"legacy_ingress_contract_v1",r["state"],sha)
             c.commit()
             return r
 
@@ -129,6 +190,10 @@ class LiveStore:
             generation=job["generation"]+1
             report_sha=digest({"input_sha":job["input_sha"],"analysis":analysis,
                               "copy":parsed.output,"report":report,"generation":generation})
+            # A legacy manual edit is a different edit path. Prevent a stale
+            # QA previous-copy row from surviving an unrelated direct edit.
+            c.execute("DELETE FROM live_copy_previous WHERE job_id=?",(job_id,))
+            c.execute("DELETE FROM live_copy_revision_feedback WHERE job_id=?",(job_id,))
             c.execute("""UPDATE live_jobs SET generation=?,state='COPY_REVIEW_REQUIRED',copy_json=?,
               copy_sha=?,compliance_json=?,review_sha=?,approval_sha=NULL,
               approved_generation=NULL,evidence_acknowledged=0,prompt_json=NULL,image_sha=NULL,
@@ -137,6 +202,158 @@ class LiveStore:
                json.dumps(report,ensure_ascii=False),report_sha,job_id))
             updated=self._read(c,job_id,actor)
             self._event(c,updated,"copy_edited_review_restarted",updated["state"],report_sha)
+            c.commit()
+            return updated
+
+    def previous_copy_available(self,actor,job_id):
+        with self.db() as c:
+            self._read(c,job_id,actor)
+            return c.execute("SELECT 1 FROM live_copy_previous WHERE job_id=?",
+                (job_id,)).fetchone() is not None
+
+    def revision_feedback(self,actor,job_id):
+        with self.db() as c:
+            job=self._read(c,job_id,actor)
+            r=c.execute("""SELECT * FROM live_copy_revision_feedback
+                WHERE job_id=? AND generation=?""",(job_id,job["generation"])).fetchone()
+            if not r:return None
+            return {"note":r["note"],"changed_fields":json.loads(r["changed_fields_json"]),
+                    "source":r["source"]}
+
+    def apply_copy_revision(self,actor,job_id,proposed_copy,instruction,
+                            expected_generation,expected_review_sha,*,owner_feedback=None):
+        """Atomic, approval-invalidating QA revision.
+
+        Caller MUST independently authorize the provider/QA mode before this
+        method; it is not a model invocation or a paid-provider substitute.
+        """
+        from src.serving.text_v08_mapper import verify_copy
+        from src.text_generation.schemas import AdCopyOutput
+        if type(expected_generation) is not int or not isinstance(expected_review_sha,str):
+            raise LiveGateError("REVISION_TYPE_INVALID")
+        if not isinstance(instruction,str) or not 1<=len(instruction.strip())<=500:
+            raise LiveGateError("REVISION_INSTRUCTION_INVALID")
+        parsed=verify_copy(proposed_copy,model=AdCopyOutput)
+        if owner_feedback is not None:
+            from src.text_generation.schemas import RevisableField
+            from pydantic import TypeAdapter
+            if (type(owner_feedback) is not dict or
+                set(owner_feedback)!={"note","changed_fields","context_sha","source"} or
+                owner_feedback["source"] not in ("OWNER_TEXT_V010_LIVE",
+                                                 "OWNER_TEXT_V010_OFFLINE") or
+                type(owner_feedback["context_sha"]) is not str or
+                len(owner_feedback["context_sha"])!=64 or
+                owner_feedback["note"] is not None and
+                (type(owner_feedback["note"]) is not str or
+                 len(owner_feedback["note"])>500)):
+                raise LiveGateError("REVISION_FEEDBACK_INVALID")
+            changed=TypeAdapter(list[RevisableField]).validate_python(
+                owner_feedback["changed_fields"],strict=True)
+            if len(changed)!=len(set(changed)):
+                raise LiveGateError("REVISION_FEEDBACK_INVALID")
+        with self.db() as c:
+            c.execute("BEGIN IMMEDIATE")
+            job=self._read(c,job_id,actor)
+            if job["state"]!="COPY_REVIEW_REQUIRED":
+                raise LiveGateError("COPY_REVISION_STATE_CONFLICT")
+            if job["generation"]!=expected_generation or job["review_sha"]!=expected_review_sha:
+                raise LiveGateError("STALE_REVIEW_OR_REVISION")
+            if parsed.sha256==job["copy_sha"] and not (
+                owner_feedback is not None and owner_feedback["note"]):
+                raise LiveGateError("COPY_REVISION_UNCHANGED")
+            original=json.loads(job["copy_json"])
+            context=json.loads(job["input_json"])
+            analysis=json.loads(job["analysis_json"])
+            report=strict_review(parsed.output,context["product"],analysis)
+            generation=job["generation"]+1
+            report_sha=digest({"input_sha":job["input_sha"],"analysis":analysis,
+                               "copy":parsed.output,"report":report,"generation":generation})
+            # One-step undo: retain the exact last approved-for-review content;
+            # restoring never recreates an approval or external provider receipt.
+            if parsed.sha256!=job["copy_sha"]:
+                # A no-change Owner refusal with a meaningful note advances
+                # review generation but cannot fabricate a prior DIFFERENT copy.
+                # Preserve any existing genuine earlier-version pointer.
+                c.execute("""INSERT INTO live_copy_previous
+                    (job_id,copy_json,copy_sha,origin_generation,reason_sha)
+                    VALUES (?,?,?,?,?)
+                    ON CONFLICT(job_id) DO UPDATE SET
+                      copy_json=excluded.copy_json,copy_sha=excluded.copy_sha,
+                      origin_generation=excluded.origin_generation,
+                      reason_sha=excluded.reason_sha""",
+                    (job_id,json.dumps(original,ensure_ascii=False),job["copy_sha"],
+                     job["generation"],digest({"instruction":instruction})))
+            c.execute("""UPDATE live_jobs SET generation=?,state='COPY_REVIEW_REQUIRED',
+                copy_json=?,copy_sha=?,compliance_json=?,review_sha=?,
+                approval_sha=NULL,approved_generation=NULL,evidence_acknowledged=0,
+                prompt_json=NULL,image_sha=NULL,image_approval_sha=NULL,
+                final_sha=NULL,caption_sha=NULL WHERE job_id=?""",
+                (generation,json.dumps(parsed.output,ensure_ascii=False),
+                 parsed.sha256,json.dumps(report,ensure_ascii=False),report_sha,job_id))
+            updated=self._read(c,job_id,actor)
+            if owner_feedback is None:
+                c.execute("DELETE FROM live_copy_revision_feedback WHERE job_id=?",(job_id,))
+            else:
+                c.execute("""INSERT INTO live_copy_revision_feedback
+                    (job_id,generation,note,changed_fields_json,request_context_sha,source)
+                    VALUES (?,?,?,?,?,?)
+                    ON CONFLICT(job_id) DO UPDATE SET
+                      generation=excluded.generation,note=excluded.note,
+                      changed_fields_json=excluded.changed_fields_json,
+                      request_context_sha=excluded.request_context_sha,
+                      source=excluded.source""",(
+                        job_id,generation,owner_feedback["note"],
+                        json.dumps(owner_feedback["changed_fields"],ensure_ascii=False),
+                        owner_feedback["context_sha"],owner_feedback["source"]))
+            self._event(c,updated,("copy_revision_owner_committed_v010"
+                if owner_feedback is not None else "copy_revision_review_started"),
+                updated["state"],digest({
+                    "instruction_sha":digest(instruction),
+                    "new_copy_sha":parsed.sha256,
+                    "feedback_sha":digest(owner_feedback) if owner_feedback else None}))
+            c.commit()
+            return updated
+
+    def restore_previous_copy(self,actor,job_id,expected_generation,expected_review_sha):
+        """Toggle one previous copy inside a CAS transaction; never restore approval."""
+        from src.serving.text_v08_mapper import verify_copy
+        from src.text_generation.schemas import AdCopyOutput
+        if type(expected_generation) is not int or not isinstance(expected_review_sha,str):
+            raise LiveGateError("REVISION_TYPE_INVALID")
+        with self.db() as c:
+            c.execute("BEGIN IMMEDIATE")
+            job=self._read(c,job_id,actor)
+            if job["state"]!="COPY_REVIEW_REQUIRED":
+                raise LiveGateError("COPY_RESTORE_STATE_CONFLICT")
+            if job["generation"]!=expected_generation or job["review_sha"]!=expected_review_sha:
+                raise LiveGateError("STALE_REVIEW_OR_REVISION")
+            old=c.execute("SELECT * FROM live_copy_previous WHERE job_id=?",
+                         (job_id,)).fetchone()
+            if old is None:raise LiveGateError("COPY_PREVIOUS_UNAVAILABLE")
+            parsed=verify_copy(json.loads(old["copy_json"]),model=AdCopyOutput)
+            if old["copy_sha"]!=parsed.sha256 or old["copy_sha"]==job["copy_sha"]:
+                raise LiveGateError("COPY_PREVIOUS_SHA_INVALID")
+            context=json.loads(job["input_json"])
+            analysis=json.loads(job["analysis_json"])
+            report=strict_review(parsed.output,context["product"],analysis)
+            generation=job["generation"]+1
+            report_sha=digest({"input_sha":job["input_sha"],"analysis":analysis,
+                               "copy":parsed.output,"report":report,"generation":generation})
+            c.execute("""UPDATE live_copy_previous SET copy_json=?,copy_sha=?,
+                origin_generation=?,reason_sha=? WHERE job_id=?""",
+                (job["copy_json"],job["copy_sha"],job["generation"],
+                 digest({"previous_sha":old["copy_sha"],"return_sha":job["copy_sha"]}),job_id))
+            c.execute("""UPDATE live_jobs SET generation=?,state='COPY_REVIEW_REQUIRED',
+                copy_json=?,copy_sha=?,compliance_json=?,review_sha=?,
+                approval_sha=NULL,approved_generation=NULL,evidence_acknowledged=0,
+                prompt_json=NULL,image_sha=NULL,image_approval_sha=NULL,
+                final_sha=NULL,caption_sha=NULL WHERE job_id=?""",
+                (generation,json.dumps(parsed.output,ensure_ascii=False),parsed.sha256,
+                 json.dumps(report,ensure_ascii=False),report_sha,job_id))
+            c.execute("DELETE FROM live_copy_revision_feedback WHERE job_id=?",(job_id,))
+            updated=self._read(c,job_id,actor)
+            self._event(c,updated,"copy_previous_restored_review_started",
+                        updated["state"],report_sha)
             c.commit()
             return updated
 
@@ -159,6 +376,13 @@ class LiveStore:
             review=json.loads(job["compliance_json"])
             if not review["passed"]:
                 raise LiveGateError("REAL_COMPLIANCE_BLOCKED")
+            # FE Owner #22 length policy is also an authoritative approval
+            # boundary: a non-browser caller cannot bypass disabled FE controls.
+            current=json.loads(job["copy_json"])["ad_copy"]
+            if (len(current["headline"])>15 or
+                len(current["subline"].replace("\n",""))>25 or
+                len(current["cta"])>10):
+                raise LiveGateError("COPY_LENGTH_LIMIT_EXCEEDED")
             if (any(x["risk_level"]=="근거 확인 필요" for x in review["issues"])
                     and acknowledge_evidence is not True):
                 raise LiveGateError("EVIDENCE_ACKNOWLEDGEMENT_REQUIRED")
@@ -212,6 +436,12 @@ class LiveStore:
             c.commit()
             return updated
 
+    def template(self,actor,job_id):
+        with self.db() as c:
+            self._read(c,job_id,actor)
+            row=c.execute("SELECT * FROM live_job_templates WHERE job_id=?",(job_id,)).fetchone()
+            return verify_policy(row)
+
     def image_request(self,actor,job_id,images,references):
         from src.image_generation import BackendImageInput
         from src.image_generation.contracts import content_hash
@@ -220,7 +450,21 @@ class LiveStore:
             if job["state"]!="PROMPT_READY":
                 raise LiveGateError("IMAGE_REQUIRES_PROMPT")
             self._approved(job)
+            profile_row=c.execute("SELECT * FROM live_job_templates WHERE job_id=?",
+                                  (job_id,)).fetchone()
+            policy=verify_policy(profile_row)
+            metadata={}
+            if policy is not None and policy["profile_id"].startswith(SIZE_PREFIX):
+                from src.image_generation.size_selection import resolve_size_choice
+                size=json.loads(job["input_json"]).get("image_size")
+                if size!=policy["safe_zone"]["size"]:
+                    raise LiveGateError("OWNER_IMAGE_SIZE_CONTEXT_CONFLICT")
+                selection,_=resolve_size_choice(size)
+                metadata["layout_selection"]=selection.model_dump(mode="json")
+            elif policy is not None:
+                metadata["safe_zone"]=policy["safe_zone"]
             owner=BackendImageInput.model_validate({
+                **metadata,
                 "job_id":job_id,"copy_revision":job["generation"],
                 "copy_hash":job["copy_sha"],
                 "product_analysis":json.loads(job["analysis_json"]),
@@ -281,6 +525,153 @@ class LiveStore:
             c.commit()
             return updated
 
+    def plan_compose(self,actor,job_id,provided_layout,font_sha,*,has_prior_files=False):
+        """Freeze layout/font/approval context. Reattempts cannot change contract."""
+        if not isinstance(font_sha,str) or len(font_sha)!=64:
+            raise LiveGateError("COMPOSITION_FONT_HASH_INVALID")
+        with self.db() as c:
+            c.execute("BEGIN IMMEDIATE")
+            job=self._read(c,job_id,actor)
+            if job["state"]!="IMAGE_APPROVED":
+                raise LiveGateError("FINAL_REQUIRES_IMAGE_APPROVAL")
+            self._approved(job)
+            expected=digest({"image_sha":job["image_sha"],
+                 "approval_sha":job["approval_sha"],"generation":job["generation"],
+                 "evidence_acknowledged":bool(job["evidence_acknowledged"])})
+            if expected!=job["image_approval_sha"]:
+                raise LiveGateError("IMAGE_APPROVAL_STALE")
+            row=c.execute("SELECT * FROM live_job_templates WHERE job_id=?",
+                          (job_id,)).fetchone()
+            policy=verify_policy(row)
+            if policy is None:
+                # Pre-policy, never infer and assign A to existing jobs.
+                # Only Jobs explicitly marked as new internal legacy fixtures
+                # can pin a fresh caller layout. Older unversioned Jobs require
+                # an approved manual recovery/import (not implemented here).
+                marker=c.execute("""SELECT 1 FROM live_events
+                     WHERE job_id=? AND event='legacy_ingress_contract_v1'
+                     LIMIT 1""",(job_id,)).fetchone()
+                if not marker or provided_layout is None or has_prior_files:
+                    raise LiveGateError("LEGACY_LAYOUT_MANUAL_RECONCILIATION_REQUIRED")
+                layout=normalize_layout(provided_layout)
+                c.execute("""INSERT INTO live_job_templates
+                    (job_id,profile_id,profile_version,safe_zone_json,safe_zone_sha,
+                     layout_json,layout_sha) VALUES (?,?,?,?,?,?,?)""",
+                    (job_id,LEGACY_ID,LEGACY_VERSION,None,digest(None),
+                     canonical(layout),digest(layout)))
+                row=c.execute("SELECT * FROM live_job_templates WHERE job_id=?",
+                              (job_id,)).fetchone()
+                policy=verify_policy(row)
+            else:
+                layout=policy["layout"]
+                if provided_layout is not None:
+                    normalized=(historical_a_v1_layout(provided_layout)
+                        if policy["profile_id"]==A_ID
+                        else normalize_layout(provided_layout))
+                    if digest(normalized)!=policy["layout_sha"]:
+                        raise LiveGateError("COMPOSITION_LAYOUT_CONFLICT")
+            context_sha=digest({"input_sha":job["input_sha"],
+                "copy_sha":job["copy_sha"],"copy_revision":job["generation"],
+                "approval_sha":job["approval_sha"],"image_sha":job["image_sha"],
+                "image_approval_sha":job["image_approval_sha"],
+                "layout_sha":policy["layout_sha"],"safe_zone_sha":policy["safe_zone_sha"]})
+            if row["bound_font_sha"] is not None and (
+                row["bound_font_sha"]!=font_sha or row["bound_context_sha"]!=context_sha):
+                raise LiveGateError("COMPOSITION_FROZEN_INPUT_CONFLICT")
+            if row["bound_font_sha"] is None:
+                c.execute("""UPDATE live_job_templates
+                    SET bound_font_sha=?,bound_context_sha=? WHERE job_id=?""",
+                    (font_sha,context_sha,job_id))
+                # A separate event remains when a policy/manifest record is lost.
+                self._event(c,job,"compose_contract_frozen_v1",job["state"],context_sha)
+            c.commit()
+            return {"layout":layout,"layout_sha":policy["layout_sha"],
+                    "font_sha":font_sha,"context_sha":context_sha,
+                    "profile_id":policy["profile_id"],"profile_version":policy["profile_version"],
+                    "manual_review_required":True}
+
+    def commit_composition(self,connection,actor,job_id,plan,receipt,final_sha,caption_sha):
+        """Called under an existing BEGIN IMMEDIATE lock after files are promoted."""
+        job=self._read(connection,job_id,actor)
+        if job["state"]!="IMAGE_APPROVED":
+            raise LiveGateError("FINAL_REQUIRES_IMAGE_APPROVAL")
+        self._approved(job)
+        profile=verify_policy(connection.execute(
+            "SELECT * FROM live_job_templates WHERE job_id=?",(job_id,)).fetchone())
+        if (not profile or profile["layout_sha"]!=plan["layout_sha"] or
+            profile["bound_font_sha"]!=plan["font_sha"] or
+            profile["bound_context_sha"]!=plan["context_sha"]):
+            raise LiveGateError("COMPOSITION_FROZEN_INPUT_CONFLICT")
+        if connection.execute("SELECT 1 FROM live_compose_manifests WHERE job_id=?",
+                              (job_id,)).fetchone():
+            raise LiveGateError("COMPOSITION_ALREADY_FINALIZED")
+        # Receipt is Owner output; envelope is Serving-only immutable binding.
+        envelope={"job_id":job_id,"profile_id":plan["profile_id"],
+            "profile_version":plan["profile_version"],"layout_sha":plan["layout_sha"],
+            "font_sha":plan["font_sha"],"context_sha":plan["context_sha"],
+            "copy_sha":job["copy_sha"],"generation":job["generation"],
+            "image_sha":job["image_sha"],"approval_sha":job["approval_sha"],
+            "image_approval_sha":job["image_approval_sha"],
+            "final_sha":final_sha,"caption_sha":caption_sha}
+        receipt_sha=digest(receipt)
+        connection.execute("""INSERT INTO live_compose_manifests
+            (job_id,receipt_json,envelope_json,receipt_sha,envelope_sha,final_sha,caption_sha)
+            VALUES (?,?,?,?,?,?,?)""",
+            (job_id,canonical(receipt),canonical(envelope),receipt_sha,digest(envelope),
+             final_sha,caption_sha))
+        connection.execute("""UPDATE live_jobs SET state='COMPLETED',final_sha=?,
+            caption_sha=? WHERE job_id=? AND state='IMAGE_APPROVED'""",
+            (final_sha,caption_sha,job_id))
+        updated=self._read(connection,job_id,actor)
+        self._event(connection,updated,"composed",updated["state"],final_sha)
+        return updated
+
+    def read_manifest(self,actor,job_id):
+        with self.db() as c:
+            job=self._read(c,job_id,actor)
+            r=c.execute("SELECT * FROM live_compose_manifests WHERE job_id=?",
+                        (job_id,)).fetchone()
+            policy_row=c.execute("SELECT * FROM live_job_templates WHERE job_id=?",
+                                 (job_id,)).fetchone()
+            managed_marker=c.execute("""SELECT 1 FROM live_events WHERE job_id=?
+                AND event IN ('template_a_ingress_contract_v1',
+                              'template_owner_size_ingress_v2',
+                              'compose_contract_frozen_v1') LIMIT 1""",
+                (job_id,)).fetchone()
+            if r is None:
+                # A/LEGACY_PINNED finalized with this contract always requires its
+                # durable receipt; only true pre-policy COMPLETED rows may omit it.
+                # Retained events also catch a policy row deleted along with receipt.
+                if job["state"]=="COMPLETED" and (
+                        policy_row is not None or managed_marker is not None):
+                    raise LiveGateError("COMPOSITION_MANIFEST_REQUIRED")
+                return None
+            try:
+                receipt=json.loads(r["receipt_json"])
+                envelope=json.loads(r["envelope_json"])
+                profile=verify_policy(policy_row)
+                if (not profile or digest(receipt)!=r["receipt_sha"] or
+                    digest(envelope)!=r["envelope_sha"] or
+                    envelope["job_id"]!=job_id or
+                    envelope["layout_sha"]!=profile["layout_sha"] or
+                    envelope["font_sha"]!=profile["bound_font_sha"] or
+                    envelope["context_sha"]!=profile["bound_context_sha"] or
+                    envelope["copy_sha"]!=job["copy_sha"] or
+                    envelope["generation"]!=job["generation"] or
+                    envelope["image_sha"]!=job["image_sha"] or
+                    envelope["approval_sha"]!=job["approval_sha"] or
+                    envelope["image_approval_sha"]!=job["image_approval_sha"] or
+                    receipt["font_sha256"]!=profile["bound_font_sha"] or
+                    job["state"]!="COMPLETED" or
+                    job["final_sha"]!=r["final_sha"] or job["caption_sha"]!=r["caption_sha"] or
+                    envelope["final_sha"]!=r["final_sha"] or
+                    envelope["caption_sha"]!=r["caption_sha"]):
+                    raise ValueError
+            except (KeyError,ValueError,TypeError):
+                raise LiveGateError("COMPOSITION_MANIFEST_INTEGRITY_FAILED") from None
+            return {"receipt":receipt,"envelope":envelope,
+                    "receipt_sha":r["receipt_sha"],"envelope_sha":r["envelope_sha"]}
+
     def composed(self,actor,job_id,output_sha,caption_sha):
         with self.db() as c:
             c.execute("BEGIN IMMEDIATE")
@@ -288,6 +679,10 @@ class LiveStore:
             if job["state"]!="IMAGE_APPROVED":
                 raise LiveGateError("FINAL_REQUIRES_IMAGE_APPROVAL")
             self._approved(job)
+            policy=c.execute("SELECT profile_id FROM live_job_templates WHERE job_id=?",
+                             (job_id,)).fetchone()
+            if policy and policy["profile_id"]==A_ID:
+                raise LiveGateError("A_TEMPLATE_REQUIRES_COMPOSITION_RECEIPT")
             expected=digest({"image_sha":job["image_sha"],
                 "approval_sha":job["approval_sha"],"generation":job["generation"],
                        "evidence_acknowledged":bool(job["evidence_acknowledged"])})

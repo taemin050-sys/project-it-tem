@@ -41,3 +41,7 @@ export const AD_LAYOUT = {
   // 제품 보호 영역은 후보 이미지마다 확인한 좌표만 넣는다. 모든 제품에 같은 사각형을 넣지 않고, 비우면 서버가 미검증 경고를 남긴다
   protected_regions: [],
 }
+
+// Explicit build-time QA label only. Authentication and Fixture access are
+// independently controlled by the backend; this is not an auth bypass.
+export const QA_OFFLINE_FIXTURE = import.meta.env?.VITE_QA_OFFLINE_FIXTURE === 'YES'

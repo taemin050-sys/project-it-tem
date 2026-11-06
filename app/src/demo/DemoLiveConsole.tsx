@@ -1,13 +1,14 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import LiveEvaluationBoard from './LiveEvaluationBoard'
-import { AD_LAYOUT as layout } from '../config'
+import {AD_LAYOUT} from '../config'
+import {LEGACY_LAYOUT} from '../api/liveFlow'
 
 type Stage = 'INPUT_STORED' | 'COPY_REVIEW_REQUIRED' | 'COPY_APPROVED' | 'COPY_REJECTED' |
              'PROMPT_READY' | 'IMAGE_REVIEW_REQUIRED' | 'IMAGE_APPROVED' | 'IMAGE_REJECTED' | 'COMPLETED'
 type LiveSnapshot = {
   job_id:string;state:Stage;generation:number;mode:string;
   copy_sha?:string;review_sha?:string;image_sha?:string;final_sha?:string;
-  approval_current:boolean;
+  approval_current:boolean;template_profile?:string;
   analysis?:{analysis:{product_type:string;colors:string[];container_type:string;label_text:string[]}};
   research_display?:{research:{display_summary:Array<{text:string;source:string}>};research_performed:boolean};
   copy?:{plan:{target:string;concept:string;key_message:string;mood:string[]};
@@ -198,7 +199,10 @@ export default function DemoLiveConsole({evaluatorId}:{evaluatorId:string}){
   }
   async function compose(){
     if(!snap)throw Error('Job이 없습니다')
-    await request(api+'/jobs/'+snap.job_id+'/compose','POST',{layout})
+    // Diagnostic console also sends the Owner A v1 layout unchanged.
+    // Server verifies per-Job layout/receipt; legacy policy remains isolated.
+    await request(api+'/jobs/'+snap.job_id+'/compose','POST',
+      snap.template_profile?.startsWith('OWNER_IMAGE_SIZE_')?{}:snap.template_profile==='A_CENTERED'?{layout:AD_LAYOUT}:{layout:LEGACY_LAYOUT})
     await update(snap.job_id)
   }
   const disabled=!cap?.live_enabled

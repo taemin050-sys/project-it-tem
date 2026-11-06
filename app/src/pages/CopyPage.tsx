@@ -1,15 +1,16 @@
 import { Link, Navigate, useNavigate } from 'react-router-dom'
 import { restorePrevious, review, reviseJob } from '../api/jobs'
-import { approveCopyAndCreateImage, rejectCopy } from '../api/liveFlow'
-import {getLiveSnapshot} from '../api/liveJobs'
-import { useState, useRef } from 'react'
-import { advance, resetJob, useJob, useLiveSnapshot } from '../api/useJob'
+import { approveCopyAndCreateImage, reviseCopyFromInstruction, restorePreviousLiveCopy } from '../api/liveFlow'
+import {getLiveSnapshot,getTextCostEstimate,type TextCostEstimate} from '../api/liveJobs'
+import { useState, useRef,useEffect } from 'react'
+import { advance, resetJob, useJob, useLiveProgress, useLiveSnapshot } from '../api/useJob'
 import JobBadges from '../components/JobBadges'
 import RunStatus from '../components/RunStatus'
 import StepPage from '../components/StepPage'
 import { COPY_LIMITS, countChars, overLimits, SUBLINE_LINE_MAX, SUBLINE_MAX_LINES } from '../lib/copyLimits'
 import { copyFieldText, splitByIssues } from '../lib/highlight'
 import { canApproveCopy } from '../lib/pipeline'
+import { isCopyReviewHydrated } from '../api/liveMapping'
 import { useProjectStore } from '../store/projectStore'
 import type { Job } from '../types/draft'
 import type { ComplianceIssue, ComplianceReport, CopyField, ResearchResult, RiskLevel, SourceType } from '../types/textSchema'
@@ -70,14 +71,35 @@ export default function CopyPage() {
   const { data: job } = useJob()
   const mock=useProjectStore(s=>s.mock)
   const {data:live}=useLiveSnapshot()
-  const [evidenceAck,setEvidenceAck]=useState(false)
+  const {data:task}=useLiveProgress()
   const approvalInFlight=useRef(false)
+  const revisionInFlight=useRef(false)
   const [revising,setRevising]=useState(false)
   const [instruction,setInstruction]=useState('')
-  // 카피가 바뀌면(수정 요청·되돌리기) 확인 체크와 열린 요청 칸을 비운다. Live는 폴링마다 객체가 새로 와서 sha로 비교한다
-  const copyKey=mock?JSON.stringify(job?.copy_output??null):live?.copy_sha
-  const [seenCopy,setSeenCopy]=useState(copyKey)
-  if(seenCopy!==copyKey){setSeenCopy(copyKey);setEvidenceAck(false);setRevising(false)}
+  const [revisionEstimate,setRevisionEstimate]=useState<TextCostEstimate>()
+  useEffect(()=>{
+    let active=true
+    if(!mock && revising){
+      void getTextCostEstimate(5,'copy').then(value=>{
+        if(active)setRevisionEstimate(value)
+      }).catch(()=>{if(active)setRevisionEstimate(undefined)})
+    }
+    return ()=>{active=false}
+  },[mock,revising])
+  // An acknowledgement is valid only for the exact published copy revision.
+  // Nothing is offered during a late Live GET or unhydrated Job display.
+  const copyKey=mock?JSON.stringify(job?.copy_output??null):
+    jobId && live?.copy_sha && live?.review_sha && Number.isSafeInteger(live?.generation)
+      ? [jobId,live.generation,live.review_sha,live.copy_sha].join(':') : null
+  const [ackKey,setAckKey]=useState<string|null>(null)
+  // Once a revision/restore is requested, a still-matching *old* pair
+  // of React Query caches cannot expose the acknowledgement again.
+  const [revisionFence,setRevisionFence]=useState<{
+    jobId:string;minGeneration:number
+  }|null>(null)
+  const minGeneration=revisionFence?.jobId===jobId?revisionFence.minGeneration:0
+  const liveReady=mock || isCopyReviewHydrated(job,live,minGeneration)
+  const evidenceAck=Boolean(copyKey && ackKey===copyKey && liveReady)
 
   if (jobId === null && !busy) return <Navigate to="/create/product" replace />
 
@@ -88,8 +110,13 @@ export default function CopyPage() {
   const reviewing = job?.status === 'COPY_REVIEW_REQUIRED'
   const rejected = job?.status === 'COPY_REJECTED'
   const approved = job !== undefined && ['COPY_APPROVED', 'IMAGE_REVIEW_REQUIRED', 'IMAGE_APPROVED', 'IMAGE_REJECTED', 'COMPLETED'].includes(job.status)
-  const canApprove = job !== undefined && canApproveCopy(job)
+  const canApprove = job !== undefined && canApproveCopy(job) && liveReady
   const overs = copy ? overLimits(copy.ad_copy) : []
+  const captionChars=copy ? countChars(copy.caption):0
+  const captionMin=250
+  const captionMax=(!mock && live?.emoji_level==='많이')?350:400
+  const captionOutOfRange=Boolean(copy && (captionChars<captionMin || captionChars>captionMax))
+  const revisionFeedback=(!mock && liveReady)?live?.revision_feedback:null
 
   // 글자 수를 넘었으면 줄여 달라는 요청을 미리 채워 둔다 (사용자가 기준을 몰라도 바로 보낼 수 있게)
   function openRevision() {
@@ -101,11 +128,15 @@ export default function CopyPage() {
 
   function onApprove() {
     if(!mock){
-      if(!jobId || approvalInFlight.current)return
+      if(!jobId || approvalInFlight.current || !canApprove || !evidenceAck || overs.length>0 || !liveReady)return
       approvalInFlight.current=true
       // Always read the current server review hash at the click boundary.
       // Stale React Query data cannot silently discard approval clicks.
       void getLiveSnapshot(jobId).then(current=>{
+        if(current.copy_sha!==live?.copy_sha || current.review_sha!==live?.review_sha ||
+           current.generation!==live?.generation ||
+           current.state!=='COPY_REVIEW_REQUIRED' || current.compliance?.passed!==true)
+          throw Error('COPY_APPROVAL_SERVER_REVISION_CHANGED')
         navigate('/create/draft')
         return approveCopyAndCreateImage(current,evidenceAck)
       }).catch(e=>useProjectStore.getState().setRun({
@@ -117,9 +148,57 @@ export default function CopyPage() {
     }
   }
   function sendRevision() {
-    if (!jobId || !instruction.trim()) return
-    setRevising(false)
-    void advance(() => reviseJob(jobId, 'copy', instruction.trim()), 'ai/copy-review').then(() => setInstruction(''))
+    if (!jobId || !instruction.trim() || revisionInFlight.current ||
+        (!mock && !liveReady)) return
+    if(mock){
+      setRevising(false)
+      void advance(() => reviseJob(jobId, 'copy', instruction.trim()), 'ai/copy-review')
+        .then(()=>setInstruction(''))
+      return
+    }
+    if(!live || !liveReady)return
+    const requested=instruction.trim()
+    const beforeGeneration=live.generation
+    // Use a revision floor before any network request, not only after success.
+    setRevisionFence({jobId,minGeneration:beforeGeneration+1})
+    revisionInFlight.current=true
+    void getLiveSnapshot(jobId).then(current=>{
+      if(current.state!=='COPY_REVIEW_REQUIRED' ||
+        current.generation!==live.generation ||
+        current.review_sha!==live.review_sha || current.copy_sha!==live.copy_sha)
+        throw Error('서버 카피가 변경됐습니다. 현재 검수 버전을 다시 확인해 주세요.')
+      return reviseCopyFromInstruction(current,requested)
+    }).then(()=>{setRevising(false);setInstruction('')})
+      .catch(e=>{
+        // Clear the fence only if a fresh authoritative read proves that
+        // the server did not move to a new generation.
+        void getLiveSnapshot(jobId).then(current=>{
+          if(current.generation===beforeGeneration)setRevisionFence(null)
+        }).catch(()=>{})
+        useProjectStore.getState().setRun({
+          error:e instanceof Error?e.message:'수정 요청을 처리하지 못했습니다. 자동 재시도하지 않습니다.'
+        })
+      }).finally(()=>{revisionInFlight.current=false})
+  }
+  function restoreLivePrevious(){
+    if(!jobId || !liveReady || !live?.previous_copy_available ||
+       revisionInFlight.current)return
+    const beforeGeneration=live.generation
+    setRevisionFence({jobId,minGeneration:beforeGeneration+1})
+    revisionInFlight.current=true
+    void getLiveSnapshot(jobId).then(current=>{
+      if(current.generation!==live.generation || current.review_sha!==live.review_sha)
+        throw Error('서버 카피 버전이 변경되었습니다.')
+      return restorePreviousLiveCopy(current)
+    }).then(()=>{setRevising(false);setInstruction('')})
+      .catch(e=>{
+        void getLiveSnapshot(jobId).then(current=>{
+          if(current.generation===beforeGeneration)setRevisionFence(null)
+        }).catch(()=>{})
+        useProjectStore.getState().setRun({
+          error:e instanceof Error?e.message:'이전 버전 복원 실패'
+        })
+      }).finally(()=>{revisionInFlight.current=false})
   }
 
   if (analysis && !analysis.is_cosmetic) {
@@ -146,31 +225,43 @@ export default function CopyPage() {
           ? <Link className="button" to="/create/product" onClick={resetJob}>제품 정보에서 다시 시작</Link>
           : (
             <div className="button-row">
-              {mock
-                ? <button className="button secondary" disabled={!reviewing || busy} onClick={openRevision}>수정 요청</button>
-                : <button className="button secondary" disabled={!reviewing || busy} onClick={() =>
-                    jobId && void getLiveSnapshot(jobId).then(rejectCopy).catch(e=>
-                      useProjectStore.getState().setRun({error:String(e)}))}>
-                    카피 거절
-                  </button>}
+              <button className="button secondary" disabled={!reviewing || busy || !liveReady} onClick={openRevision}>수정 요청</button>
               <button className="button" disabled={!canApprove || !evidenceAck || overs.length > 0 || busy} onClick={onApprove}>이 카피로 이미지 만들기</button>
             </div>
           )}
       actionsNote={<>
         {reviewing && job && <ApprovalNote job={job} />}
         {reviewing && overs.length > 0 && <p className="field-error" role="alert">
-          글자 수 기준을 넘어 이미지를 만들 수 없습니다: {overs.join(', ')}. {mock
-            ? '수정 요청을 누르면 줄여 달라는 요청이 채워져 있습니다.'
-            : '카피를 거절하고 제품 정보에서 다시 만들어 주세요.'}</p>}
-        {reviewing && <label className="field-hint">
+          글자 수 기준을 넘어 이미지를 만들 수 없습니다: {overs.join(', ')}.
+          수정 요청에서 짧은 카피를 요청해 주세요.</p>}
+        {reviewing && captionOutOfRange && <p className="field-hint" role="status">
+          게시글 본문 {captionChars}자 · Text Owner 권장 범위
+          {' '}{captionMin}~{captionMax}자입니다.
+          권장 길이와 다르면 수정 요청으로 보완할 수 있습니다.
+          이 길이 안내 자체가 법적 검수 결과나 승인 차단은 아닙니다.
+        </p>}
+        {reviewing && !liveReady && !mock && <p role="status" className="field-hint">
+          현재 카피·검수 버전을 동기화하고 있습니다. 확인·승인 전에 잠시 상태를 확인해 주세요.
+        </p>}
+        {reviewing && liveReady && <label className="field-hint">
           <input type="checkbox" checked={evidenceAck}
-            onChange={e=>setEvidenceAck(e.target.checked)}/>
+            onChange={e=>setAckKey(e.target.checked?copyKey:null)}/>
           근거 확인 필요 표현과 제품 정보의 근거를 직접 확인하겠습니다.
           (1차 규칙 검수는 법적 적합성 확정이 아닙니다)
         </label>}
+        {!mock && task?.state==='BILLING_UNKNOWN' && <p role="alert" className="notice notice-warning">
+          AI 작업의 과금 여부가 불확실합니다. 재호출하지 말고 담당자에게 확인하세요.
+        </p>}
       </>}
     >
       {job && <JobBadges job={job} />}
+      {revisionFeedback && <div className="notice" role="status">
+        <strong>텍스트 AI 수정 요청 결과</strong>
+        <p>변경된 항목: {revisionFeedback.changed_fields.length
+          ? revisionFeedback.changed_fields.join(', ') : '수정된 항목 없음'}</p>
+        {revisionFeedback.note && <p>{revisionFeedback.note}</p>}
+        <p>새 검수 버전의 승인·근거 확인은 다시 진행해야 합니다.</p>
+      </div>}
       <RunStatus />
       {rejected && (
         <div className="notice notice-warning" role="status">
@@ -186,14 +277,30 @@ export default function CopyPage() {
             <h2 id="revise-title" className="panel-title">수정 요청</h2>
             <label className="field">
               <span className="field-hint">어떻게 바꾸고 싶은지 적어 주세요. AI가 카피를 다시 만들고 다시 검수합니다. 지금 카피는 이전 버전으로 남습니다.</span>
-              <textarea rows={3} value={instruction} placeholder="예: 헤드라인을 더 짧고 산뜻하게, 할인 이벤트 느낌으로"
+              <textarea rows={3} maxLength={300} value={instruction} placeholder="예: 헤드라인을 더 짧고 산뜻하게, 할인 이벤트 느낌으로"
                 onChange={e=>setInstruction(e.target.value)}/>
             </label>
+            {!mock && <p className="field-hint" role="status">
+              QA Fixture는 유료 모델을 호출하지 않습니다.
+              실제 Text Owner v0.10 수정은 관리자가 승인한 Live Worker에서만 실행됩니다.
+              {revisionEstimate
+                ? <> 텍스트 수정 1회 예상 비용: <strong>{revisionEstimate.display}</strong>.</>
+                : ' 텍스트 수정 예상 비용을 확인 중이거나 조회할 수 없습니다.'}
+              {' '}추정액은 이미지 재생성 비용이나 실제 청구 금액이 아닙니다.
+            </p>}
             <div className="button-row">
-              <button type="button" className="button" disabled={!instruction.trim() || busy} onClick={sendRevision}>수정 요청 보내기</button>
+              <button type="button" className="button"
+                disabled={!instruction.trim() || busy || (!mock && !liveReady)}
+                onClick={sendRevision}>수정 요청 보내기</button>
               <button type="button" className="button secondary" onClick={()=>setRevising(false)}>취소</button>
             </div>
           </section>}
+          {!mock && reviewing && live?.previous_copy_available && <div className="notice notice-info" role="status">
+            <p className="notice-title">이전 카피 버전이 보존돼 있습니다</p>
+            <p>되돌리면 새 Generation으로 재검수하며 과거 승인·확인은 재활성화되지 않습니다.</p>
+            <button type="button" className="button secondary small"
+              disabled={busy || !liveReady} onClick={restoreLivePrevious}>이전 버전으로 되돌리기</button>
+          </div>}
           {mock && reviewing && job?.previous_copy_output && <div className="notice notice-info" role="status">
             <p className="notice-title">수정된 카피입니다</p>
             <p>마음에 들지 않으면 이전 버전으로 되돌릴 수 있습니다. 다시 누르면 지금 버전으로 돌아옵니다.</p>

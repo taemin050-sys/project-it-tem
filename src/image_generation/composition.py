@@ -16,7 +16,9 @@ from io import BytesIO
 import math
 from pathlib import Path
 import time
-import unicodedata
+# Pin modern Unicode categories independently of GCP Python 3.10's Unicode 13.
+# Do not fall back to an old database: that would misclassify valid newer emoji.
+import unicodedata2 as unicodedata
 from typing import Annotated, Literal
 
 from fontTools.ttLib import TTFont, TTLibError
@@ -134,9 +136,23 @@ def _reject(code: str) -> GatewayError:
 def _copy_fields(body: CompositionInput) -> tuple[dict[str, str], str, list[str]]:
     if sha256(body.image_bytes).hexdigest() != body.image_sha256:
         raise _reject("COMPOSITION_IMAGE_HASH_MISMATCH")
+    ad, caption, tags = validate_copy_output(body.copy_output, body.copy_hash)
+    if any(text and name not in body.layout.text_regions
+           and not (name == "cta" and body.layout.cta_placement == "platform")
+           for name, text in ad.items()):
+        raise _reject("COMPOSITION_LAYOUT_MISSING_FIELD")
+    return ad, caption, tags
+
+
+def validate_copy_output(copy: dict, expected_hash: str) -> tuple[dict[str, str], str, list[str]]:
+    """Validate the complete approved snapshot without font or layout requirements.
+
+    A matching hash binds content; serving must still establish approval.
+    """
     try:
-        copy = body.copy_output
-        if content_hash(copy) != body.copy_hash:
+        if not isinstance(copy, dict):
+            raise ValueError
+        if content_hash(copy) != expected_hash:
             raise _reject("COMPOSITION_COPY_HASH_MISMATCH")
         if not isinstance(copy.get("plan"), dict):
             raise ValueError
@@ -154,10 +170,6 @@ def _copy_fields(body: CompositionInput) -> tuple[dict[str, str], str, list[str]
             text.encode("utf-8")
             if any(unicodedata.category(c).startswith("C") and c != "\n" for c in text):
                 raise ValueError
-        if any(text and name not in body.layout.text_regions
-               and not (name == "cta" and body.layout.cta_placement == "platform")
-               for name, text in ad.items()):
-            raise _reject("COMPOSITION_LAYOUT_MISSING_FIELD")
         return ad, caption, tags
     except (KeyError, TypeError, ValueError, UnicodeError):
         raise _reject("COMPOSITION_COPY_INVALID") from None

@@ -20,7 +20,7 @@ from PIL import Image
 
 from src.text_generation.schemas import (
     ProductInput, ProductAnalysisResult, ResearchResult, AdCopyOutput,
-    ImagePromptOutput, AdPlan
+    ImagePromptOutput, AdPlan, CopyRevisionOutput
 )
 from src.serving.job_store import JobStore
 from demo_staging.live_safety import AttemptLedger,LiveNotAuthorized
@@ -34,6 +34,7 @@ class TextProvider(Protocol):
     def research(self, product: ProductInput, analysis): ...
     def generate_copy(self, product: ProductInput, analysis, research): ...
     def generate_prompt(self, plan, analysis): ...
+    def revise_copy(self,product,analysis,research,previous,instruction): ...
 
 
 class OfficialTextProvider:
@@ -57,14 +58,33 @@ class OfficialTextProvider:
         from src.text_generation.image_prompt_generator import generate_image_prompt
         return generate_image_prompt(plan,analysis,model=self.text_model)
 
+    def revise_copy(self,product,analysis,research,previous,instruction):
+        from src.text_generation.copy_generator import revise_copy
+        return revise_copy(product,analysis,research,previous,instruction,
+                           model=self.text_model)
+
 
 def atomic_write(path:Path,data:bytes):
     path.parent.mkdir(parents=True,exist_ok=True,mode=0o700)
-    with tempfile.NamedTemporaryFile(dir=path.parent,delete=False) as f:
-        os.chmod(f.name,0o600)
-        f.write(data);f.flush();os.fsync(f.fileno())
-        tmp=f.name
-    os.replace(tmp,path)
+    tmp=None
+    try:
+        with tempfile.NamedTemporaryFile(dir=path.parent,delete=False) as f:
+            tmp=f.name
+            os.chmod(tmp,0o600)
+            f.write(data);f.flush();os.fsync(f.fileno())
+        os.replace(tmp,path)
+    finally:
+        if tmp is not None and os.path.exists(tmp):
+            os.unlink(tmp)
+    # Durably commit the rename itself, not just the staged file bytes.
+    if hasattr(os, "O_DIRECTORY"):
+        try:
+            descriptor=os.open(path.parent,os.O_RDONLY | os.O_DIRECTORY)
+        except OSError:
+            pass
+        else:
+            try:os.fsync(descriptor)
+            finally:os.close(descriptor)
 
 
 class LivePipeline:
@@ -106,11 +126,12 @@ class LivePipeline:
             raise LiveGateError("INPUT_PHOTO_COUNTS_INVALID")
         return product,refs
 
-    def prepare(self,actor,job_id,payload):
+    def prepare(self,actor,job_id,payload,*,template_profile="LEGACY"):
         job=self.jobs.get_job(job_id)
         if job["status"]!="INPUTS_VALIDATED":
             raise LiveGateError("B0_JOB_NOT_INPUT_READY")
-        return self.state.create(actor,job_id,payload,job["assets"])
+        return self.state.create(actor,job_id,payload,job["assets"],
+                                 template_profile=template_profile)
 
     def _guarded(self,actor,job_id,stage,payload,action,*,image=False):
         # No key/client/import/provider even attempted before this transaction.
@@ -199,6 +220,96 @@ class LivePipeline:
         return self.state.store_text(
             actor,job_id,a,r,cp,mode=mode)
 
+    def revision_context(self,actor,job_id,instruction,
+                         expected_generation,expected_review_sha,*,text_model="gpt-6-luna"):
+        """Preflight without model imports, reservation, external calls or writes."""
+        job=self.state.get(actor,job_id)
+        if (job["state"]!="COPY_REVIEW_REQUIRED" or job["mode"] not in
+            ("LIVE","OFFLINE_FIXTURE")):
+            raise LiveGateError("COPY_REVISION_STATE_CONFLICT")
+        if (type(expected_generation) is not int or
+            type(expected_review_sha) is not str or
+            job["generation"]!=expected_generation or
+            job["review_sha"]!=expected_review_sha):
+            raise LiveGateError("STALE_REVIEW_OR_REVISION")
+        if (type(instruction) is not str or
+            not 1<=len(instruction.strip())<=300 or
+            instruction!=instruction.strip()):
+            raise LiveGateError("REVISION_INSTRUCTION_INVALID")
+        return {
+            "job_id":job_id,"generation":job["generation"],
+            "review_sha":job["review_sha"],"copy_sha":job["copy_sha"],
+            "input_sha":job["input_sha"],"instruction":instruction,
+            "model":text_model,
+        }
+
+    def revise_copy(self,actor,job_id,instruction,expected_generation,
+                    expected_review_sha,provider:TextProvider|None=None,*,offline=False,
+                    text_model="gpt-6-luna"):
+        """Owner #25 instruction-aware revision + mandatory rule re-review.
+
+        Live uses the same one-shot signed worker/Attempt Ledger as all Text
+        stages; paid calls are never performed by this method when disabled.
+        QA can inject a fake ONLY with explicit offline=True and remains
+        OFFLINE_FIXTURE in all stored snapshots.
+        """
+        context=self.revision_context(
+            actor,job_id,instruction,expected_generation,expected_review_sha,
+            text_model=text_model)
+        job=self.state.get(actor,job_id)
+        if bool(offline)!=(job["mode"]=="OFFLINE_FIXTURE"):
+            raise LiveGateError("COPY_REVISION_PROVENANCE_MISMATCH")
+        if offline:
+            if provider is None:
+                raise LiveGateError("OFFLINE_FAKE_REQUIRED")
+        else:
+            if not (self.live_enabled and self.pm_authorized and actor in self.approved_actors):
+                raise LiveNotAuthorized("LIVE_NOT_APPROVED")
+            if provider is not None:
+                raise LiveGateError("INJECTED_PROVIDER_FORBIDDEN_IN_LIVE")
+            provider=OfficialTextProvider(text_model,text_model)
+
+        from src.serving.text_v08_mapper import verify_analysis,verify_research,verify_copy
+        product=ProductInput.model_validate(
+            json.loads(job["input_json"])["product"],strict=True)
+        analysis=ProductAnalysisResult.model_validate(json.loads(job["analysis_json"]),strict=True)
+        if analysis.analysis_succeeded is not True or analysis.error is not None:
+            raise LiveGateError("VLM_FAIL_CLOSED")
+        research=ResearchResult.model_validate(json.loads(job["research_json"]),strict=True)
+        previous=AdCopyOutput.model_validate(json.loads(job["copy_json"]),strict=True)
+        fingerprint=digest(context)
+        mode="OFFLINE_FIXTURE" if offline else "LIVE"
+        result=self.checkpoints.load(actor,job_id,"copy_revision",
+                                     fingerprint,mode,CopyRevisionOutput)
+        if result is None:
+            action=lambda:provider.revise_copy(
+                product,analysis.analysis,research,previous,instruction)
+            proposed=(action() if offline else
+                self._guarded(actor,job_id,"copy_revision",context,action))
+            result=self.checkpoints.commit(
+                actor,job_id,"copy_revision",fingerprint,mode,
+                proposed,CopyRevisionOutput)
+        old=previous.model_dump(mode="json")
+        revised=result.revised.model_dump(mode="json")
+        actual=(
+            (["plan"] if revised["plan"]!=old["plan"] else [])+
+            [field for field in ("headline","subline","cta")
+             if revised["ad_copy"][field]!=old["ad_copy"][field]]+
+            [field for field in ("caption","hashtags")
+             if revised[field]!=old[field]])
+        if actual!=result.changed_fields and set(actual)!=set(result.changed_fields):
+            raise LiveGateError("REVISION_CHANGED_FIELDS_INVALID")
+        if not actual and not result.note:
+            raise LiveGateError("COPY_REVISION_UNCHANGED")
+        feedback={
+            "note":result.note,"changed_fields":result.changed_fields,
+            "context_sha":fingerprint,
+            "source":("OWNER_TEXT_V010_OFFLINE" if offline else "OWNER_TEXT_V010_LIVE"),
+        }
+        return self.state.apply_copy_revision(
+            actor,job_id,revised,instruction,
+            expected_generation,expected_review_sha,owner_feedback=feedback)
+
     def prompt(self,actor,job_id,provider:TextProvider|None=None,*,offline=False,
                text_model="gpt-6-luna"):
         job=self.state.get(actor,job_id)
@@ -250,8 +361,15 @@ class LivePipeline:
         sha=hashlib.sha256(output.image_bytes).hexdigest()
         if sha!=output.sha256:
             raise LiveGateError("IMAGE_HASH_MISMATCH")
+        owner_request=self.image_input(actor,job_id)
+        if owner_request.layout_selection is not None:
+            from src.image_generation.size_selection import resolve_size_choice
+            _,profile=resolve_size_choice(owner_request.layout_selection.aspect_ratio)
+            expected_native=profile.native
+        else:
+            expected_native=(1152,1440)
         with Image.open(BytesIO(output.image_bytes)) as im:
-            if (im.format!="PNG" or im.size!=(1152,1440)
+            if (im.format!="PNG" or im.size!=expected_native
                     or (output.width,output.height)!=im.size):
                 raise LiveGateError("OWNER_IMAGE_SIZE_INVALID")
         atomic_write(self.image_path(job_id),output.image_bytes)
@@ -262,29 +380,103 @@ class LivePipeline:
             raise LiveGateError("JOB_ID_INVALID")
         return self.root/"outputs"/job_id/"image.png"
 
-    def compose(self,actor,job_id,*,layout,font_path):
-        from src.image_generation import compose_ad_png,CompositionInput
+    def validate_final_artifacts(self,actor,job_id):
+        """Owner-scoped fail-closed GET validation including manifest if present."""
         job=self.state.get(actor,job_id)
-        if job["state"]!="IMAGE_APPROVED":
-            raise LiveGateError("FINAL_REQUIRES_IMAGE_APPROVAL")
-        self.state._approved(job)
-        path=self.image_path(job_id)
-        raw=path.read_bytes()
-        image_sha=hashlib.sha256(raw).hexdigest()
-        if image_sha!=job["image_sha"]:
-            raise LiveGateError("IMAGE_BYTES_CHANGED")
-        cp=json.loads(job["copy_json"])
-        input_obj=CompositionInput(
-            job_id=job_id,image_bytes=raw,image_sha256=image_sha,
-            copy_revision=job["generation"],copy_hash=job["copy_sha"],
-            copy_output=cp,layout=layout)
-        result=compose_ad_png(input_obj,font_path=Path(font_path))
-        if (result.copy_hash!=job["copy_sha"] or result.copy_revision!=job["generation"]
-            or result.source_image_sha256!=image_sha
-            or hashlib.sha256(result.image_bytes).hexdigest()!=result.sha256
-            or (result.width,result.height)!=(1080,1350)):
-            raise LiveGateError("COMPOSED_RESULT_BINDING_FAILED")
+        if job["state"]!="COMPLETED":
+            raise LiveGateError("LIVE_OUTPUT_NOT_COMPLETED")
+        files=self.root/"outputs"/job_id
+        if not job["final_sha"] or not job["caption_sha"]:
+            raise LiveGateError("FINAL_IDENTITY_MISSING")
+        for filename,expected in (("final.png",job["final_sha"]),
+                                  ("caption.txt",job["caption_sha"])):
+            path=files/filename
+            try:
+                if hashlib.sha256(path.read_bytes()).hexdigest()!=expected:
+                    raise ValueError
+            except (OSError,ValueError):
+                raise LiveGateError("FINAL_ARTIFACT_INTEGRITY_FAILED") from None
+        manifest=self.state.read_manifest(actor,job_id)
+        if manifest is not None:
+            path=files/"receipt.json"
+            try:
+                data=path.read_bytes()
+                if hashlib.sha256(data).hexdigest()!=manifest["receipt_sha"]:
+                    raise ValueError
+                if json.loads(data)!=manifest["receipt"]:
+                    raise ValueError
+            except (OSError,ValueError):
+                raise LiveGateError("COMPOSITION_RECEIPT_INTEGRITY_FAILED") from None
+        return job
+
+    def compose(self,actor,job_id,*,layout=None,font_path):
+        from src.image_generation import compose_ad_png,CompositionInput
+        from .template_contract import canonical
+        font=Path(font_path)
+        try:
+            font_hash=hashlib.sha256(font.read_bytes()).hexdigest()
+        except OSError:
+            raise LiveGateError("COMPOSITION_FONT_UNAVAILABLE") from None
         directory=self.root/"outputs"/job_id
-        atomic_write(directory/"final.png",result.image_bytes)
-        atomic_write(directory/"caption.txt",result.caption_bytes)
-        return self.state.composed(actor,job_id,result.sha256,hashlib.sha256(result.caption_bytes).hexdigest())
+        plan=self.state.plan_compose(actor,job_id,layout,font_hash,has_prior_files=any(
+            (directory/name).exists() for name in ("final.png","caption.txt","receipt.json")))
+        # Only this Job may complete while the SQLite write transaction is held.
+        # A competing call waits, then observes the COMPLETED state and cannot overwrite.
+        with self.state.db() as c:
+            c.execute("BEGIN IMMEDIATE")
+            job=self.state._read(c,job_id,actor)
+            if job["state"]!="IMAGE_APPROVED":
+                raise LiveGateError("FINAL_REQUIRES_IMAGE_APPROVAL")
+            self.state._approved(job)
+            snapshot=self.state.template(actor,job_id)
+            if (not snapshot or snapshot["layout_sha"]!=plan["layout_sha"] or
+                snapshot["bound_context_sha"]!=plan["context_sha"] or
+                snapshot["bound_font_sha"]!=font_hash):
+                raise LiveGateError("COMPOSITION_FROZEN_INPUT_CONFLICT")
+            path=self.image_path(job_id)
+            try:
+                raw=path.read_bytes()
+            except OSError:
+                raise LiveGateError("IMAGE_BYTES_UNAVAILABLE") from None
+            image_sha=hashlib.sha256(raw).hexdigest()
+            if image_sha!=job["image_sha"]:
+                raise LiveGateError("IMAGE_BYTES_CHANGED")
+            cp=json.loads(job["copy_json"])
+            from src.image_generation.composition import CompositionLayout
+            # SQLite stores canonical JSON arrays; Owner's new strict typed
+            # tuple field is reconstructed via its JSON-mode DTO validator.
+            layout_obj=CompositionLayout.model_validate_json(
+                json.dumps(plan["layout"],ensure_ascii=False))
+            input_obj=CompositionInput(
+                job_id=job_id,image_bytes=raw,image_sha256=image_sha,
+                copy_revision=job["generation"],copy_hash=job["copy_sha"],
+                copy_output=cp,layout=layout_obj)
+            from src.image_generation.errors import GatewayError
+            try:
+                result=compose_ad_png(input_obj,font_path=font)
+            except (GatewayError,ValueError):
+                # Owner detail stays in controlled logs, not public HTTP.
+                # No Provider attempt occurs and IMAGE_APPROVED is preserved.
+                raise LiveGateError("COMPOSITION_RENDER_FAILED") from None
+            receipt=result.receipt
+            expected_size=(tuple(snapshot["safe_zone"]["final_size"])
+               if snapshot and snapshot["profile_id"].startswith("OWNER_IMAGE_SIZE_")
+               else (1080,1350))
+            if (result.copy_hash!=job["copy_sha"] or
+                result.copy_revision!=job["generation"] or
+                result.source_image_sha256!=image_sha or
+                hashlib.sha256(result.image_bytes).hexdigest()!=result.sha256 or
+                (result.width,result.height)!=expected_size or
+                not isinstance(receipt,dict) or
+                receipt.get("font_sha256")!=font_hash or
+                receipt.get("provider_calls")!=0):
+                raise LiveGateError("COMPOSED_RESULT_BINDING_FAILED")
+            caption_sha=hashlib.sha256(result.caption_bytes).hexdigest()
+            receipt_bytes=canonical(receipt).encode("utf-8")
+            # All three are safely prepared; DB COMPLETED is only committed
+            # AFTER files are fsync'ed and atomically moved into place.
+            atomic_write(directory/"final.png",result.image_bytes)
+            atomic_write(directory/"caption.txt",result.caption_bytes)
+            atomic_write(directory/"receipt.json",receipt_bytes)
+            return self.state.commit_composition(c,actor,job_id,plan,receipt,
+                                                 result.sha256,caption_sha)

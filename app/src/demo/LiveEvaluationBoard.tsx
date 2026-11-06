@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useState } from 'react'
 import './LiveEvaluationBoard.css'
+import { formatSharedAtKST } from './sharedTime'
 
-type Shared = {job_id: string; final_sha: string; shared_at: string}
+type Shared = {job_id: string; final_sha: string; shared_at: string; shared_at_utc: string | null;
+  integrity_status: 'VERIFIED' | 'UNAVAILABLE'}
 type Rated = {score: number; comment: string; category: string; artifact_sha256: string; revision: number}
 const categories = [
   ['product_recognition', '제품 분석 정확도'],
@@ -45,6 +47,8 @@ export default function LiveEvaluationBoard() {
   const refresh = useCallback(async () => {
     const data = await json<{jobs: Shared[]}>(api + '/shared')
     setItems(data.jobs)
+    setSelected(old => old && data.jobs.some(x => x.job_id === old && x.integrity_status === 'VERIFIED')
+      ? old : null)
   }, [])
 
   useEffect(() => {
@@ -57,6 +61,11 @@ export default function LiveEvaluationBoard() {
   }, [])
 
   async function choose(jobId: string) {
+    if (items.find(item=>item.job_id===jobId)?.integrity_status !== 'VERIFIED') {
+      setSelected(null)
+      setError('산출물 무결성을 확인할 수 없어 평가할 수 없습니다.')
+      return
+    }
     setSelected(jobId)
     setReviews([])
     setMessage('')
@@ -71,7 +80,8 @@ export default function LiveEvaluationBoard() {
 
   async function submit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault()
-    if (!selected || saving || !Number.isInteger(score) || score < 1 || score > 5) return
+    if (!selected || saving || items.find(x=>x.job_id===selected)?.integrity_status !== 'VERIFIED'
+      || !Number.isInteger(score) || score < 1 || score > 5) return
     setSaving(true)
     setMessage('')
     setError('')
@@ -98,7 +108,7 @@ export default function LiveEvaluationBoard() {
     }
   }
 
-  const chosen = items.find(item => item.job_id === selected)
+  const chosen = items.find(item => item.job_id === selected && item.integrity_status === 'VERIFIED')
 
   return (
     <main className="live-eval">
@@ -125,18 +135,20 @@ export default function LiveEvaluationBoard() {
             {items.map((item, i) => (
               <li key={item.job_id}>
                 <button type="button" className={'live-eval-item' + (selected === item.job_id ? ' is-active' : '')}
-                  aria-pressed={selected === item.job_id}
+                  aria-pressed={selected === item.job_id && item.integrity_status === 'VERIFIED'}
+                  disabled={item.integrity_status !== 'VERIFIED'}
                   onClick={() => void choose(item.job_id)}>
                   <span className="live-eval-index">{String(i + 1).padStart(2, '0')}</span>
-                  <span className="live-eval-item-details"><strong>실제 AI 광고 · {item.job_id.slice(0, 8)}</strong><small>공유 시각: {item.shared_at}</small></span>
-                  <span className="live-eval-item-action">{selected === item.job_id ? '선택됨' : '평가하기'}</span>
+                  <span className="live-eval-item-details"><strong>{item.integrity_status === 'VERIFIED' ? '실제 AI 광고' : '검증 불가 · 평가 중지'} · {item.job_id.slice(0, 8)}</strong><small>{formatSharedAtKST(item.shared_at_utc)}</small></span>
+                  <span className="live-eval-item-action">{item.integrity_status !== 'VERIFIED' ? '검증 불가' :
+                      selected === item.job_id ? '선택됨' : '평가하기'}</span>
                 </button>
               </li>
             ))}
           </ul>
         </section>
 
-        {selected && (
+        {chosen && selected && (
           <div className="live-eval-grid">
             <section className="panel live-eval-artwork" aria-labelledby="live-eval-artwork-title">
               <p className="eyebrow">CREATIVE / 4:5</p>

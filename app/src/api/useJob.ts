@@ -7,7 +7,8 @@ import type { Job } from '../types/draft'
 import { ApiError, isUnreachable } from './client'
 import { getBlob, getJob, runStep } from './jobs'
 import { queryClient } from './queryClient'
-import {getProductLiveJob,createLiveInput,queueLive,getLiveSnapshot,getLiveTask,latestLiveTask} from './liveJobs'
+import {getProductLiveJob,createLiveInput,queueLive,getLiveSnapshot,getLiveTask,latestLiveTask,qaText} from './liveJobs'
+import {QA_OFFLINE_FIXTURE} from '../config'
 import type {ProductInput} from '../types/textSchema'
 
 const jobKey = (jobId: string | null) => ['job', jobId]
@@ -125,11 +126,16 @@ export async function advance(first: () => Promise<Job>, step: Step | null = nul
       if(imageCount===undefined || refCount===undefined)throw Error('원본 사진 메타데이터를 확인하지 못했습니다.')
       const input:ProductInput={...product,brand_name:product.brand_name?.trim()||null,
         product_image_count:imageCount,reference_image_count:refCount}
-      const current=await createLiveInput(job,input)
+      const selectedSize=useProjectStore.getState().ratio
+      const current=await createLiveInput(job,input,selectedSize)
       if(current.state==='INPUT_STORED'){
         setRun({step:'ai/analyze'})
-        const task=await queueLive(jobId,'text')
-        useProjectStore.getState().setLiveTask(task.task_id)
+        if(QA_OFFLINE_FIXTURE){
+          await qaText(jobId)
+        }else{
+          const task=await queueLive(jobId,'text')
+          useProjectStore.getState().setLiveTask(task.task_id)
+        }
       } else if(current.state!=='COPY_REVIEW_REQUIRED'){
         throw Error('기존 Live Job이 다른 단계입니다. 작업 상태부터 확인해 주세요.')
       }
@@ -174,12 +180,17 @@ export async function recoverLiveInput(){
     const reference_image_count=original.assets?.filter(a=>a.role==='reference').length
     if(product_image_count===undefined||reference_image_count===undefined)
       throw Error('기존 사진 기록이 없습니다.')
-    const current=await createLiveInput(original,{...productPayload(),product_image_count,reference_image_count})
+    const selectedSize=useProjectStore.getState().ratio
+    const current=await createLiveInput(original,
+      {...productPayload(),product_image_count,reference_image_count},selectedSize)
     if(current.state==='INPUT_STORED'){
       const s=await getLiveSnapshot(jobId)
       if(s.state==='INPUT_STORED'){
-        const task=await queueLive(jobId,'text')
-        useProjectStore.getState().setLiveTask(task.task_id)
+        if(QA_OFFLINE_FIXTURE) await qaText(jobId)
+        else{
+          const task=await queueLive(jobId,'text')
+          useProjectStore.getState().setLiveTask(task.task_id)
+        }
       }
     }
     await queryClient.invalidateQueries({queryKey:jobKey(jobId)})

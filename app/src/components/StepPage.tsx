@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react'
 import { Link, useLocation } from 'react-router-dom'
 import { STEPS, stepIndex } from '../steps'
+import { QA_OFFLINE_FIXTURE } from '../config'
 
 type Props = {
   title: string
@@ -30,6 +31,10 @@ export default function StepPage({ title, description, wide, back, actions, acti
           <h1>{title}</h1>
           {description && <p className="step-desc">{description}</p>}
         </header>
+        {QA_OFFLINE_FIXTURE && <div className="notice notice-warning" role="status" data-testid="qa-fixture-banner">
+          <p className="notice-title">QA 전용 OFFLINE_FIXTURE · 실제 AI 생성 아님</p>
+          <p>제품 분석·카피·이미지는 저장된 시험 데이터이며, 모델 비용·속도·제품 보존 품질을 검증한 결과가 아닙니다.</p>
+        </div>}
         {children}
       </div>
       <div className="step-actions">

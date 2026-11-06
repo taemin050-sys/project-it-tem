@@ -27,6 +27,7 @@ from pydantic import BaseModel, Field
 
 from src.serving.main import create_app as create_b0_app
 from src.serving.job_store import get_mock_artifact
+from .tailnet_assertion import TailnetAssertionError, verify_request, key_from_file
 
 _ID = re.compile(r"^[0-9a-f]{32}$")
 _STEP = re.compile(r"^/api/v1/jobs(?:/([0-9a-f]{32})(?:/(.*))?)?$")
@@ -235,6 +236,30 @@ def make_demo_app(root: Path, invite_file: Path, frontend: Path,
     app.state.demo_mode="MOCK_ONLY"
     app.state.demo_code_sha=code_sha
 
+    tailnet_enabled=os.environ.get("IT_TEM_TAILNET_AUTH_ENABLED")=="YES"
+    if tailnet_enabled:
+        key_path=os.environ.get("IT_TEM_TAILNET_AUTH_KEY_FILE","")
+        users_path=os.environ.get("IT_TEM_TAILNET_ACTORS_FILE","")
+        if not key_path or not users_path:
+            raise RuntimeError("TAILNET_AUTH_CONFIG_MISSING")
+        tailnet_key=key_from_file(key_path)
+        tailnet_roles=json.loads(Path(users_path).read_text(encoding="utf8"))
+        if (not isinstance(tailnet_roles,dict) or len(tailnet_roles)!=5 or
+            any(not re.fullmatch(r"[a-zA-Z0-9_-]{3,40}",k) or
+                v not in ("admin","evaluator") for k,v in tailnet_roles.items())):
+            raise RuntimeError("TAILNET_AUTH_ACTOR_REGISTRY_INVALID")
+    else:
+        tailnet_key=None
+        tailnet_roles={}
+
+    def request_identity(request:Request):
+        tailnet=verify_request(request,tailnet_key,tailnet_roles)
+        if tailnet:
+            return tailnet
+        return ledger.identity(request.cookies.get(cookie_name))
+
+    app.state.demo_request_identity=request_identity
+
     @app.middleware("http")
     async def guarded(request: Request, call_next):
         path=request.url.path
@@ -244,7 +269,11 @@ def make_demo_app(root: Path, invite_file: Path, frontend: Path,
             response=await call_next(request)
             response.headers["Cache-Control"]="no-store" if path=="/health" else "no-cache"
             return response
-        identity=ledger.identity(request.cookies.get(cookie_name))
+        try:
+            identity=request_identity(request)
+        except TailnetAssertionError:
+            return JSONResponse({"detail":"Invalid signed Tailscale identity"},
+                                status_code=401,headers={"Cache-Control":"no-store"})
         is_login=path=="/demo/api/session" and request.method=="POST"
         if not is_login and not identity and not (path=="/demo/api/session" and request.method=="GET"):
             return JSONResponse({"detail":"Login required"},status_code=401,
@@ -301,14 +330,18 @@ def make_demo_app(root: Path, invite_file: Path, frontend: Path,
 
     @app.get("/demo/api/session")
     def session(request: Request):
-        actor=ledger.identity(request.cookies.get(cookie_name))
+        actor=request_identity(request)
         if not actor:
             return JSONResponse({"authenticated":False},status_code=401)
+        is_tailnet=verify_request(request,tailnet_key,tailnet_roles) is not None
         return {"authenticated":True,"evaluator_id":actor[0],"role":actor[1],
+                "auth_provider":"TAILSCALE_SERVE" if is_tailnet else "INVITE_COOKIE",
                 "mode":"MOCK","live_enabled":False}
 
     @app.post("/demo/api/session")
-    def login(payload: InviteLogin):
+    def login(payload: InviteLogin,request: Request):
+        if verify_request(request,tailnet_key,tailnet_roles) is not None:
+            raise HTTPException(status_code=409,detail="Tailscale SSO already active")
         identity=ledger.login(payload.invite_code)
         if identity is None:
             raise HTTPException(status_code=401,detail="Invalid invitation or rate limit")
@@ -322,13 +355,15 @@ def make_demo_app(root: Path, invite_file: Path, frontend: Path,
 
     @app.delete("/demo/api/session")
     def logout(request: Request):
+        if verify_request(request,tailnet_key,tailnet_roles) is not None:
+            raise HTTPException(409,"Tailscale session is managed by Tailscale")
         ledger.logout(request.cookies.get(cookie_name))
         response=JSONResponse({"authenticated":False})
         response.delete_cookie(cookie_name,path="/",secure=secure_cookie,httponly=True,samesite="lax")
         return response
 
     def authorize(request,job_id):
-        actor=ledger.identity(request.cookies.get(cookie_name))
+        actor=request_identity(request)
         if not actor:
             raise HTTPException(401,"Login required")
         if not ledger.owns(actor[0],job_id):
@@ -369,7 +404,7 @@ def make_demo_app(root: Path, invite_file: Path, frontend: Path,
 
     @app.get("/demo/api/admin/evaluations")
     def admin_summary(request: Request):
-        actor=ledger.identity(request.cookies.get(cookie_name))
+        actor=request_identity(request)
         if not actor or actor[1]!="admin":
             raise HTTPException(403,"Admin only")
         rows=ledger.admin_summary()
@@ -377,7 +412,7 @@ def make_demo_app(root: Path, invite_file: Path, frontend: Path,
 
     @app.get("/demo/api/admin/timings")
     def admin_timings(request: Request):
-        actor=ledger.identity(request.cookies.get(cookie_name))
+        actor=request_identity(request)
         if not actor or actor[1]!="admin":
             raise HTTPException(403,"Admin only")
         return {"mode":"MOCK","units":"ms","provider_elapsed_ms":None,
@@ -385,7 +420,7 @@ def make_demo_app(root: Path, invite_file: Path, frontend: Path,
 
     @app.get("/demo/api/admin/evaluations.csv")
     def admin_csv(request: Request):
-        actor=ledger.identity(request.cookies.get(cookie_name))
+        actor=request_identity(request)
         if not actor or actor[1]!="admin":
             raise HTTPException(403,"Admin only")
         rows=ledger.admin_summary()

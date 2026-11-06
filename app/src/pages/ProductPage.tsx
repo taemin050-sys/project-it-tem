@@ -1,7 +1,8 @@
-import { useState, type FormEvent } from 'react'
+import { useEffect,useState, type FormEvent } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { isUnreachable } from '../api/client'
 import { createJob } from '../api/jobs'
+import {getTextCostEstimate,type TextCostEstimate} from '../api/liveJobs'
 import { advance,hasUnfinishedJob,productPayload,recoverLiveInput,resetJob } from '../api/useJob'
 import Field from '../components/Field'
 import MockFallback from '../components/MockFallback'
@@ -41,10 +42,22 @@ const describedBy = (...ids: (string | false | undefined)[]) => ids.filter(Boole
 
 export default function ProductPage() {
   const navigate = useNavigate()
-  const { images, references, product, ratio, run, jobId, setImages, setReferences, setRatio, setProduct: saveProduct } = useProjectStore()
+  const { images, references, product, ratio, mock, run, jobId, setImages, setReferences, setRatio, setProduct: saveProduct } = useProjectStore()
   const [errors, setErrors] = useState<ProductErrors>({})
   const [uploading, setUploading] = useState(false)
   const [uploadError, setUploadError] = useState<{ message: string; offline: boolean }>()
+  const [textEstimate,setTextEstimate]=useState<{photoCount:number;estimate:TextCostEstimate}>()
+  useEffect(()=>{
+    let active=true
+    if(!mock && images.length>=2 && images.length<=5){
+      void getTextCostEstimate(images.length).then(value=>{
+        if(active)setTextEstimate({photoCount:images.length,estimate:value})
+      }).catch(()=>{})
+    }
+    return ()=>{active=false}
+  },[images.length,mock])
+  const currentEstimate=(!mock && images.length===textEstimate?.photoCount)
+    ? textEstimate.estimate:undefined
 
   // 사용자가 항목을 고치면 그 항목의 오류는 바로 지운다 (나머지는 다음 제출 때 다시 검사)
   const setError = (key: keyof ProductErrors, message?: string) => setErrors((e) => ({ ...e, [key]: message }))
@@ -91,6 +104,8 @@ export default function ProductPage() {
   }
 
   const busy = uploading || run.busy
+  // All three ratios are accepted by the Owner #23 size-only contract.
+  const ratioBlocked = false
 
   return (
     <StepPage
@@ -98,12 +113,20 @@ export default function ProductPage() {
       description="광고에 사용할 제품 사진과 정보를 입력해 주세요."
       back={{ to: '/', label: '처음으로' }}
       actions={
-        <button className="button" type="submit" form="product-form" disabled={busy} aria-busy={uploading}>
+        <button className="button" type="submit" form="product-form"
+          disabled={busy || ratioBlocked} aria-busy={uploading}>
           {uploading ? '사진을 올리는 중…' : '다음: 기획·카피 만들기'}
         </button>
       }
       actionsNote={
         <>
+          {!mock && <p className="field-hint" role="status">
+            {currentEstimate
+              ? <>텍스트 AI 예상 비용: <strong>{currentEstimate.display}</strong>
+                  {' '}({images.length}장 기준, 실제 과금 아님)</>
+              : '텍스트 AI 예상 비용: 제품 사진 2~5장을 선택하면 서버에서 조회합니다.'}
+            {' '}이미지 생성 비용·실제 과금액은 포함되지 않습니다.
+          </p>}
         {!import.meta.env.DEV && jobId && !run.busy &&
           <button type="button" className="button secondary small"
             onClick={()=>void recoverLiveInput().then(()=>navigate('/create/copy')).catch(()=>{})}>
@@ -230,7 +253,15 @@ export default function ProductPage() {
             <fieldset id="functional_types" className="subgroup check-group" tabIndex={-1}
               aria-describedby={describedBy('functional_types-hint', errors.functional_types && 'functional_types-error')}>
               <legend className="group-label">기능성 종류</legend>
-              <p id="functional_types-hint" className="field-hint">심사·보고를 마친 기능성 효능을 모두 골라 주세요. 여드름완화는 인체세정용 제품만 해당합니다.</p>
+              <p id="functional_types-hint" className="field-hint">
+                심사·보고받은 기능성 종류를 선택하세요. 종류를 확실히 모르면 선택하지 않아도
+                진행할 수 있지만 모든 기능성 효능 표현에 '근거 확인 필요' 경고가 표시됩니다.
+                여드름완화는 인체세정용 제품만 해당합니다.
+              </p>
+              {!mock && <p className="field-hint" role="status">
+                선택한 종류는 Text Owner v0.10의 생성·규제 검수에 전달됩니다.
+                선택만으로 실제 심사·보고 여부나 효능 광고 근거가 증명되지는 않습니다.
+              </p>}
               <div className="check-grid">
                 {FUNCTIONAL_TYPES.map((t) => (
                   <label key={t} className="check-item">
@@ -253,6 +284,10 @@ export default function ProductPage() {
             options={(Object.keys(RATIOS) as Ratio[]).map((r) => ({ value: r, label: RATIOS[r].label, desc: `${RATIOS[r].desc} · ${RATIOS[r].width}×${RATIOS[r].height}` }))}
             onChange={setRatio}
           />
+          {!mock && <p className="field-hint" role="status">
+            선택한 최종 크기는 Server Job에 저장되어 Image Owner의 생성·합성 프로필로 전달됩니다.
+            3:4·4:5·9:16의 실제 모델 품질은 아직 검증되지 않았습니다.
+          </p>}
         </section>
 
         <div className={errors.photo_verified ? 'consent has-error' : 'consent'}>

@@ -6,7 +6,8 @@ from src.text_generation.cost import (
     format_usd,
 )
 
-from src.text_generation.config import MODEL_TEXT
+# The estimator does not require a provider key at import time.
+from src.text_generation.cost import MODEL_TEXT
 
 
 def main():
