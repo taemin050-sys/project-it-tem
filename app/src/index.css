@@ -122,6 +122,7 @@ img { max-width: 100%; }
 .hero-lead { max-width: 26em; font-size: clamp(16px, 1.4vw, 19px); color: var(--text-2); text-wrap: pretty; }
 .hero-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 12px 24px; margin-top: 36px; }
 .hero-note { margin-top: 14px; font-size: 14px; color: var(--text-2); }
+.resume-notice { margin-top: 28px; }
 .hero-visual { width: 100%; max-width: 500px; justify-self: end; }
 
 @media (max-width: 767px) {

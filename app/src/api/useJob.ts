@@ -90,10 +90,13 @@ export function startNewAd(): boolean {
   return true
 }
 
-// 랜딩의 광고 만들기: 결과까지 끝난 작업이면 새로 시작하고, 진행 중이면 그대로 이어간다
+// 랜딩·상단 메뉴의 광고 만들기: 결과까지 끝난 작업이면 새로 시작하고, 진행 중이면 이어간다.
+// 이어갈 때는 저장된 Job의 서버 상태를 다시 읽는다 (조회만, AI 호출 없음)
 export function continueOrStartNew() {
   const { jobId, finishedJobId } = useProjectStore.getState()
-  if (jobId !== null && jobId === finishedJobId) startNewAd()
+  if (jobId === null) return
+  if (jobId === finishedJobId) startNewAd()
+  else void queryClient.invalidateQueries({ queryKey: jobKey(jobId) })
 }
 
 // 링크용: 새 광고 시작을 취소하면 이동하지 않는다
