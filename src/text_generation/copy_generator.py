@@ -47,11 +47,36 @@ EMOJI_PALETTE = "✨ 🤍 💗 🩵 🫶 🎀 💕 💧 🫧 💦 🌊 🧊 ☁�
 EMOJI_RULE = f"""- 이모티콘은 이 목록을 기본으로 써 : {EMOJI_PALETTE}
 - 제품이나 계절과 잘 어울리는 이모티콘은 목록 밖에서 1~2개 더 써도 돼 (예 : 당근 패드에 🥕, 겨울에 ❄️)"""
 
-# "없음"은 2문단, "보통"은 11줄 이하로 쓰면 250자에 못 미쳐서 3문단·12줄 이상으로 (11/5 테스트)
+# "보통"은 11줄 이하로 쓰면 250자에 못 미쳐서 12줄 이상으로 (11/5 테스트)
+# "없음"은 문단형이면 휴대폰에서 글자 덩어리로 보여서 보통처럼 줄을 나누고, 한 줄은 조금 길게 (11/6)
 EMOJI_GUIDE: dict[EmojiLevel, str] = {
-    "없음": """- 본문에 이모티콘을 쓰지 마
-- 3문단으로 나누고, 한 문단은 2~3문장으로 써
-- 말투는 차분한 "~요" 체로 통일해""",
+    "없음": """- 본문에 이모티콘을 쓰지 마. "ㅎㅎ", "ㅠㅠ" 같은 표현도 쓰지 마
+- 본문은 짧은 줄로 써. 한 줄에 한 문장 이하로 쓰고, 여러 문장을 문단으로 이어 쓰지 마
+- 한 줄은 30자 안팎으로 쓰고, 긴 문장은 쉼표 뒤에서 줄을 바꿔
+- 줄은 문장 끝이나 쉼표 뒤처럼 자연스럽게 쉬는 곳에서만 바꿔. 꾸미는 말과 꾸밈 받는 말 사이에서는 끊지 마. 그러려면 30자를 조금 넘어도 괜찮아
+- 2~3줄마다 빈 줄을 넣어 문단을 나눠
+- 빈 줄을 뺀 줄 수는 10줄 이상으로 써
+- 첫 줄은 눈길을 끄는 한 줄 소개로 써
+- 말투는 차분한 "~요" 체로 통일해
+- 아래 예시는 구조·말투·길이만 참고해. 예시 제품은 가상 제품이라 성분·특징·문장을 가져오지 마
+
+예시 :
+물처럼 가볍게 스며드는 수분 크림을 소개해요.
+
+아침마다 피부가 당기는 느낌이 들었다면,
+이번엔 가볍게 시작해 볼까요?
+
+△△ 워터 젤 크림은 끈적임 없이 산뜻하게 마무리돼요.
+세라마이드를 함유해 촉촉한 마무리감을 주고,
+가벼운 젤 텍스처라 덧발라도 부담 없어요.
+
+튜브형이라 파우치에 넣어 다니기 좋아서
+출근 준비로 바쁜 아침에도,
+건조한 사무실에서도 꺼내 바르기 편해요.
+
+△△ 신제품 출시 이벤트 소식도 함께 전해요.
+세안 후 한 번, 가볍게 바르고
+산뜻한 하루를 시작해 보세요.""",
     "보통": f"""- 본문은 반드시 짧은 줄로 써. 한 줄에 한 문장 이하로 쓰고, 여러 문장을 문단으로 이어 쓰지 마
 - 한 줄은 25자 안팎으로 짧게 쓰고, 긴 문장은 쉼표 뒤에서 줄을 바꿔
 - 줄은 문장 끝이나 쉼표 뒤처럼 자연스럽게 쉬는 곳에서만 바꿔. 꾸미는 말과 꾸밈 받는 말 사이에서는 끊지 마. 그러려면 25자를 조금 넘어도 괜찮아
@@ -233,8 +258,12 @@ _EMOJI_CHAR = re.compile(
     "[\U0001f000-\U0001faff\u2300-\u23ff\u2600-\u27bf\u2b00-\u2bff]"
 )
 
-# 권유 표현 (예: 사용해 보세요, 확인해 주세요, 함께하세요)
-_SUGGESTION = re.compile(r"(보세요|주세요|하세요)")
+# 이모지 범위 밖의 꾸밈 표현 : 자음·모음만으로 된 "ㅎㅎ", "ㅋㅋ", "ㅠㅠ", "ㅜㅜ" 등, ʚ♡ɞ의 양쪽 기호 (11/6 PM 리뷰)
+_DECORATION = re.compile("[\u3131-\u3163]+|[\u029a\u025e]")
+
+# 권유 표현 (예: 사용해 보세요, 함께하세요, 확인해 주세요)
+# "발라 주세요", "덜어 주세요" 같은 사용법 안내는 권유로 세지 않음 (11/6 테스트)
+_SUGGESTION = re.compile(r"(보세요|하세요|확인해\s*주세요)")
 
 
 def _build_input(
@@ -253,6 +282,7 @@ def _build_input(
         )
         or "- 없음"
     )
+    # 최소 길이만 강조하면 "많이"가 350자를 넘어서 최대 길이도 같이 (11/6 테스트)
     if for_revision:
         length_line = (
             f"- 본문 길이 : 처음 생성 기준은 {CAPTION_MIN}~{CAPTION_MAX[level]}자. "
@@ -261,7 +291,8 @@ def _build_input(
     else:
         length_line = (
             f"- 본문 길이 : {CAPTION_MIN}~{CAPTION_MAX[level]}자 (줄바꿈·이모티콘 포함). "
-            f"{CAPTION_MIN}자보다 짧으면 안 돼. 짧을 것 같으면 사용 장면이나 광고 목적 내용을 한 문단 더 써"
+            f"{CAPTION_MIN}자보다 짧거나 {CAPTION_MAX[level]}자보다 길면 안 돼. "
+            "짧을 것 같으면 사용 장면이나 광고 목적 내용을 한 문단 더 쓰고, 길 것 같으면 사용 장면을 줄여"
         )
     return f"""[사용자 입력]
 - 브랜드명 : {product.brand_name or "미입력"}
@@ -310,14 +341,20 @@ def count_emojis(text: str) -> int:
 
 
 def count_suggestions(text: str) -> int:
-    """권유 표현 개수 (~보세요, ~주세요, ~하세요)"""
+    """권유 표현 개수 (~보세요, ~하세요, 확인해 주세요, 사용법 안내 "~주세요"는 제외)"""
     return len(_SUGGESTION.findall(text))
 
 
+def _count_decorations(text: str) -> int:
+    """이모티콘 + 꾸밈 표현 개수 (제거 로그용, "ㅎㅎ"처럼 이어진 자음·모음은 1개로 셈)"""
+    return count_emojis(text) + len(_DECORATION.findall(text))
+
+
 def _strip_emojis(text: str) -> str:
-    """이모티콘 제거 후 남은 공백 정리 (줄바꿈은 유지)"""
+    """이모티콘과 꾸밈 표현(ㅎㅎ, ㅠㅠ, ʚɞ 등) 제거 후 남은 공백 정리 (줄바꿈은 유지)"""
     lines = [
-        re.sub(r" {2,}", " ", _EMOJI.sub("", line)).strip() for line in text.split("\n")
+        re.sub(r" {2,}", " ", _DECORATION.sub("", _EMOJI.sub("", line))).strip()
+        for line in text.split("\n")
     ]
     return "\n".join(lines)
 
@@ -347,13 +384,40 @@ def _normalize_subline(text: str) -> str:
     return "\n".join(line for line in lines if line)
 
 
-def _postprocess(output: AdCopyOutput) -> None:
-    """이모티콘은 본문에만 (이미지 위 문구·해시태그에 들어오면 제거), 서브·본문 공백 정리"""
+def _postprocess(output: AdCopyOutput, strip_caption: bool = False) -> None:
+    """이모티콘·꾸밈 표현은 본문에만 (이미지 위 문구·해시태그에 들어오면 제거), 서브·본문 공백 정리
+
+    - strip_caption=True면 본문에서도 제거 (이모티콘 "없음"으로 처음 생성할 때, 11/6 PM 리뷰)
+    - 지운 게 있으면 INFO 로그 (LLM이 지시를 얼마나 어기는지 확인용)
+    """
+    copy_text = "\n".join(
+        [
+            output.ad_copy.headline,
+            output.ad_copy.subline,
+            output.ad_copy.cta,
+            *output.hashtags,
+        ]
+    )
+    removed_copy = _count_decorations(copy_text)
+    if removed_copy:
+        logger.info(
+            "헤드·서브·CTA·해시태그에서 이모티콘·꾸밈 표현 %d개 제거", removed_copy
+        )
+
     output.ad_copy.headline = _strip_emojis(output.ad_copy.headline)
     output.ad_copy.subline = _normalize_subline(_strip_emojis(output.ad_copy.subline))
     output.ad_copy.cta = _strip_emojis(output.ad_copy.cta)
     output.hashtags = [h for h in (_strip_emojis(h) for h in output.hashtags) if h]
-    output.caption = _tidy_caption(output.caption)
+
+    caption = output.caption
+    if strip_caption:
+        removed_caption = _count_decorations(caption)
+        if removed_caption:
+            logger.info(
+                "이모티콘 없음 : 본문에서 이모티콘·꾸밈 표현 %d개 제거", removed_caption
+            )
+        caption = _strip_emojis(caption)
+    output.caption = _tidy_caption(caption)
 
 
 def _restore_unchanged(
@@ -467,7 +531,8 @@ def generate_copy(
 ) -> AdCopyOutput:
     """기획 + 카피 생성 (1회 호출, 실패 시 LLMError). 글자 수·내용 기준 미달은 경고만
 
-    reasoning_effort를 넘기지 않으면 이모티콘 정도별 기본값 사용 (copy_reasoning_effort)
+    - reasoning_effort를 넘기지 않으면 이모티콘 정도별 기본값 사용 (copy_reasoning_effort)
+    - 이모티콘 "없음"이면 본문에 들어온 이모티콘·꾸밈 표현도 코드에서 제거
     """
     effort = reasoning_effort or copy_reasoning_effort(product.emoji_level)
     output = call_structured(
@@ -478,7 +543,7 @@ def generate_copy(
         max_output_tokens=COPY_MAX_OUTPUT_TOKENS,
         reasoning_effort=effort,
     )
-    _postprocess(output)
+    _postprocess(output, strip_caption=product.emoji_level == "없음")
     _log_checks(output, product)
     logger.info("카피 글자 수 %s | 추론 강도 %s", copy_lengths(output), effort)
     return output
@@ -497,6 +562,7 @@ def revise_copy(
 
     - changed_fields에 없는 항목은 이전 값으로 되돌리고, changed_fields는 실제로 바뀐 항목만 남김
     - 요청이 비었거나 REVISION_REQUEST_MAX자를 넘으면 호출 전에 ValueError
+    - 본문 이모티콘은 지우지 않음 (이모티콘 양 요청이 이모티콘 정도 설정보다 우선)
     - 결과는 review_copy로 다시 검수해야 함
     """
     request = request.strip()
