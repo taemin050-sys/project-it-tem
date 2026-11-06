@@ -16,7 +16,9 @@ from io import BytesIO
 import math
 from pathlib import Path
 import time
-import unicodedata
+# Pin modern Unicode categories independently of GCP Python 3.10's Unicode 13.
+# Do not fall back to an old database: that would misclassify valid newer emoji.
+import unicodedata2 as unicodedata
 from typing import Annotated, Literal
 
 from fontTools.ttLib import TTFont, TTLibError

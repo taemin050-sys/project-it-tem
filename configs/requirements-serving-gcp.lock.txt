@@ -32,6 +32,7 @@ starlette==1.7.0
 tomli==2.5.0
 truststore==0.10.5
 typing-inspection==0.4.4
+unicodedata2==16.0.0
 typing_extensions==4.16.0
 uvicorn==0.54.0
 uvloop==0.23.0
