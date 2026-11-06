@@ -2,7 +2,7 @@
 import {queryClient} from './queryClient'
 import {useProjectStore} from '../store/projectStore'
 import {approveLiveCopy,rejectLiveCopy,queueLive,waitLiveTask,approveLiveImage,
-  rejectLiveImage,composeLive,getLiveSnapshot} from './liveJobs'
+  rejectLiveImage,composeLive,getLiveSnapshot,reviseLiveCopy,restoreLiveCopy} from './liveJobs'
 import {guardCopyApproval,guardImageApproval,type LiveSnapshot} from './liveMapping'
 import {AD_LAYOUT} from '../config'
 import {ApiError} from './client'
@@ -15,7 +15,7 @@ const refresh=async(id:string)=>{
   await queryClient.invalidateQueries({queryKey:['job',id]})
   await queryClient.invalidateQueries({queryKey:['live-snapshot',id]})
 }
-async function run(id:string,step:'ai/image'|'compose',action:()=>Promise<unknown>){
+async function run(id:string,step:'ai/image'|'ai/copy-review'|'compose',action:()=>Promise<unknown>){
   const {setRun}=useProjectStore.getState()
   if(useProjectStore.getState().run.busy)throw Error('이미 작업을 진행 중입니다.')
   setRun({busy:true,step,error:null})
@@ -51,6 +51,18 @@ export async function resumeImageFromApproved(id:string){
       useProjectStore.getState().setLiveTask(task.task_id)
     }else throw Error('이미 진행 중이거나 완료된 상태입니다. 상태를 새로고침하세요.')
   })
+}
+// 수정 요청·되돌리기: 클릭 시점의 최신 스냅샷 해시로 보낸다. Task면 끝날 때까지 기다린다 (자동 재시도 없음)
+async function untilReviewed(id:string,res:{task_id?:string}){
+  if(!res.task_id)return
+  useProjectStore.getState().setLiveTask(res.task_id)
+  await waitLiveTask(id,res.task_id,'COPY_REVIEW_REQUIRED')
+}
+export async function reviseCopy(id:string,instruction:string){
+  await run(id,'ai/copy-review',async()=>untilReviewed(id,await reviseLiveCopy(await getLiveSnapshot(id),instruction)))
+}
+export async function restoreCopy(id:string){
+  await run(id,'ai/copy-review',async()=>untilReviewed(id,await restoreLiveCopy(await getLiveSnapshot(id))))
 }
 export async function rejectCopy(s:LiveSnapshot){
   if(s.state!=='COPY_REVIEW_REQUIRED')throw Error('카피 거절 상태 오류')

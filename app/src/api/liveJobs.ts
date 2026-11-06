@@ -2,7 +2,7 @@ import { request } from './client'
 import type { Job } from '../types/draft'
 import type { ProductInput,AdCopyOutput } from '../types/textSchema'
 import type { Ratio } from '../config'
-import { asProductJob,guardCopyApproval,guardImageApproval,
+import { asProductJob,guardCopyApproval,guardCopyRevision,guardImageApproval,
   type LiveSnapshot,type LiveTask,type LivePerformance } from './liveMapping'
 import { getJob } from './jobs'
 
@@ -34,6 +34,18 @@ export const approveLiveCopy=(s:LiveSnapshot,acknowledgeEvidence:boolean)=>{
   return request<LiveSnapshot>(url(s.job_id)+'/approve-copy',
     json({expected_generation:s.generation,expected_review_sha:s.review_sha,
       acknowledge_evidence:acknowledgeEvidence}))
+}
+const reviewLock=(s:LiveSnapshot)=>({expected_generation:s.generation,expected_review_sha:s.review_sha})
+// 202 + Task (Worker가 revise_copy → 재검수)
+export const reviseLiveCopy=(s:LiveSnapshot,instruction:string)=>{
+  guardCopyRevision(s)
+  return request<{task_id:string;state:string;new:boolean}>(url(s.job_id)+'/revise-copy',
+    json({...reviewLock(s),instruction}))
+}
+// shortcut: 응답 형태 미확인 (답변서에 없음). task_id가 오면 Task로, 아니면 스냅샷으로 본다
+export const restoreLiveCopy=(s:LiveSnapshot)=>{
+  guardCopyRevision(s)
+  return request<{task_id?:string}>(url(s.job_id)+'/restore-copy',json(reviewLock(s)))
 }
 export const rejectLiveCopy=(id:string)=>request<LiveSnapshot>(url(id)+'/reject-copy',{method:'POST'})
 export const approveLiveImage=(s:LiveSnapshot)=>{

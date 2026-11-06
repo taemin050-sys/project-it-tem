@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import {asProductJob,guardCopyApproval,guardImageApproval,isPublishedFinal,type LiveSnapshot} from '../src/api/liveMapping.ts'
+import {asProductJob,guardCopyApproval,guardCopyRevision,guardImageApproval,isPublishedFinal,type LiveSnapshot} from '../src/api/liveMapping.ts'
 import type {Job} from '../src/types/draft.ts'
 const raw:Job={job_id:'a'.repeat(32),status:'INPUTS_VALIDATED',assets:[{
   asset_id:'A',role:'product',original_filename:'a.png',content_type:'image/png',
@@ -24,6 +24,14 @@ test('copy approval locks generation, compliance and review SHA',()=>{
   assert.doesNotThrow(()=>guardCopyApproval(review))
   assert.throws(()=>guardCopyApproval({...review,compliance:{...review.compliance,passed:false}}))
   assert.throws(()=>guardCopyApproval({...review,review_sha:null}))
+})
+test('copy revision is allowed on a failed review but stays locked to the current review',()=>{
+  const review={...example,state:'COPY_REVIEW_REQUIRED' as const,
+    generation:2,review_sha:'d'.repeat(64),copy_sha:'e'.repeat(64),
+    compliance:{passed:false,issues:[],revised_fields:{},checklist:[],notice:'review'}}
+  assert.doesNotThrow(()=>guardCopyRevision(review))
+  assert.throws(()=>guardCopyRevision({...review,review_sha:null}))
+  assert.throws(()=>guardCopyRevision({...review,state:'COPY_APPROVED'}))
 })
 test('image approval requires an active copy approval and candidate SHA',()=>{
   const candidate={...example,state:'IMAGE_REVIEW_REQUIRED' as const,image_sha:'a'.repeat(64),

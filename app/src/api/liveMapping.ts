@@ -1,6 +1,6 @@
 /** Explicit official-Owner DTO -> B0 view-model boundary; never cast a Live state to B0 status. */
 import type { Job, JobStatus } from '../types/draft'
-import type { AdCopyOutput, ComplianceReport, ProductAnalysis, ResearchResult } from '../types/textSchema'
+import type { AdCopyOutput, ComplianceReport, CopyField, ProductAnalysis, ResearchResult } from '../types/textSchema'
 
 export type LiveState='INPUT_STORED'|'COPY_REVIEW_REQUIRED'|'COPY_APPROVED'|'COPY_REJECTED'|
   'PROMPT_READY'|'IMAGE_REVIEW_REQUIRED'|'IMAGE_APPROVED'|'IMAGE_REJECTED'|'COMPLETED'
@@ -12,6 +12,8 @@ export type LiveSnapshot={
   research_display?:ResearchResult;copy?:AdCopyOutput;compliance?:ComplianceReport;
   image_prompt?:unknown
   output_size?:{width:number;height:number}
+  revision_feedback?:{changed_fields:CopyField[];note:string}|null
+  previous_copy_available?:boolean
 }
 export type LiveTask={task_id:string;job_id:string;stage:string;state:
   'QUEUED'|'RUNNING'|'SUCCEEDED'|'BILLING_UNKNOWN';error_code?:string|null}
@@ -54,6 +56,12 @@ export function guardCopyApproval(s:LiveSnapshot){
   if(s.state!=='COPY_REVIEW_REQUIRED'||!s.review_sha||!s.copy_sha||
       !Number.isSafeInteger(s.generation)||s.generation<1||!s.compliance?.passed)
     throw Error('COPY_COMPLIANCE_OR_REVISION_NOT_APPROVED')
+}
+// 수정 요청·되돌리기는 규제 미통과 카피에도 허용한다 (승인만 PASS 필요). 지금 보고 있는 검수본인지만 잠근다
+export function guardCopyRevision(s:LiveSnapshot){
+  if(s.state!=='COPY_REVIEW_REQUIRED'||!s.review_sha||!s.copy_sha||
+      !Number.isSafeInteger(s.generation)||s.generation<1)
+    throw Error('COPY_REVISION_STATE_MISMATCH')
 }
 export function guardImageApproval(s:LiveSnapshot){
   if(s.state!=='IMAGE_REVIEW_REQUIRED'||!s.image_sha||!s.approval_current)
