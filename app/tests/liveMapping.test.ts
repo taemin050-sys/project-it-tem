@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import {asProductJob,guardCopyApproval,guardCopyRevision,guardImageApproval,isPublishedFinal,type LiveSnapshot} from '../src/api/liveMapping.ts'
+import {asProductJob,guardCopyApproval,guardCopyRevision,guardImageApproval,isPublishedFinal,sameCopyReview,sameImageCandidate,type LiveSnapshot} from '../src/api/liveMapping.ts'
 import type {Job} from '../src/types/draft.ts'
 const raw:Job={job_id:'a'.repeat(32),status:'INPUTS_VALIDATED',assets:[{
   asset_id:'A',role:'product',original_filename:'a.png',content_type:'image/png',
@@ -32,6 +32,19 @@ test('copy revision is allowed on a failed review but stays locked to the curren
   assert.doesNotThrow(()=>guardCopyRevision(review))
   assert.throws(()=>guardCopyRevision({...review,review_sha:null}))
   assert.throws(()=>guardCopyRevision({...review,state:'COPY_APPROVED'}))
+})
+test('approval is refused when the server moved past the version the user saw',()=>{
+  const seen={...example,state:'COPY_REVIEW_REQUIRED' as const,generation:2,review_sha:'r2',copy_sha:'c2'}
+  assert.equal(sameCopyReview(seen,{...seen}),true)
+  assert.equal(sameCopyReview(seen,{...seen,generation:3}),false)
+  assert.equal(sameCopyReview(seen,{...seen,review_sha:'r3'}),false)
+  assert.equal(sameCopyReview(seen,{...seen,copy_sha:'c3'}),false)
+})
+test('image approval compares the candidate the user saw',()=>{
+  const seen={...example,image_sha:'a'.repeat(64)}
+  assert.equal(sameImageCandidate(seen,{...seen}),true)
+  assert.equal(sameImageCandidate(seen,{...seen,image_sha:'b'.repeat(64)}),false)
+  assert.equal(sameImageCandidate(example,example),false)
 })
 test('image approval requires an active copy approval and candidate SHA',()=>{
   const candidate={...example,state:'IMAGE_REVIEW_REQUIRED' as const,image_sha:'a'.repeat(64),

@@ -3,7 +3,7 @@ import {queryClient} from './queryClient'
 import {useProjectStore} from '../store/projectStore'
 import {approveLiveCopy,rejectLiveCopy,queueLive,waitLiveTask,approveLiveImage,
   rejectLiveImage,composeLive,getLiveSnapshot,reviseLiveCopy,restoreLiveCopy} from './liveJobs'
-import {guardCopyApproval,guardImageApproval,type LiveSnapshot} from './liveMapping'
+import {guardCopyApproval,guardImageApproval,sameCopyReview,sameImageCandidate,type LiveSnapshot} from './liveMapping'
 import {AD_LAYOUT} from '../config'
 import {ApiError} from './client'
 // The generic HTTP messages (e.g. 422 = photo input) are wrong for a compose failure; the image is kept.
@@ -35,10 +35,15 @@ async function queuePromptAndImage(id:string){
   const image=await queueLive(id,'image')
   useProjectStore.getState().setLiveTask(image.task_id)
 }
-export async function approveCopyAndCreateImage(s:LiveSnapshot,ack:boolean){
-  guardCopyApproval(s)
-  await run(s.job_id,'ai/image',async()=>{
+// seen: 사용자가 화면에서 본 스냅샷. 클릭 시점 서버값이 다르면 승인하지 않는다 (run이 새로고침·오류 표시).
+// onApproved: 승인 POST가 성공한 뒤에만 부른다 (화면 이동). 이후 이미지 생성 실패는 이미지 화면에서 재개한다
+export async function approveCopyAndCreateImage(seen:LiveSnapshot,ack:boolean,onApproved:()=>void){
+  await run(seen.job_id,'ai/image',async()=>{
+    const s=await getLiveSnapshot(seen.job_id)
+    if(!sameCopyReview(seen,s))throw Error('카피가 바뀌었습니다. 최신 카피를 다시 확인한 뒤 승인해 주세요.')
+    guardCopyApproval(s)
     await approveLiveCopy(s,ack)
+    onApproved()
     await queuePromptAndImage(s.job_id)
   })
 }
@@ -68,11 +73,15 @@ export async function rejectCopy(s:LiveSnapshot){
   if(s.state!=='COPY_REVIEW_REQUIRED')throw Error('카피 거절 상태 오류')
   await run(s.job_id,'ai/image',async()=>{await rejectLiveCopy(s.job_id)})
 }
-export async function approveImageAndCompose(s:LiveSnapshot){
-  guardImageApproval(s)
-  await run(s.job_id,'compose',async()=>{
+// 합성까지 성공해야 onDone(최종 결과로 이동). 합성만 실패하면 이미지 화면에서 retryCompose로 다시 시도한다
+export async function approveImageAndCompose(seen:LiveSnapshot,onDone:()=>void){
+  await run(seen.job_id,'compose',async()=>{
+    const s=await getLiveSnapshot(seen.job_id)
+    if(!sameImageCandidate(seen,s))throw Error('이미지가 바뀌었습니다. 최신 이미지를 다시 확인한 뒤 승인해 주세요.')
+    guardImageApproval(s)
     await approveLiveImage(s)
     await compose(s.job_id)
+    onDone()
   })
 }
 /** Compose failed after image approval: resend compose only, never regenerate or re-approve the image. */

@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { restorePrevious, review, reviseJob } from '../api/jobs'
 import { advance, resetJob, useBlob, useBlobUrl, useJob, useLiveSnapshot, useLiveProgress } from '../api/useJob'
-import {approveImageAndCompose,rejectImage,resumeImageFromApproved} from '../api/liveFlow'
+import {approveImageAndCompose,rejectImage,resumeImageFromApproved,retryCompose} from '../api/liveFlow'
 import {getLiveSnapshot} from '../api/liveJobs'
 import JobBadges from '../components/JobBadges'
 import RunStatus from '../components/RunStatus'
@@ -55,18 +55,22 @@ export default function DraftPage() {
   }
 
   function onApprove() {
+    // 화면에서 본 이미지(live.image_sha)와 클릭 시점 서버값을 비교하고, 합성까지 성공해야 최종 결과로 이동한다.
+    // shortcut: 후보 이미지는 고정 주소(/artifacts/candidate)를 캐시해 그려 sha와 그림이 묶여 있지 않다. Live 이미지 수정이 생기면 주소에 sha를 붙인다
     if(!mock){
-      if(!jobId)return
-      void getLiveSnapshot(jobId).then(current=>{
-        navigate('/create/export')
-        return approveImageAndCompose(current)
-      }).catch(e=>useProjectStore.getState().setRun({
-        error:e instanceof Error?e.message:'이미지 승인 확인 실패'
-      }))
+      if(!live)return
+      void approveImageAndCompose(live,()=>navigate('/create/export')).catch(()=>{})
     }else{
-      navigate('/create/export')
-      void advance(() => review(jobId!, 'image', true))
+      void advance(() => review(jobId!, 'image', true)).then(() => {
+        if (!useProjectStore.getState().run.error) navigate('/create/export')
+      })
     }
+  }
+  // 이미지 승인 뒤 합성만 실패한 상태: 이미지를 다시 만들지 않고 합성만 다시 보낸다
+  const composeFailed = !mock && live?.state === 'IMAGE_APPROVED' && !run.busy
+  function retry() {
+    if (!live) return
+    void retryCompose(live.job_id).then(() => navigate('/create/export'), () => {})
   }
 
   return (
@@ -75,7 +79,9 @@ export default function DraftPage() {
       description="승인한 카피로 만든 이미지입니다. 제품이 원본 사진과 같은지 확인하고 승인해 주세요."
       wide
       back={BACK}
-      actions={approved
+      actions={composeFailed
+        ? <button className="button" onClick={retry}>합성만 다시 시도</button>
+        : approved
         ? <Link className="button" to="/create/export">다음: 최종 결과</Link>
         : rejected
           ? <Link className="button" to="/create/product" onClick={resetJob}>제품 정보에서 다시 시작</Link>
@@ -91,7 +97,7 @@ export default function DraftPage() {
                       useProjectStore.getState().setRun({error:String(e)}))}>
                     이미지 거절
                   </button>}
-              <button className="button" disabled={!reviewing || !imageUrl || run.busy} onClick={onApprove}>이 이미지로 광고 완성하기</button>
+              <button className="button" disabled={!reviewing || !imageUrl || run.busy || (!mock && !live)} onClick={onApprove}>이 이미지로 광고 완성하기</button>
             </div>
           )}
       actionsNote={<>
@@ -106,6 +112,12 @@ export default function DraftPage() {
     >
       {job && <JobBadges job={job} />}
       <RunStatus />
+      {composeFailed && (
+        <div className="notice notice-warning" role="status">
+          <p className="notice-title">이미지는 승인됐고 합성만 남았습니다</p>
+          <p>이미지를 다시 만들지 않고, 승인한 이미지·카피 그대로 합성만 다시 요청합니다.</p>
+        </div>
+      )}
       {rejected && (
         <div className="notice notice-warning" role="status">
           <p className="notice-title">이미지를 거절했습니다</p>

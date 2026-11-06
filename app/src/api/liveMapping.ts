@@ -63,6 +63,11 @@ export function guardCopyRevision(s:LiveSnapshot){
       !Number.isSafeInteger(s.generation)||s.generation<1)
     throw Error('COPY_REVISION_STATE_MISMATCH')
 }
+// 승인 직전 서버 최신값이 사용자가 화면에서 본 검수본·이미지와 같은지 (다른 탭 수정·폴링 지연으로 바뀌었으면 승인하지 않는다)
+export const sameCopyReview=(seen:LiveSnapshot,current:LiveSnapshot)=>
+  seen.generation===current.generation&&seen.review_sha===current.review_sha&&seen.copy_sha===current.copy_sha
+export const sameImageCandidate=(seen:LiveSnapshot,current:LiveSnapshot)=>
+  seen.image_sha!==null&&seen.image_sha===current.image_sha
 export function guardImageApproval(s:LiveSnapshot){
   if(s.state!=='IMAGE_REVIEW_REQUIRED'||!s.image_sha||!s.approval_current)
     throw Error('IMAGE_SHA_OR_COPY_APPROVAL_MISMATCH')

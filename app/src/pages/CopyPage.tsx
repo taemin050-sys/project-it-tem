@@ -1,7 +1,6 @@
 import { Link, Navigate, useNavigate } from 'react-router-dom'
 import { restorePrevious, review, reviseJob } from '../api/jobs'
 import { approveCopyAndCreateImage, restoreCopy, reviseCopy } from '../api/liveFlow'
-import {getLiveSnapshot} from '../api/liveJobs'
 import { useState, useRef } from 'react'
 import { advance, resetJob, useJob, useLiveSnapshot } from '../api/useJob'
 import JobBadges from '../components/JobBadges'
@@ -104,19 +103,13 @@ export default function CopyPage() {
 
   function onApprove() {
     if(!mock){
-      if(!jobId || approvalInFlight.current)return
+      if(!live || approvalInFlight.current)return
       approvalInFlight.current=true
-      // Always read the current server review hash at the click boundary.
-      // Stale React Query data cannot silently discard approval clicks.
-      void getLiveSnapshot(jobId).then(current=>{
-        navigate('/create/draft')
-        return approveCopyAndCreateImage(current,evidenceAck)
-      }).catch(e=>useProjectStore.getState().setRun({
-        error:e instanceof Error?e.message:'승인 상태 조회 실패. 재호출하지 마세요.'
-      })).finally(()=>{approvalInFlight.current=false})
+      // 화면에서 본 검수본(live)과 클릭 시점 서버값을 비교하고, 승인이 성공한 뒤에만 이동한다. 실패 문구는 RunStatus가 보여준다
+      void approveCopyAndCreateImage(live,evidenceAck,()=>navigate('/create/draft'))
+        .catch(()=>{}).finally(()=>{approvalInFlight.current=false})
     }else{
-      navigate('/create/draft')
-      void advance(() => review(jobId!, 'copy', true))
+      void advance(async () => { const j = await review(jobId!, 'copy', true); navigate('/create/draft'); return j })
     }
   }
   function sendRevision() {
@@ -158,7 +151,7 @@ export default function CopyPage() {
           : (
             <div className="button-row">
               <button className="button secondary" disabled={!reviewing || busy} onClick={openRevision}>수정 요청</button>
-              <button className="button" disabled={!canApprove || !evidenceAck || overs.length > 0 || busy} onClick={onApprove}>이 카피로 이미지 만들기</button>
+              <button className="button" disabled={!canApprove || !evidenceAck || overs.length > 0 || busy || (!mock && !live)} onClick={onApprove}>이 카피로 이미지 만들기</button>
             </div>
           )}
       actionsNote={<>
