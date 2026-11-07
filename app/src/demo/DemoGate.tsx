@@ -6,6 +6,7 @@ import DemoLiveConsole from './DemoLiveConsole'
 import { Link, useLocation } from 'react-router-dom'
 import {QA_OFFLINE_FIXTURE} from '../config'
 import { continueOrStartNew } from '../api/useJob'
+const TRACK_LABEL = import.meta.env.VITE_IT_TEM_TRACK_ID === 'ENHANCED' ? 'BP18 ENHANCED / PROVISIONAL' : import.meta.env.VITE_IT_TEM_TRACK_ID === 'BASELINE' ? 'BP18 BASELINE' : 'IT-TEM'
 
 type Identity = { authenticated: true; evaluator_id: string; role: 'evaluator' | 'admin';
   auth_provider?: 'TAILSCALE_SERVE'|'INVITE_COOKIE'; mode: string }
@@ -51,7 +52,7 @@ export default function DemoGate() {
   }
   if (checking) return <div role="status" style={{padding: 32}}>개인별 시연 권한을 확인하고 있습니다…</div>
   if (!identity) return <main style={{maxWidth: 560, margin: '8vh auto', padding: 30}}>
-    <h1>IT-TEM 원격 시연</h1>
+    <h1>{TRACK_LABEL} 원격 시연</h1>
     <p><strong>{QA_OFFLINE_FIXTURE ? 'IT-TEM QA 전용 · 실제 AI 아님' : 'IT-TEM 실제 AI Live 평가'}</strong> — 승인된 구성원에게만 제공됩니다.</p>
     <p>승인된 Tailscale 네트워크에서 접속해 주세요. 자동 로그인되지 않으면 관리자에게 문의하세요.</p>
     <form onSubmit={e => {e.preventDefault();void login()}}>
@@ -64,7 +65,7 @@ export default function DemoGate() {
   </main>
   return <>
     <aside style={{padding:'9px 14px',background:'#202b3b',color:'white',display:'flex',justifyContent:'space-between',alignItems:'center',flexWrap:'wrap',gap:10}}>
-      <span><strong>{QA_OFFLINE_FIXTURE ? 'IT-TEM QA OFFLINE_FIXTURE · 실제 AI 아님' : 'IT-TEM PRODUCT LIVE'}</strong>
+      <span><strong>{TRACK_LABEL} · {QA_OFFLINE_FIXTURE ? 'IT-TEM QA OFFLINE_FIXTURE · 실제 AI 아님' : 'IT-TEM PRODUCT LIVE'}</strong>
         {' · '}{QA_OFFLINE_FIXTURE ? '시험 데이터 / 유료 호출 없음' : '실제 AI 생성 · 1차 규칙 검수 및 사람 승인 필요 · MONITOR_ONLY'}{' · '}
         <small>Build {import.meta.env.VITE_IT_TEM_CODE_SHA?.slice(0,8) || 'UNPINNED'}</small></span>
       <span>{identity.evaluator_id} · {identity.auth_provider==='TAILSCALE_SERVE'

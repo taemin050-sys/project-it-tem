@@ -228,7 +228,14 @@ class ReviewBody(BaseModel):
 def make_demo_app(root: Path, invite_file: Path, frontend: Path,
                   *, secure_cookie: bool = True, code_sha: str = "UNPINNED"):
     root = Path(root)
-    cookie_name=_COOKIE if secure_cookie else "ittem_demo_local"
+    # BP18 isolated A/B sessions: use per-track cookie audience rather than
+    # a shared localhost cookie. Default keeps existing Live/QA unchanged.
+    configured_cookie=os.environ.get("IT_TEM_DEMO_COOKIE_NAME")
+    cookie_name=configured_cookie or (_COOKIE if secure_cookie else "ittem_demo_local")
+    if configured_cookie and not re.fullmatch(r"[A-Za-z][A-Za-z0-9_-]{6,48}",configured_cookie):
+        raise ValueError("DEMO_COOKIE_AUDIENCE_INVALID")
+    if secure_cookie and not cookie_name.startswith("__Host-"):
+        raise ValueError("SECURE_COOKIE_REQUIRES_HOST_PREFIX")
     ledger=DemoLedger(root/"demo.sqlite3")
     ledger.register_invites(invite_file)
     app=create_b0_app(root/"jobs")
