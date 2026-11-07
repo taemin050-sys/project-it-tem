@@ -131,7 +131,9 @@ export default function DraftPage() {
       {rejected && (
         <div className="notice notice-warning" role="status">
           <p className="notice-title">이미지를 거절했습니다</p>
-          <p>거절 후 다시 만들기는 아직 지원하지 않습니다. 새로 만들려면 제품 정보에서 다시 시작해 주세요.</p>
+          <p>{mock
+            ? '현재 Mock에서는 이미지 수정 요청이나 새 광고 만들기를 이용할 수 있습니다.'
+            : '이전 승인 카피·분석·리서치·프롬프트를 유지한 채 아래 버튼으로 새 이미지 1장을 명시적으로 생성할 수 있습니다. 유료 생성 여부는 실행 전에 확인하세요.'}</p>
         </div>
       )}
 

@@ -22,7 +22,7 @@
 .live-eval-grid { display: grid; grid-template-columns: minmax(0, 5fr) minmax(0, 6fr); gap: 24px; align-items: start; }
 .live-eval-grid > .panel { min-width: 0; }
 .live-eval-artwork .panel-title, .live-eval-review .panel-title { margin-top: 8px; }
-.live-eval-artwork img { width: 100%; height: auto; max-width: 480px; aspect-ratio: 4/5; object-fit: contain; background: var(--bg); display: block; margin: 18px 0; }
+.live-eval-artwork img { width: 100%; height: auto; max-width: 480px; object-fit: contain; background: var(--bg); display: block; margin: 18px 0; }
 .live-eval-artwork .field-hint { margin-top: 6px; overflow-wrap: anywhere; }
 .live-eval-form { margin-top: 26px; gap: 20px; }
 .live-eval-review .notice { margin-top: 18px; }

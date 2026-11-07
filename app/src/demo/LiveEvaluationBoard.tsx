@@ -1,9 +1,13 @@
 import { useCallback, useEffect, useState } from 'react'
 import './LiveEvaluationBoard.css'
 import { formatSharedAtKST } from './sharedTime'
+import {displayActualArtwork} from './sharedArtworkDisplay'
 
 type Shared = {job_id: string; final_sha: string; shared_at: string; shared_at_utc: string | null;
-  integrity_status: 'VERIFIED' | 'UNAVAILABLE'}
+  integrity_status: 'VERIFIED' | 'UNAVAILABLE';
+  image_size: '3:4' | '4:5' | '9:16' | null;
+  output_size: {width:number;height:number} | null;
+  dimensions_source: 'VERIFIED_FINAL_PNG' | 'UNAVAILABLE'}
 type Rated = {score: number; comment: string; category: string; artifact_sha256: string; revision: number}
 const categories = [
   ['product_recognition', '제품 분석 정확도'],
@@ -109,6 +113,7 @@ export default function LiveEvaluationBoard() {
   }
 
   const chosen = items.find(item => item.job_id === selected && item.integrity_status === 'VERIFIED')
+  const artwork = chosen ? displayActualArtwork(chosen) : null
 
   return (
     <main className="live-eval">
@@ -151,9 +156,15 @@ export default function LiveEvaluationBoard() {
         {chosen && selected && (
           <div className="live-eval-grid">
             <section className="panel live-eval-artwork" aria-labelledby="live-eval-artwork-title">
-              <p className="eyebrow">CREATIVE / 4:5</p>
+              <p className="eyebrow">CREATIVE / {artwork?.ratioLabel ?? '화면비 확인 불가'}</p>
+              {artwork?.pixels && <p className="field-hint">
+                실제 최종 광고: {artwork.pixels}
+                {' · '}최종 PNG SHA 검증
+              </p>}
               <h2 id="live-eval-artwork-title" className="panel-title">평가 광고 · {selected.slice(0, 8)}</h2>
-              <img src={api + '/shared/' + selected + '/artifacts/final'} alt="팀에 명시적으로 공유된 실제 AI 광고 시안" />
+              <img src={api + '/shared/' + selected + '/artifacts/final'}
+                style={artwork?.aspectRatio?{aspectRatio:artwork.aspectRatio}:undefined}
+                alt="팀에 명시적으로 공유된 실제 AI 광고 시안" />
               <a className="text-link" href={api + '/shared/' + selected + '/artifacts/caption'} target="_blank" rel="noopener noreferrer">Caption 확인</a>
               {chosen && <p className="field-hint">광고 파일 버전: {chosen.final_sha.slice(0, 12)}…</p>}
             </section>

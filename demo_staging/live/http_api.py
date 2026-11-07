@@ -667,18 +667,45 @@ def register_live_api(app:FastAPI, ledger, runtime_root:Path, cookie_name:str):
             # Explicit publication history is preserved. A damaged artifact
             # cannot silently become an eligible evaluation target.
             valid=False
+            actual_size=None
+            actual_ratio=None
             if ledger.owns(item["actor"],item["job_id"]):
                 try:
                     job=flow.validate_final_artifacts(item["actor"],item["job_id"])
                     valid=(job["mode"]=="LIVE" and
                         job["final_sha"]==item["final_sha"] and
                         job["caption_sha"]==item["caption_sha"])
+                    if valid:
+                        # The displayed ratio comes from the exact final PNG
+                        # bytes after SHA verification, never an initial
+                        # selected ratio, CSS default or a screenshot label.
+                        from io import BytesIO
+                        from PIL import Image
+                        import hashlib
+                        file=flow.root/"outputs"/item["job_id"]/"final.png"
+                        payload=file.read_bytes()
+                        if hashlib.sha256(payload).hexdigest()!=item["final_sha"]:
+                            raise ValueError("PUBLISHED_FINAL_CHANGED")
+                        with Image.open(BytesIO(payload)) as image:
+                            if (image.format!="PNG" or image.width<=0 or
+                                image.height<=0 or image.width*image.height>12_000_000):
+                                raise ValueError("PUBLISHED_FINAL_DIMENSIONS_UNSAFE")
+                            actual_size={"width":image.width,"height":image.height}
+                        actual_ratio={(1080,1440):"3:4",
+                                      (1080,1350):"4:5",
+                                      (1080,1920):"9:16"}.get(
+                            (actual_size["width"],actual_size["height"]))
                 except (LiveGateError,OSError,ValueError,KeyError):
                     valid=False
+                    actual_size=None
+                    actual_ratio=None
             results.append({"job_id":item["job_id"],"final_sha":item["final_sha"],
                 "shared_at":item["shared_at"],
                 "shared_at_utc":LiveShares.utc_iso8601(item["shared_at"]),
-                "integrity_status":"VERIFIED" if valid else "UNAVAILABLE"})
+                "integrity_status":"VERIFIED" if valid else "UNAVAILABLE",
+                "image_size":actual_ratio if valid else None,
+                "output_size":actual_size if valid else None,
+                "dimensions_source":"VERIFIED_FINAL_PNG" if valid else "UNAVAILABLE"})
         return {"mode":"LIVE","jobs":results}
 
     @app.get(prefix+"/shared/{job_id}/artifacts/{kind}")

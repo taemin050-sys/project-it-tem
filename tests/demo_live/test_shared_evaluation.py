@@ -1,4 +1,6 @@
 import hashlib
+from io import BytesIO
+import pytest
 from fastapi.testclient import TestClient
 from PIL import Image
 from demo_staging.app import make_demo_app
@@ -8,7 +10,13 @@ from src.text_generation.schemas import (
     ProductAnalysisResult,ResearchResult,AdCopyOutput,ImagePromptOutput
 )
 
-def test_final_live_ad_shared_only_by_owner_and_reviewable_by_another_actor(tmp_path):
+@pytest.mark.parametrize(("actual_size","ratio"),[
+    ((1080,1350),"4:5"),((1080,1440),"3:4"),((1080,1920),"9:16"),
+    ((135,175),None),
+])
+def test_final_live_ad_shared_only_by_owner_and_reviewable_by_another_actor(
+    tmp_path,actual_size,ratio
+):
     app,codes=setup(tmp_path)
     with TestClient(app) as creator,TestClient(app) as bob,TestClient(app) as unauth:
         login(creator,codes["alice"]);login(bob,codes["bob"])
@@ -29,7 +37,9 @@ def test_final_live_ad_shared_only_by_owner_and_reviewable_by_another_actor(tmp_
         candidate_sha="a"*64
         store.store_image_candidate("alice",jid,candidate_sha)
         store.approve_image("alice",jid,candidate_sha)
-        final=photo((160,190,195))
+        buf=BytesIO()
+        Image.new("RGB",actual_size,(160,190,195)).save(buf,"PNG")
+        final=buf.getvalue()
         caption=b"Example Live evaluator-only artifact"
         folder=app.state.live_pipeline.root/"outputs"/jid
         folder.mkdir(parents=True)
@@ -48,6 +58,13 @@ def test_final_live_ad_shared_only_by_owner_and_reviewable_by_another_actor(tmp_
         assert shared.json()["raw_product_images_shared"] is False
         visible=bob.get(base+"/shared").json()["jobs"]
         assert len(visible)==1 and visible[0]["final_sha"]==f_sha
+        assert visible[0]["image_size"]==ratio
+        assert visible[0]["output_size"]=={
+            "width":actual_size[0],"height":actual_size[1]}
+        assert visible[0]["dimensions_source"]=="VERIFIED_FINAL_PNG"
+        assert visible[0]["integrity_status"]=="VERIFIED"
+        # Requested ratio is missing in this pre-policy legacy fixture. The
+        # shared board MUST use actual verified PNG dimensions instead.
         from demo_staging.live.reviews import LiveShares
         raw = LiveShares(tmp_path / "runtime/live/shares.sqlite").item(jid)["shared_at"]
         assert visible[0]["shared_at"] == raw
@@ -67,3 +84,8 @@ def test_final_live_ad_shared_only_by_owner_and_reviewable_by_another_actor(tmp_
         # Changing final bytes must not expose tampered content.
         (folder/"final.png").write_bytes(b"tampered")
         assert bob.get(base+"/shared/"+jid+"/artifacts/final").status_code==503
+        unverified=bob.get(base+"/shared").json()["jobs"][0]
+        assert unverified["integrity_status"]=="UNAVAILABLE"
+        assert unverified["image_size"] is None
+        assert unverified["output_size"] is None
+        assert unverified["dimensions_source"]=="UNAVAILABLE"
