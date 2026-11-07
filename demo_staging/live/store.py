@@ -11,7 +11,7 @@ from pathlib import Path
 from uuid import uuid4
 
 from .contracts import LiveGateError, digest, validate_input, strict_review, live_prompt, owner_text_snapshots
-from .template_contract import (A_ID,A_VERSION,LEGACY_ID,LEGACY_VERSION,SIZE_PREFIX,
+from .template_contract import (A_ID,A_VERSION,LEGACY_ID,LEGACY_VERSION,SIZE_PREFIX,BP18_PREFIX,
     owner_a_policy,owner_size_policy,historical_a_v1_layout,normalize_layout,verify_policy,canonical)
 
 
@@ -141,7 +141,9 @@ class LiveStore:
             if template_profile=="A":
                 # Owner Image size v2 and frozen A v1 use distinct immutable
                 # marker events. Neither may be silently imported into the other.
-                self._event(c,r,("template_owner_size_ingress_v2" if new_size
+                self._event(c,r,("template_bp18_provisional_v3_ingress"
+                    if a_policy["profile_id"].startswith(BP18_PREFIX)
+                    else "template_owner_size_ingress_v2" if new_size
                     else "template_a_ingress_contract_v1"),r["state"],digest({
                     "profile_id":a_policy["profile_id"],
                     "profile_version":a_policy["profile_version"],
@@ -545,12 +547,18 @@ class LiveStore:
                                   (job_id,)).fetchone()
             policy=verify_policy(profile_row)
             metadata={}
-            if policy is not None and policy["profile_id"].startswith(SIZE_PREFIX):
+            if policy is not None and (policy["profile_id"].startswith(SIZE_PREFIX) or
+                policy["profile_id"].startswith(BP18_PREFIX)):
                 from src.image_generation.size_selection import resolve_size_choice
                 size=json.loads(job["input_json"]).get("image_size")
                 if size!=policy["safe_zone"]["size"]:
                     raise LiveGateError("OWNER_IMAGE_SIZE_CONTEXT_CONFLICT")
                 selection,_=resolve_size_choice(size)
+                if policy["profile_id"].startswith(BP18_PREFIX):
+                    from src.image_generation.contracts import BP18_V3_LAYOUT_VERSION
+                    selection=type(selection).model_validate({
+                        **selection.model_dump(mode="json"),
+                        "version":BP18_V3_LAYOUT_VERSION},strict=True)
                 metadata["layout_selection"]=selection.model_dump(mode="json")
             elif policy is not None:
                 metadata["safe_zone"]=policy["safe_zone"]

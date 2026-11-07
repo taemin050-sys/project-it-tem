@@ -81,8 +81,13 @@ def resolve_image_complexity(model: ImageProviderModel,
     return None
 
 
+# BP18 candidate version remains isolated from historical Owner v2 by a new
+# explicit discriminant. Its admission never changes a persisted v2 request.
+BP18_V3_LAYOUT_VERSION = "bp18-editorial-4x5-v3-provisional-20261107"
+
 class LayoutSelection(Contract):
-    version: Literal["instagram-copy-hierarchy-v2"] = "instagram-copy-hierarchy-v2"
+    version: Literal["instagram-copy-hierarchy-v2",
+                     "bp18-editorial-4x5-v3-provisional-20261107"] = "instagram-copy-hierarchy-v2"
     aspect_ratio: Literal["3:4", "4:5", "9:16"]
     placement: Literal["feed", "reels", "story"]
 
@@ -90,6 +95,8 @@ class LayoutSelection(Contract):
     def compatible(self):
         from .layout_profiles import get_layout
         get_layout(self.aspect_ratio, self.placement)
+        if self.version == BP18_V3_LAYOUT_VERSION and (self.aspect_ratio,self.placement)!=("4:5","feed"):
+            raise ValueError("BP18 V3 only permits 4:5 feed")
         return self
 
 

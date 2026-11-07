@@ -72,11 +72,31 @@ def render_korean_image_policy(request: ExternalImageRequest) -> str:
         from .layout_profiles import get_layout, render_layout_instruction
         selection = request.layout_selection
         profile = get_layout(selection.aspect_ratio, selection.placement)
+        from .contracts import BP18_V3_LAYOUT_VERSION
+        is_bp18_v3=selection.version==BP18_V3_LAYOUT_VERSION
         if freeform:
             parts.append(f"최종 출력 용도: 인스타그램 {selection.placement}, "
                          f"비율 {selection.aspect_ratio}. 앱 UI와 겹치지 않게 주요 내용을 읽기 쉽게 배치한다.")
-            if "cta" not in dict(profile.text):
+            if is_bp18_v3:
+                parts.append(
+                    "BP18 실험용 4:5 자유형: 승인된 Head/Sub/CTA 원문을 모델이 직접 "
+                    "이미지에 모두 그린다. 합성형 텍스트 박스·서체·Overlay 규칙은 "
+                    "적용하지 않는다. 제품과 라벨을 가리지 않는다. "
+                    "한글·라벨·브랜드 정확도는 사람 검수 전 승인하지 않는다.")
+            elif "cta" not in dict(profile.text):
                 parts.append("CTA는 인스타그램 플랫폼 버튼을 사용한다. 이미지 안에 CTA를 추가하지 않는다.")
+        elif is_bp18_v3:
+            # The persisted per-Job layout SHA is the Serving authority;
+            # provider prompt uses the same provisional design intent.
+            parts.append(
+                "BP18 실험용 4:5 합성형 아트디렉션. 제품 사진의 모양·브랜드·라벨을 "
+                "절대로 바꾸지 말고 원본 제품 하나를 자연스러운 화장품 광고 배경에 배치한다. "
+                "최종 1080×1350 광고에서는 상단 Head(86,81,994,231)·"
+                "Sub(86,247,994,410), 하단 CTA(306,1195,774,1278) 영역을 "
+                "명확하고 잔잔한 배경으로 확보하고 제품·라벨을 침범하지 않는다. "
+                "이미지 모델은 Head/Sub/CTA 문자를 직접 그리지 않는다. "
+                "서버가 승인 원문과 승인된 Layout/Font SHA로 합성한다. "
+                "본 v3는 상용 승인 전 PROVISIONAL이다.")
         else:
             parts.append(render_layout_instruction(profile))
     return "\n\n".join(parts)

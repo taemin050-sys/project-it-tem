@@ -106,7 +106,7 @@ export default function ExportPage() {
       }
     >
       {job && <JobBadges job={job} />}
-      {!mock && ((live.data?.template_profile==='A_CENTERED') || Boolean(live.data?.template_profile?.startsWith('OWNER_IMAGE_SIZE_'))) && <div className="notice notice-warning" role="status">
+      {!mock && ((live.data?.template_profile==='A_CENTERED') || Boolean(live.data?.template_profile?.startsWith('OWNER_IMAGE_SIZE_')) || Boolean(live.data?.template_profile?.startsWith('BP18_PROVISIONAL_SIZE_'))) && <div className="notice notice-warning" role="status">
         <p className="notice-title">제품 보호·게시 적합성: 수동 검토 필요</p>
         <p>이미지 합성 완료는 제품·브랜드·라벨 보존 검증 PASS가 아닙니다.
           원본 사진과 법률 표시사항을 사람이 확인한 뒤 게시해 주세요.</p>
