@@ -6,6 +6,9 @@ Usage: python scripts/bp17_shared_ad_minimal_export.py QA_ROOT FRESH_DEST
 """
 from __future__ import annotations
 import argparse
+import ctypes
+import errno
+import sys
 import hashlib
 import json
 import os
@@ -42,6 +45,46 @@ def verified_png(data:bytes)->tuple[int,int]:
         im.verify()
     return (width,height)
 
+def _publish_no_replace(staged:Path,target:Path)->None:
+    """Atomic no-replace DIRECTORY publication. Never use plain os.rename.
+
+    Linux renameat2(RENAME_NOREPLACE) / macOS renameatx_np(RENAME_EXCL).
+    Fail closed on unknown OS/filesystems rather than expose a partial folder.
+    dirfd anchors both paths against parent symlink/path replacement races.
+    """
+    if staged.parent != target.parent or staged.name==target.name:
+        raise ValueError("PUBLISH_PARENT_OR_SOURCE_INVALID")
+    name=target.name
+    if name in ("", ".", "..") or "/" in name:
+        raise ValueError("PUBLISH_TARGET_INVALID")
+    flags=os.O_RDONLY | getattr(os,"O_DIRECTORY",0) | getattr(os,"O_NOFOLLOW",0)
+    fd=os.open(staged.parent,flags)
+    try:
+        libc=ctypes.CDLL(None,use_errno=True)
+        if sys.platform.startswith("linux"):
+            fn=getattr(libc,"renameat2",None)
+            bit=1 # RENAME_NOREPLACE from linux/fs.h
+        elif sys.platform=="darwin":
+            fn=getattr(libc,"renameatx_np",None)
+            bit=0x00000004 # RENAME_EXCL from sys/stdio.h
+        else:
+            raise OSError(errno.ENOTSUP,"PLATFORM_NO_ATOMIC_NOREPLACE")
+        if fn is None:
+            raise OSError(errno.ENOTSUP,"ATOMIC_NOREPLACE_UNAVAILABLE")
+        fn.argtypes=[ctypes.c_int,ctypes.c_char_p,
+                     ctypes.c_int,ctypes.c_char_p,ctypes.c_uint]
+        fn.restype=ctypes.c_int
+        result=fn(fd,os.fsencode(staged.name),fd,os.fsencode(name),bit)
+        if result:
+            err=ctypes.get_errno()
+            if err in (errno.EEXIST,errno.ENOTEMPTY):
+                raise FileExistsError("DESTINATION_MUST_BE_NEW")
+            raise OSError(err,os.strerror(err))
+        os.fsync(fd)
+    finally:
+        os.close(fd)
+
+
 def run(source:Path,destination:Path)->dict:
     src=source.resolve(strict=True)
     if src not in ALLOWED_ROOTS or source.is_symlink():
@@ -72,7 +115,8 @@ def run(source:Path,destination:Path)->dict:
             job=live.execute("select job_id,actor,state,mode,final_sha,caption_sha,"
                 "copy_sha,review_sha,approval_sha from live_jobs where job_id=?",
                 (jid,)).fetchone()
-            manifest=live.execute("select receipt_sha,final_sha,caption_sha "
+            manifest=live.execute("select receipt_json,receipt_sha,"
+                "envelope_json,envelope_sha,final_sha,caption_sha "
                 "from live_compose_manifests where job_id=?",(jid,)).fetchone()
             if (owner is None or job is None or job["actor"]!=entry["actor"] or
                 owner["actor"]!=entry["actor"] or job["state"]!="COMPLETED" or
@@ -88,10 +132,19 @@ def run(source:Path,destination:Path)->dict:
             if sha(photo)!=entry["final_sha"] or sha(caption)!=entry["caption_sha"]:
                 raise ValueError("SHARED_ARTIFACT_SHA_MISMATCH")
             width,height=verified_png(photo)
+            # All currently accepted historic share records are completed
+            # composed jobs requiring a bound composition manifest. A future
+            # freeform evidence contract must be versioned/approved first.
+            if manifest is None:
+                raise ValueError("SHARED_RECEIPT_MANIFEST_MISSING")
             if manifest:
                 rec=base/"receipt.json"
                 if (rec.is_symlink() or not rec.is_file() or
                     sha(rec.read_bytes())!=manifest["receipt_sha"] or
+                    not isinstance(manifest["receipt_json"],str) or
+                    sha(manifest["receipt_json"].encode("utf-8"))!=manifest["receipt_sha"] or
+                    not isinstance(manifest["envelope_json"],str) or
+                    sha(manifest["envelope_json"].encode("utf-8"))!=manifest["envelope_sha"] or
                     manifest["final_sha"]!=entry["final_sha"] or
                     manifest["caption_sha"]!=entry["caption_sha"]):
                     raise ValueError("SHARED_RECEIPT_MANIFEST_MISMATCH")
@@ -108,8 +161,15 @@ def run(source:Path,destination:Path)->dict:
             },photo,caption))
     # No private input/research/copy/compliance JSON, actor, auth, DB, raw photos,
     # or receipt body is included in the derived folder.
-    tmp=Path(tempfile.mkdtemp(prefix=".bp17_export_incomplete_",dir=parent))
+    # Hold the original directory inode for fd-anchored cleanup even if
+    # another local process changes the path while building the projection.
+    pfd=os.open(parent,os.O_RDONLY | getattr(os,"O_DIRECTORY",0) |
+                getattr(os,"O_NOFOLLOW",0))
+    staged=None
     try:
+        original_parent=os.fstat(pfd)
+        tmp=Path(tempfile.mkdtemp(prefix=".bp17_export_incomplete_",dir=parent))
+        staged=tmp.name
         os.chmod(tmp,0o700)
         manifest={"schema_version":"bp17-published-final-projection-v1",
           "source_committed_code_sha":source_code_sha,
@@ -128,16 +188,31 @@ def run(source:Path,destination:Path)->dict:
                     handle.write(data);handle.flush();os.fsync(handle.fileno())
                 target.chmod(0o400)
         j=tmp/"projection_manifest.json"
-        j.write_text(json.dumps(manifest,ensure_ascii=False,
-            indent=2,sort_keys=True)+"\n",encoding="utf-8")
+        with j.open("x",encoding="utf-8") as handle:
+            handle.write(json.dumps(manifest,ensure_ascii=False,
+                indent=2,sort_keys=True)+"\n")
+            handle.flush()
+            os.fsync(handle.fileno())
         j.chmod(0o400)
-        os.rename(tmp,dest)  # exclusive; earlier nonexistence checked
+        parent_now=os.stat(parent,follow_symlinks=False)
+        if ((parent_now.st_dev,parent_now.st_ino)!=
+            (original_parent.st_dev,original_parent.st_ino)):
+            raise ValueError("DESTINATION_PARENT_CHANGED_BEFORE_PUBLISH")
+        _publish_no_replace(tmp,dest)  # true atomic no-replace (Linux/macOS)
         return {"destination":str(dest),"published_count":len(job_records),
                 "manifest_sha256":sha((dest/"projection_manifest.json").read_bytes()),
                 "new_provider_calls":0}
     except BaseException:
-        shutil.rmtree(tmp)
+        # The staging directory is under the inode originally opened by pfd,
+        # not necessarily under the current path (which may now be a symlink).
+        if staged is not None:
+            try:
+                shutil.rmtree(staged,dir_fd=pfd)
+            except FileNotFoundError:
+                pass  # successful atomic rename already moved this directory
         raise
+    finally:
+        os.close(pfd)
 
 if __name__=="__main__":
     parser=argparse.ArgumentParser(description=__doc__)
