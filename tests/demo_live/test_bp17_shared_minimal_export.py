@@ -164,9 +164,9 @@ def test_existing_output_replaced_never_after_concurrent_publication(
     queue=ctx.Queue()
     def worker():
         old=projection._publish_no_replace
-        def synchronized(tmp,final):
+        def synchronized(pfd,stage_name,target_name):
             barrier.wait(timeout=15)
-            return old(tmp,final)
+            return old(pfd,stage_name,target_name)
         projection._publish_no_replace=synchronized
         try:
             projection.run(root,output)
@@ -215,8 +215,10 @@ def test_fault_injection_pre_publish_keeps_target_absent_and_cleans_temp(
 ):
     root=make_fixture(tmp_path,monkeypatch)
     original=projection._publish_no_replace
-    def fail_pre_publish(staged,target):
-        assert staged.is_dir() and not target.exists()
+    def fail_pre_publish(pfd,stage_name,target_name):
+        import os,stat
+        assert stat.S_ISDIR(os.stat(stage_name,dir_fd=pfd).st_mode)
+        assert target_name=="unpublished"
         raise OSError("TEST_PROCESS_FAILED_BEFORE_ATOMIC_PUBLISH")
     monkeypatch.setattr(projection,"_publish_no_replace",fail_pre_publish)
     final=tmp_path/"unpublished"
@@ -240,18 +242,19 @@ def test_parent_path_symlink_swap_fails_and_cleans_old_inode_stage(
     outside=tmp_path/"outside_destination";outside.mkdir()
     final=parent/"output"
     old=projection._publish_no_replace
-    def path_swapped(staged,target):
+    def path_swapped(pfd,stage_name,target_name):
         parent.rename(moved)
         parent.symlink_to(outside,target_is_directory=True)
-        return old(staged,target)
+        return old(pfd,stage_name,target_name)
     monkeypatch.setattr(projection,"_publish_no_replace",path_swapped)
     try:
-        with pytest.raises(OSError):
+        with pytest.raises(RuntimeError,match="PUBLISHED_BUT_UNVERIFIED_MANUAL_RECONCILIATION"):
             projection.run(root,final)
         assert not (outside/"output").exists()
+        assert (moved/"output"/"projection_manifest.json").is_file()
         assert not list(moved.glob(".bp17_export_incomplete_*"))
     finally:
-        parent.unlink()
+        if parent.is_symlink():parent.unlink()
         moved.rename(parent)
 
 def test_manifest_db_receipt_and_envelope_metadata_mutations_rejected(
@@ -272,3 +275,143 @@ def test_manifest_db_receipt_and_envelope_metadata_mutations_rejected(
     with pytest.raises(ValueError,match="SHARED_RECEIPT_MANIFEST_MISMATCH"):
         projection.run(root,tmp_path/"tampered_envelope")
     assert not list(tmp_path.glob(".bp17_export_incomplete_*"))
+
+# B″ P2-05 hardened directory-object tests. All attacks below act only
+# against ephemeral, fake-photo test fixture directories.
+def test_p205_r1_swap_before_mkdirat_has_no_external_stage_or_private_orphan(
+    tmp_path,monkeypatch
+):
+    root=make_fixture(tmp_path,monkeypatch)
+    parent=tmp_path/"entry";parent.mkdir()
+    detached=tmp_path/"old_parent"
+    real_create=projection._create_stage
+    def swap_before_stage(parent_fd):
+        parent.rename(detached)
+        parent.mkdir()
+        return real_create(parent_fd)
+    monkeypatch.setattr(projection,"_create_stage",swap_before_stage)
+    with pytest.raises(ValueError,match="DESTINATION_PARENT_PATH_UNSTABLE"):
+        projection.run(root,parent/"output")
+    assert not (parent/"output").exists()
+    assert not (detached/"output").exists()
+    assert not list(parent.glob(".bp17_export_incomplete_*"))
+    assert not list(detached.glob(".bp17_export_incomplete_*"))
+    assert not list(parent.rglob("final.png"))
+    assert not list(parent.rglob("caption.txt"))
+
+def test_p205_r2_and_r4_real_parent_swap_fake_same_stage_name_not_published(
+    tmp_path,monkeypatch
+):
+    root=make_fixture(tmp_path,monkeypatch)
+    parent=tmp_path/"entry";parent.mkdir()
+    detached=tmp_path/"real_parent"
+    original=projection._publish_no_replace
+    fake_sha="none"
+    def attack(parent_fd,stage_name,dest_name):
+        nonlocal fake_sha
+        parent.rename(detached)
+        parent.mkdir()
+        forged=parent/stage_name
+        forged.mkdir()
+        (forged/"projection_manifest.json").write_text('{"forged":"RACE-A"}')
+        fake_sha=projection.sha((forged/"projection_manifest.json").read_bytes())
+        return original(parent_fd,stage_name,dest_name)
+    monkeypatch.setattr(projection,"_publish_no_replace",attack)
+    with pytest.raises(RuntimeError,match="PUBLISHED_BUT_UNVERIFIED_MANUAL_RECONCILIATION"):
+        projection.run(root,parent/"published")
+    assert not (parent/"published").exists()
+    assert len(list(parent.glob(".bp17_export_incomplete_*")))==1  # attacker dummy ONLY
+    assert (detached/"published"/"projection_manifest.json").is_file()
+    assert not list(detached.glob(".bp17_export_incomplete_*"))
+    true_sha=projection.sha((detached/"published"/"projection_manifest.json").read_bytes())
+    assert true_sha!=fake_sha
+    assert json.loads((detached/"published"/"projection_manifest.json").read_text()
+        )["schema_version"]=="bp17-published-final-projection-v1"
+
+def test_p205_r3_post_publish_replaced_path_cannot_return_forged_manifest(
+    tmp_path,monkeypatch
+):
+    root=make_fixture(tmp_path,monkeypatch)
+    parent=tmp_path/"entry";parent.mkdir()
+    detached=tmp_path/"real_parent"
+    original=projection._publish_no_replace
+    def move_after_publish(parent_fd,stage_name,dest_name):
+        original(parent_fd,stage_name,dest_name)
+        parent.rename(detached)
+        parent.mkdir()
+        fake=(parent/dest_name);fake.mkdir()
+        (fake/"projection_manifest.json").write_text('{"fake":"post-publish"}')
+    monkeypatch.setattr(projection,"_publish_no_replace",move_after_publish)
+    with pytest.raises(RuntimeError,match="PUBLISHED_BUT_UNVERIFIED_MANUAL_RECONCILIATION"):
+        projection.run(root,parent/"published")
+    assert json.loads((parent/"published"/"projection_manifest.json").read_text())=={
+        "fake":"post-publish"}
+    assert json.loads((detached/"published"/"projection_manifest.json").read_text()
+        )["schema_version"]=="bp17-published-final-projection-v1"
+    assert not list(detached.glob(".bp17_export_incomplete_*"))
+
+def test_p205_r6_parent_object_swap_without_symlink_rejected(
+    tmp_path,monkeypatch
+):
+    root=make_fixture(tmp_path,monkeypatch)
+    parent=tmp_path/"entry";parent.mkdir()
+    detached=tmp_path/"real_parent"
+    real_create=projection._create_stage
+    def change_parent_object(parent_fd):
+        name,fd=real_create(parent_fd)
+        parent.rename(detached)
+        parent.mkdir()
+        return name,fd
+    monkeypatch.setattr(projection,"_create_stage",change_parent_object)
+    with pytest.raises(ValueError,match="DESTINATION_PARENT_PATH_UNSTABLE"):
+        projection.run(root,parent/"published")
+    assert not list(detached.glob(".bp17_export_incomplete_*"))
+    assert not list(parent.glob(".bp17_export_incomplete_*"))
+    assert not (parent/"published").exists()
+
+def test_p205_late_post_publish_error_keeps_genuine_published_inode(
+    tmp_path,monkeypatch
+):
+    root=make_fixture(tmp_path,monkeypatch)
+    parent=tmp_path/"entry";parent.mkdir()
+    original=projection._publish_no_replace
+    def publish_then_fail(parent_fd,stage_name,dest_name):
+        original(parent_fd,stage_name,dest_name)
+        raise OSError("TEST_LATE_FSYNC_ERROR")
+    monkeypatch.setattr(projection,"_publish_no_replace",publish_then_fail)
+    final=parent/"published"
+    with pytest.raises(RuntimeError,match="PUBLISHED_BUT_UNVERIFIED_MANUAL_RECONCILIATION"):
+        projection.run(root,final)
+    assert (final/"projection_manifest.json").is_file()
+    assert not list(parent.glob(".bp17_export_incomplete_*"))
+    assert len(list(final.rglob("final.png")))==1
+
+def test_p205_insecure_group_world_writable_parent_fails_before_stage(
+    tmp_path,monkeypatch
+):
+    root=make_fixture(tmp_path,monkeypatch)
+    parent=tmp_path/"insecure";parent.mkdir()
+    parent.chmod(0o777)
+    try:
+        with pytest.raises(ValueError,match="DESTINATION_PARENT_WRITABLE_BY_OTHER_PRINCIPALS"):
+            projection.run(root,parent/"published")
+        assert not list(parent.iterdir())
+    finally:
+        parent.chmod(0o700)
+
+def test_p205_openat_failure_after_mkdirat_removes_empty_stage(
+    tmp_path,monkeypatch
+):
+    import os
+    root=make_fixture(tmp_path,monkeypatch)
+    parent=tmp_path/"secure_parent";parent.mkdir()
+    original_open=os.open
+    def fail_first_stage_open(path,flags,*args,**kwargs):
+        if isinstance(path,str) and path.startswith(".bp17_export_incomplete_"):
+            raise OSError("TEST_STAGE_FD_OPEN_FAILED")
+        return original_open(path,flags,*args,**kwargs)
+    monkeypatch.setattr(os,"open",fail_first_stage_open)
+    with pytest.raises(OSError,match="TEST_STAGE_FD_OPEN_FAILED"):
+        projection.run(root,parent/"out")
+    assert not list(parent.glob(".bp17_export_incomplete_*"))
+    assert not (parent/"out").exists()
