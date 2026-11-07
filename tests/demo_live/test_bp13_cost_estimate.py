@@ -71,3 +71,38 @@ def test_cost_estimate_authenticated_and_not_a_provider_call(tmp_path):
             assert c.execute("select count(*) from attempts").fetchone()[0]==0
         with app.state.live_queue.db() as c:
             assert c.execute("select count(*) from queued_ops").fetchone()[0]==0
+
+
+def test_worker_estimate_identical_effective_profile_and_env_mismatch(tmp_path,monkeypatch):
+    from demo_staging.live.image_runtime_profile import effective_image_profile
+    from demo_staging.live.contracts import LiveGateError
+    monkeypatch.delenv("IT_TEM_IMAGE_QUALITY",raising=False)
+    monkeypatch.delenv("IT_TEM_IMAGE_COMPLEXITY",raising=False)
+    monkeypatch.setenv("IT_TEM_IMAGE_MODEL",MODEL)
+    base=effective_image_profile()
+    assert base=={"model":MODEL,"quality":"medium","complexity":"high"}
+    app,codes=setup(tmp_path)
+    with TestClient(app) as client:
+        login(client,codes["alice"])
+        url="/demo/api/live/total-cost-estimate?photo_count=2&image_size=4:5&generation_mode=composed"
+        normal=client.get(url)
+        assert normal.status_code==200 and normal.json()["image"]["reference_median_usd"] is not None
+        monkeypatch.setenv("IT_TEM_IMAGE_QUALITY","high")
+        assert effective_image_profile()["quality"]=="high"
+        high=client.get(url)
+        assert high.status_code==200 and high.json()["image"]["reference_median_usd"] is None
+        monkeypatch.setenv("IT_TEM_IMAGE_QUALITY","medium")
+        monkeypatch.setenv("IT_TEM_IMAGE_COMPLEXITY","low")
+        low=client.get(url)
+        assert low.status_code==200 and low.json()["image"]["reference_median_usd"] is None
+        monkeypatch.setenv("IT_TEM_IMAGE_COMPLEXITY","invalid")
+        assert client.get(url).status_code==422
+        with pytest.raises(LiveGateError,match="UNAPPROVED_IMAGE_COMPLEXITY"):
+            effective_image_profile()
+        monkeypatch.delenv("IT_TEM_IMAGE_COMPLEXITY",raising=False)
+        monkeypatch.setenv("IT_TEM_IMAGE_MODEL","gpt-image-2-2026-04-21")
+        older=client.get(url)
+        assert older.status_code==200 and older.json()["image"]["reference_median_usd"] is None
+        assert effective_image_profile()["complexity"] is None
+        with app.state.live_pipeline.cost.connect() as c:
+            assert c.execute("select count(*) from attempts").fetchone()[0]==0

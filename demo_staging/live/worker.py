@@ -48,18 +48,17 @@ def live_image_adapter(runtime:Path,request):
 
     price_cap="0"
     reserve="0"
-    model=os.environ.get("IT_TEM_IMAGE_MODEL","gpt-image-2.6-sunburst")
-    # Keep legacy pinned requests valid and accept the Owner #23 v2.6 model.
-    if model not in ("gpt-image-2.6-sunburst",
-                     "gpt-image-2.5-sunburst-2026-09-08","gpt-image-2-2026-04-21"):
-        raise LiveGateError("UNAPPROVED_IMAGE_MODEL")
+    from .image_runtime_profile import effective_image_profile
+    profile=effective_image_profile()
     transport=OpenAIImagesAdapter(OpenAIImagesConfig(
         live_calls=True,api_key=os.environ["OPENAI_API_KEY"],timeout_seconds=120))
     processor=ExternalImageProcessor(
         LocalAssetStore(runtime/"image_assets"),transport,
         ProviderAttemptStore(runtime/"image_attempts.sqlite"),
         budget_limit_usd=price_cap,reservation_usd=reserve,monitoring_only=True)
-    return BackendImageAdapter(processor,runtime/"image_bindings.sqlite",model=model)
+    return BackendImageAdapter(processor,runtime/"image_bindings.sqlite",
+        model=profile["model"],quality=profile["quality"],
+        complexity=profile["complexity"])
 
 
 @contextmanager

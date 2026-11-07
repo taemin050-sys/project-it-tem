@@ -329,13 +329,15 @@ def register_live_api(app:FastAPI, ledger, runtime_root:Path, cookie_name:str):
         from .image_cost_estimate import estimate_image_once
         text_model=os.environ.get("IT_TEM_TEXT_MODEL","gpt-6-luna")
         vision_model=os.environ.get("IT_TEM_VISION_MODEL","gpt-6-luna")
-        image_model=os.environ.get("IT_TEM_IMAGE_MODEL","gpt-image-2.6-sunburst")
+        from .image_runtime_profile import effective_image_profile
         try:
+            execution=effective_image_profile()
             txt=estimate_generation_cost(photo_count=photo_count,
                  model=text_model,vision_model=vision_model)
             image=estimate_image_once(ratio=image_size,generation_mode=generation_mode,
-                 model=image_model)
-        except ValueError:
+                 model=execution["model"],quality=execution["quality"],
+                 complexity=execution["complexity"])
+        except (ValueError,LiveGateError):
             raise HTTPException(status_code=422,detail="TOTAL_ESTIMATE_UNAVAILABLE") from None
         median=image["reference_median_usd"]
         return {"mode":"NON_BILLABLE_ESTIMATE","scope":"TEXT_PLUS_ONE_IMAGE",
