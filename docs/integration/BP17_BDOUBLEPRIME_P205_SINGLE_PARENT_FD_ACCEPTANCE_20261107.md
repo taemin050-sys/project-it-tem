@@ -23,7 +23,7 @@
 3. 내부 `final_ads/JobID/` 디렉터리와 `final.png`, `caption.txt`, `projection_manifest.json`은 단계별 고정 DirFD와 `O_CREAT|O_EXCL|O_NOFOLLOW`로 생성, fd 기반 파일 fsync 및 chmod, 하위 디렉터리 fsync. 사용자 외부 경로의 파생물을 따라가지 않음.
 4. 게시: Linux `renameat2(RENAME_NOREPLACE)` 또는 macOS `renameatx_np(RENAME_EXCL)`를 **동일 pfd로 Source/Destination 모두 호출**. 부모 경로 재오픈 제거. Unsupported OS/FS는 Fail Closed.
 5. 게시 검증: 원래 Stage FD와 Destination DirFD의 inode 일치, 예상 Manifest SHA와 실제 FD-relative 읽기 SHA 일치, 반환 시점 Parent Path inode 및 최종 Destination inode 일치 점검. **절대경로에서 다른 Manifest를 신뢰해 성공 반환하는 코드 제거.**
-6. 실패 정리: 원래 pfd와 stagefd로 자식들을 재귀 열고 검증한 뒤 `unlinkat/rmdirat`에 해당하는 Python `os.unlink/os.rmdir(dir_fd=...)` 사용. `shutil.rmtree(dir_fd)`는 GCP Python에서 미지원이므로 제거. Stage 생성 직후 openat 실패 시 빈 Stage 직접 정리. Stage 객체가 분실되거나 Cleanup이 안전하지 않으면 수동 정합화 오류 반환.
+6. 실패 정리: 원래 pfd와 stagefd로 자식들을 재귀 열고 검증한 뒤 `unlinkat/rmdirat`에 해당하는 Python `os.unlink/os.rmdir(dir_fd=...)` 사용. `shutil.rmtree(dir_fd)`는 GCP Python에서 미지원이므로 제거. Stage 생성 직후 openat/fchmod 실패 시 빈 Stage 직접 정리하고, 하위 Directory의 fchmod 실패도 Stage FD를 통해 일괄 정리. Stage 객체가 분실되거나 Cleanup이 안전하지 않으면 수동 정합화 오류 반환.
 7. 게시 이후 늦은 실패(Parent Path가 바뀜, fsync 실패, Manifest/Identity 불일치)에서는 원래 Published 객체를 **삭제하지 않고** `PUBLISHED_BUT_UNVERIFIED_MANUAL_RECONCILIATION` 오류를 반환. 누구도 성공 판정으로 처리하지 않음.
 8. SQLite Source 검사: `Path.resolve().as_uri()+"?mode=ro"`, `uri=True`, 연결 직후 `PRAGMA query_only=ON`, `PRAGMA database_list` 실경로 검사, 원래 DB 미생성/무변경.
 
@@ -41,13 +41,13 @@
 | R6 | Parent 경로 실제 Dir 객체 교체 | `test_p205_r6_parent_object_swap_without_symlink_rejected` | PASS: 원본 Stage 정리, no Leak |
 | R7 | 두 프로세스 같은 대상 동시 게시 | `test_existing_output_replaced_never_after_concurrent_publication` 및 Linux FD 명령 | PASS: 정확히 1개 게시, 1개 거부 |
 | R8 | 기존 게시물·Sentinel 보호 | `test_atomic_exclusive_publish_disallows_existing_nonempty_directory` | PASS: No-Replace, 기존 SHA 보존 |
-| R9 | 게시 전 인위적 오류, Stage FD-open 오류 | `test_fault_injection_pre_publish_keeps_target_absent_and_cleans_temp`, `test_p205_openat_failure_after_mkdirat_removes_empty_stage` | PASS: 유실 0, 재실행 가능 |
+| R9 | 게시 전 인위적 오류, Stage FD-open 및 Stage/Child Directory fchmod 오류 | `test_fault_injection_pre_publish_keeps_target_absent_and_cleans_temp`, `test_p205_openat_failure_after_mkdirat_removes_empty_stage, test_p205_stage_fchmod_failure_before_return_does_not_orphan, test_p205_nested_directory_fchmod_failure_cleans_complete_stage` | PASS: 유실 0, 재실행 가능 |
 | R10 | 실제 GCP 명시적 Share 5건 | 새 nonserving derived directory로 원본 SQLite mode=ro만 사용 | PASS: PNG 5/5·Caption 5/5, 이전 Manifest SHA 정확히 동일 |
 
-- Mac 새 Export 대상 테스트 **21/21 PASS**. BP17 Revision 6/6 + BP14 기존 Mode 7/7 + Provider Recovery 2/2 포함 **전체 관련 회귀 36/36 PASS**. Python compile 및 git diff --check PASS.
+- Mac 새 Export 대상 테스트 **23/23 PASS**. BP17 Revision 6/6 + BP14 기존 Mode 7/7 + Provider Recovery 2/2 포함 **전체 관련 회귀 38/38 PASS**. Python compile 및 git diff --check PASS.
 - Linux `BP17_P205_FINAL_LINUX_R1_R2_R7.log`: Parent FD Staging Cleanup/경로 바꿔치기/renameat2 2프로세스 경합 모두 PASS. GCP Python이 `shutil.rmtree(dir_fd)`를 지원하지 않아 처음엔 실패했고, FD Recursive Cleanup으로 수정하여 재실행 PASS. **초기 실패 기록을 생략하지 않음.**
-- 고정된 최종 스크립트 바이트 SHA (최종 Git Commit 이전 검증): `8bc9308c2af36396716cbe4d45be90565eac80da2675b500e6d57c7f3c694d23`; Local과 GCP 동일.
-- 실제 GCP 파생: `/home/macstudio/ittem-bp17-p205-published-minimal-final-20261107`, 원본 QA 데이터와 기존 파생물 보호. Manifest SHA256 `75d60ca476fb3aa0a9e147f9dc9dd51d38b6a3ddb434d8956e85da3902f8a25c`, 신규 billable Provider 0, 기존 Share 5건만 오프라인 리뷰용.
+- 고정된 최종 스크립트 바이트 SHA (최종 Git Commit 이전 검증): `c998aae90b9c5d537a4ad462a5ea881adfaccd131fdb581cbed5942ab8f4ae56`; Local과 GCP 동일.
+- 실제 GCP 파생: `/home/macstudio/ittem-bp17-p205-published-minimal-faultsafe-20261107`, 원본 QA 데이터와 기존 파생물 보호. Manifest SHA256 `75d60ca476fb3aa0a9e147f9dc9dd51d38b6a3ddb434d8956e85da3902f8a25c`, 신규 billable Provider 0, 기존 Share 5건만 오프라인 리뷰용.
 
 ## 5. 기존 GCP 사후 불변 점검
 

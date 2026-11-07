@@ -415,3 +415,37 @@ def test_p205_openat_failure_after_mkdirat_removes_empty_stage(
         projection.run(root,parent/"out")
     assert not list(parent.glob(".bp17_export_incomplete_*"))
     assert not (parent/"out").exists()
+
+def test_p205_stage_fchmod_failure_before_return_does_not_orphan(
+    tmp_path,monkeypatch
+):
+    import os
+    root=make_fixture(tmp_path,monkeypatch)
+    parent=tmp_path/"secure_parent";parent.mkdir()
+    def fail_fchmod(fd,mode):
+        raise OSError("INJECT_STAGE_FCHMOD_FAILURE")
+    monkeypatch.setattr(os,"fchmod",fail_fchmod)
+    with pytest.raises(OSError,match="INJECT_STAGE_FCHMOD_FAILURE"):
+        projection.run(root,parent/"out")
+    assert not list(parent.glob(".bp17_export_incomplete_*"))
+    assert not (parent/"out").exists()
+
+def test_p205_nested_directory_fchmod_failure_cleans_complete_stage(
+    tmp_path,monkeypatch
+):
+    import os
+    root=make_fixture(tmp_path,monkeypatch)
+    parent=tmp_path/"secure_parent";parent.mkdir()
+    original=os.fchmod
+    calls=[0]
+    def fail_second(fd,mode):
+        calls[0]+=1
+        if calls[0]==2:
+            raise OSError("INJECT_CHILD_DIR_FCHMOD_FAILURE")
+        return original(fd,mode)
+    monkeypatch.setattr(os,"fchmod",fail_second)
+    with pytest.raises(OSError,match="INJECT_CHILD_DIR_FCHMOD_FAILURE"):
+        projection.run(root,parent/"out")
+    assert calls[0]>=2
+    assert not list(parent.glob(".bp17_export_incomplete_*"))
+    assert not (parent/"out").exists()

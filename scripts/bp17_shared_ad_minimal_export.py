@@ -83,35 +83,35 @@ def _create_stage(pfd:int)->tuple[str,int]:
             break
         except FileExistsError:continue
     else:raise ValueError("STAGE_EXCLUSIVE_CREATION_FAILED")
+    fd=None
     try:
         fd=os.open(name,DIR_FLAGS,dir_fd=pfd)
+        if not _same_stage_at(pfd,name,fd):
+            raise ValueError("STAGE_IDENTITY_CONFLICT")
+        os.fchmod(fd,0o700)
+        return name,fd
     except BaseException:
-        # The stage is still empty: safely remove it through the parent FD.
+        # No private bytes have been written yet. This includes open/fchmod
+        # errors before run() receives the name or stage_fd for its cleanup.
+        if fd is not None:os.close(fd)
         try:os.rmdir(name,dir_fd=pfd)
         except BaseException as error:
             raise RuntimeError(
                 "STAGING_CREATION_CLEANUP_FAILED_MANUAL_RECONCILIATION"
             ) from error
         raise
-    if not _same_stage_at(pfd,name,fd):
-        os.close(fd)
-        try:os.rmdir(name,dir_fd=pfd)
-        except BaseException as error:
-            raise RuntimeError(
-                "STAGING_CREATION_CLEANUP_FAILED_MANUAL_RECONCILIATION"
-            ) from error
-        raise ValueError("STAGE_IDENTITY_CONFLICT")
-    os.fchmod(fd,0o700)
-    return name,fd
 
 def _create_child_dir(parent_fd:int,name:str)->int:
     os.mkdir(name,0o700,dir_fd=parent_fd)
     fd=os.open(name,DIR_FLAGS,dir_fd=parent_fd)
-    if not _same_stage_at(parent_fd,name,fd):
+    try:
+        if not _same_stage_at(parent_fd,name,fd):
+            raise ValueError("STAGE_CHILD_IDENTITY_CONFLICT")
+        os.fchmod(fd,0o700)
+        return fd
+    except BaseException:
         os.close(fd)
-        raise ValueError("STAGE_CHILD_IDENTITY_CONFLICT")
-    os.fchmod(fd,0o700)
-    return fd
+        raise
 
 def _write_at(dirfd:int,name:str,data:bytes)->None:
     fd=os.open(name,os.O_WRONLY|os.O_CREAT|os.O_EXCL|os.O_NOFOLLOW,
