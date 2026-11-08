@@ -11,7 +11,7 @@ export type LiveSnapshot={
   image_sha:string|null;final_sha:string|null;caption_sha:string|null;
   approval_current:boolean;previous_copy_available?:boolean;
   review_policy?:{status:'CURRENT'|'REVALIDATION_REQUIRED'|'LEGACY_UNBOUND'|
-    'BINDING_TAMPERED'|'LEGACY_POLICY_MODE';version:string|null;sha:string|null};
+    'BINDING_TAMPERED'|'RESTART_REQUIRED'|'LEGACY_POLICY_MODE';version:string|null;sha:string|null};
   functional_types?:string[];
   functional_types_status?:'OWNER_TEXT_V010_APPLIED'|'OWNER_TEXT_DTO_PENDING'|'NO_SELECTION';
   emoji_level?:'없음'|'보통'|'많이';

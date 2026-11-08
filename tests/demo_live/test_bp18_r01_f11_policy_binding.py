@@ -125,6 +125,8 @@ def test_policy_version_only_change_invalidates_existing_approval_and_blocks_ima
     prior_sha=allowed["approval_sha"]
     assert prior_sha
     enabled_f11.setenv("IT_TEM_BP18_REVIEW_POLICY_ID","bp18-f11-test-policy-v2")
+    from demo_staging.live.store import LiveStore
+    flow.state=LiveStore(flow.state.filename)
     stale=flow.state.policy_status("alice",jid)
     assert stale["status"]=="REVALIDATION_REQUIRED"
     with pytest.raises(LiveGateError,match="REVIEW_POLICY_REVALIDATION_REQUIRED"):
@@ -153,6 +155,8 @@ def test_f11_policy_change_blocks_noop_and_restore_before_mutation(
     flow,jid,initial=start(tmp_path)
     bad=fail_review(flow,jid,initial)
     enabled_f11.setenv("IT_TEM_BP18_REVIEW_POLICY_ID","bp18-f11-test-policy-v3")
+    from demo_staging.live.store import LiveStore
+    flow.state=LiveStore(flow.state.filename)
     with pytest.raises(LiveGateError,match="REVIEW_POLICY_REVALIDATION_REQUIRED"):
         flow.state.apply_copy_revision("alice",jid,json.loads(bad["copy_json"]),
               "no op",bad["generation"],bad["review_sha"])
@@ -199,6 +203,10 @@ def test_f11_historical_pending_legacy_cannot_mutate_without_explicit_revalidate
     flow.prompt("alice",jid,FakeOwner(),offline=True)
     # Historical pending pre-policy Jobs are never silently stamped on upgrade.
     monkeypatch.setenv("IT_TEM_BP18_F11_ENABLED","YES")
+    # Enabling a new policy is a deployment/restart operation, not an in-place
+    # rule-source hot reload (which must fail closed).
+    from demo_staging.live.store import LiveStore
+    flow.state=LiveStore(flow.state.filename)
     assert flow.state.policy_status("alice",jid)["status"]=="LEGACY_UNBOUND"
     assert flow.state.get("alice",jid)["approval_sha"]==approved["approval_sha"]
     with pytest.raises(LiveGateError,match="REVIEW_POLICY_REVALIDATION_REQUIRED"):

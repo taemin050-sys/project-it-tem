@@ -52,6 +52,9 @@ def test_policy_version_flip_get_approved_stale_and_http_revalidation(
         # No policy change: it MUST not fabricate a new Review Generation.
         assert alice.post(revalidate,json=body,headers=head).status_code==409
         monkeypatch.setenv("IT_TEM_BP18_REVIEW_POLICY_ID","bp18-f11-browser-v2")
+        from demo_staging.live.store import LiveStore
+        flow=app.state.live_pipeline
+        flow.state=LiveStore(flow.state.filename)
         stale=alice.get(url)
         assert stale.status_code==200,stale.text
         assert stale.json()["review_policy"]["status"]=="REVALIDATION_REQUIRED"

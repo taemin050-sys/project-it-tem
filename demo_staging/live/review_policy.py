@@ -21,6 +21,18 @@ SOURCES = (
     "src/text_generation/compliance/rules.yaml",
 )
 
+def sources_fingerprint() -> str:
+    """Boot-pinned rules and policy-code content. Runtime file swaps fail closed."""
+    root=Path(__file__).resolve().parents[2]
+    hashes={}
+    for rel in SOURCES:
+        target=root/rel
+        if not target.is_file() or target.is_symlink():
+            raise LiveGateError("REVIEW_POLICY_FILE_MISSING")
+        hashes[rel]=hashlib.sha256(target.read_bytes()).hexdigest()
+    return digest(hashes)
+
+
 def enabled() -> bool:
     return os.environ.get("IT_TEM_BP18_F11_ENABLED") == "YES"
 
@@ -46,4 +58,6 @@ def review_digest(input_sha, analysis, copy, report, generation, policy=None):
     if policy is not None:
         record["review_policy_version"] = policy["version"]
         record["review_policy_sha"] = policy["sha"]
+        if "epoch" in policy:
+            record["review_policy_epoch"] = policy["epoch"]
     return digest(record)

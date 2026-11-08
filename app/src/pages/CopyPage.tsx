@@ -112,7 +112,7 @@ export default function CopyPage() {
   const rejected = job?.status === 'COPY_REJECTED'
   const approved = job !== undefined && ['COPY_APPROVED', 'IMAGE_REVIEW_REQUIRED', 'IMAGE_APPROVED', 'IMAGE_REJECTED', 'COMPLETED'].includes(job.status)
   const canApprove = job !== undefined && canApproveCopy(job) && liveReady &&
-    !(['REVALIDATION_REQUIRED','LEGACY_UNBOUND','BINDING_TAMPERED']
+    !(['REVALIDATION_REQUIRED','LEGACY_UNBOUND','BINDING_TAMPERED','RESTART_REQUIRED']
       .includes(live?.review_policy?.status??'CURRENT'))
   const overs = copy ? overLimits(copy.ad_copy) : []
   const captionChars=copy ? countChars(copy.caption):0
@@ -121,7 +121,7 @@ export default function CopyPage() {
   const captionOutOfRange=Boolean(copy && (captionChars<captionMin || captionChars>captionMax))
   const revisionFeedback=(!mock && liveReady)?live?.revision_feedback:null
   const policyMustRevalidate=!mock && live && live.state !== 'COMPLETED' &&
-    ['REVALIDATION_REQUIRED','LEGACY_UNBOUND','BINDING_TAMPERED']
+    ['REVALIDATION_REQUIRED','LEGACY_UNBOUND','BINDING_TAMPERED','RESTART_REQUIRED']
       .includes(live.review_policy?.status??'CURRENT')
   const policyBlocked=Boolean(policyMustRevalidate)
   async function resetCurrentReviewQueries(){
