@@ -7,7 +7,7 @@
 | 구분 | 제안 | 승인 상태 |
 |---|---|---|
 | 타깃 | 격리된 Track B 전용 GCP, 기존 Live/A/QA 변경 금지 | PENDING |
-| 지정 사용자(Actor) | `bp18_b_pm`만, PM 개인 코드 사용 | PENDING |
+| 지정 사용자(Actor) | `PENDING_PM_SSO_CONFIRMED_ACTOR`; 실제 PM Tailnet SSO 본인 확인 전까지 미확정(기존 개인 초대코드는 폐지) | **BLOCKED / P1-03** |
 | Text/Vision 모델 | `gpt-6-luna` | PENDING (계정 접근 검증 필요) |
 | Image 모델 | `gpt-image-2.6-sunburst`, medium, high complexity | PENDING (계정 접근 검증 필요) |
 | 출력 | 3:4 / 4:5 / 9:16 × composed / freeform, 총 6개 | PENDING |
@@ -27,7 +27,7 @@
 
 ## 실제 실행 순서와 중단 조건
 
-1. PM의 모델/Actor/총 최대비용/실행일/6건 회수 명시적 승인 확인. 팀 프로젝트 Owner가 승인한 제품 이미지 사용권·모델 공유 범위 확인.
+1. PM이 Track B의 실제 Tailscale SSO로 로그인해 상단에 표시되는 Actor를 제출하고, 그 Actor가 GCP 서명 인증 등록 목록과 일치하는지 검증. 이어 모델/Actor/총 최대비용/실행일/6건 회수 명시적 승인 확인. 팀 프로젝트 Owner가 승인한 제품 이미지 사용권·모델 공유 범위 확인.
 2. Text Owner의 1차 규칙 검수와 LLM 2차 규제 검수의 적용 여부를 별도 표기. **F09가 아직 완료되지 않았다면 본 E2E는 정식 광고 품질 인수가 아니라 제한된 실모델 시험**으로만 기록.
 3. 우선 B의 web queue와 worker를 **서로 다른 프로세스**에서 승인 Actor에 한해 활성화. 웹에는 API 키를 배포하지 않고 Worker 전용 0600 키 로더를 사용. 백엔드가 이미 지원하는 실행 Gate를 그대로 준수.
 4. 1개 대표 조합 4:5 Composed → 승인→실제 모델 Image→최종 PNG/Caption SHA 및 Receipt/Usage/BILLING_UNKNOWN 검증. 모든 호출 결과 정상·소진 한도 확인 전 2번째 호출 금지.
@@ -47,6 +47,15 @@
 
 ## PM이 승인해야 할 결정
 
-**(1)** 테스트 총비용 최대 승인액(제안 USD $10, hard cap 아님), **(2)** 정확한 모델 ID와 모델 사용권, **(3)** Actor `bp18_b_pm` 지정, **(4)** 1회 성공 후 2~6회 순차 실험을 허용할지, **(5)** 9:16 이미지 CTA 정책, **(6)** 상업적 이미지·한글 폰트 이용허락.
+**(1)** 테스트 총비용 최대 승인액(제안 USD $10, hard cap 아님), **(2)** 정확한 모델 ID와 모델 사용권, **(3)** Actor `PENDING_PM_SSO_CONFIRMED_ACTOR` 지정, **(4)** 1회 성공 후 2~6회 순차 실험을 허용할지, **(5)** 9:16 이미지 CTA 정책, **(6)** 상업적 이미지·한글 폰트 이용허락.
 
 서면 승인 전 기본 설정은 유지: `IT_TEM_LIVE_ENABLED=NO`, `IT_TEM_LIVE_EXECUTION_APPROVED=NO`, `IT_TEM_LIVE_WEB_QUEUE_ENABLED=NO`. 실제 API 키는 웹이나 문서·Git에 절대 포함하지 않음.
+
+## 2026-11-08 P1-03 Auth Actor 정합화 교정 (승인 전제조건)
+
+- 기존 `bp18_b_pm`은 실제 B 서명형 SSO 등록 Actor 목록에 **없습니다**. 승인안에서 삭제하고 **미확정**으로 교정했습니다.
+- 현 등록 목록에는 `bp18_b_taemin`이 존재합니다. 그러나 이름·철자·역할만으로 PM 본인의 실제 인증 세션이라고 확정하지 않습니다. **후보일 뿐, PM 확인 전에는 과금 Actor로 지정 금지**입니다.
+- PM 이태민님은 승인된 Tailscale 네트워크에서 B 웹앱 `https://macstudio-macstudio.tail17dfff.ts.net:10500/`로 로그인해 상단에 표시되는 자신의 `bp18_b_...` Actor를 직접 확인하고, 승인된 내부 채널에서 **Actor 값만** 전달하십시오. 비밀번호·쿠키·초대코드·API 키 불필요.
+- 개발 A′는 전달된 값을 `python3 scripts/bp18_b5_pm_actor_preflight.py --root /home/macstudio/ittem-bp18-product-completion-20261111 --confirmed-actor <실제_PM_Actor>`로 등록 목록 대조합니다. **등록 일치만으로 PM 신원 증명이나 청구 승인이 되는 것은 아닙니다.**
+- PM 본인 확인 + 별도 비용·모델·실행 범위 명시 승인 이후에만, 동일 Actor를 (1) 최종 승인 문서 (2) B Worker 허용 목록 (3) Job 및 Provider Attempt (4) Usage/Receipt (5) PM 검수 원장에 결속하십시오.
+- 현재 Worker/웹 유료 모델 호출은 계속 **OFF**이며, 이 문서 및 오프라인 사전 검사는 비용 정책 `MONITOR_ONLY`를 바꾸지 않습니다.

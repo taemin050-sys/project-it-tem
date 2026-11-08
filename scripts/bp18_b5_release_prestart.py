@@ -7,6 +7,8 @@ temporary cloned roots via validate() and never touch real B/Live/QA.
 from __future__ import annotations
 
 import argparse
+import hashlib
+import json
 import fcntl
 import os
 import re
@@ -20,6 +22,19 @@ PRODUCTION_ROOT = Path("/home/macstudio/ittem-bp18-product-completion-20261111")
 SHA_RE = re.compile(r"^[0-9a-f]{40}$")
 VALID_MODES = frozenset({"web", "worker"})
 EXIT_DENY = 78
+AUTH_CONTRACT_FILE = "config/bp18_required_auth_contract.json"
+SSO_SOURCE_FILES = (
+    "demo_staging/app.py",
+    "demo_staging/tailnet_assertion.py",
+    "scripts/tailnet_sso_gateway.py",
+    "app/src/demo/DemoGate.tsx",
+)
+SSO_SOURCE_MARKERS = {
+    "demo_staging/app.py": (b"IT_TEM_TAILNET_SSO_ONLY", b"TAILNET_SSO_ONLY_HOST_NOT_PINNED"),
+    "demo_staging/tailnet_assertion.py": (b"TAILNET_ASSERTION_HOST_MISMATCH",),
+    "scripts/tailnet_sso_gateway.py": (b"TAILNET_EXPECTED_HOST",),
+    "app/src/demo/DemoGate.tsx": (b"VITE_IT_TEM_SSO_ONLY",),
+}
 
 
 class ReleaseUnsafe(RuntimeError):
@@ -54,6 +69,52 @@ def _epoch(root: Path) -> int:
             return rows[0][0]
     except (sqlite3.DatabaseError, OSError) as exc:
         raise ReleaseUnsafe("POLICY_DB_READ_FAILED") from exc
+
+
+def _required_sso_auth_contract(root: Path, target: str,
+                                *, mode: str, port: int) -> str | None:
+    # This is a protected *runtime operator* contract, not a flag in a
+    # candidate release. In production its absence is a hard stop.
+    path=root/AUTH_CONTRACT_FILE
+    required = root == PRODUCTION_ROOT or path.exists()
+    if not required:
+        return None
+    try:
+        doc=json.loads(_regular(path, trusted=True).read_text(encoding="utf8"))
+    except (OSError, ValueError, UnicodeError, ReleaseUnsafe) as exc:
+        raise ReleaseUnsafe("SSO_REQUIRED_AUTH_CONTRACT_INVALID") from exc
+    if (not isinstance(doc,dict) or set(doc)!={"version","required_mode",
+           "expected_host","verified_sources"} or
+        doc["version"]!=1 or doc["required_mode"]!="TAILNET_SSO_ONLY" or
+        doc["expected_host"]!="macstudio-macstudio.tail17dfff.ts.net:10500" or
+        not isinstance(doc["verified_sources"],dict)):
+        raise ReleaseUnsafe("SSO_REQUIRED_AUTH_CONTRACT_INVALID")
+    verified=doc["verified_sources"].get(target)
+    # Policy Epoch compatibility is NOT enough: this release must also
+    # be approved for the mandatory SSO-only identity contract.
+    if not isinstance(verified,dict) or set(verified)!=set(SSO_SOURCE_FILES):
+        raise ReleaseUnsafe("SSO_INCOMPATIBLE_RELEASE_DENIED")
+    source_dir=root/"releases"/target
+    for name in SSO_SOURCE_FILES:
+        digest=verified[name]
+        if not isinstance(digest,str) or not re.fullmatch(r"[0-9a-f]{64}",digest):
+            raise ReleaseUnsafe("SSO_AUTH_SOURCE_PROVENANCE_INVALID")
+        source=_regular(source_dir/name)
+        actual=source.read_bytes()
+        if hashlib.sha256(actual).hexdigest()!=digest:
+            raise ReleaseUnsafe("SSO_AUTH_SOURCE_PROVENANCE_INVALID")
+        if any(marker not in actual for marker in SSO_SOURCE_MARKERS[name]):
+            raise ReleaseUnsafe("SSO_REQUIRED_AUTH_CODE_MISSING")
+    # ExecStartPre receives the service unit Environment; verify that the
+    # verified source is actually started with required SSO enforcement.
+    # Control prechecks use port=0 while the current service is running;
+    # systemd startup uses the effective listener port 18100.
+    if mode=="web" and port==18100:
+        if (os.environ.get("IT_TEM_TAILNET_AUTH_ENABLED")!="YES" or
+            os.environ.get("IT_TEM_TAILNET_SSO_ONLY")!="YES" or
+            os.environ.get("IT_TEM_TAILNET_EXPECTED_HOST")!=doc["expected_host"]):
+            raise ReleaseUnsafe("SSO_REQUIRED_RUNTIME_ENV_MISMATCH")
+    return doc["required_mode"]
 
 
 def _queue_running(root: Path) -> bool:
@@ -128,6 +189,7 @@ def validate(root: Path, *, mode: str, port: int = 18100,
     epoch = _epoch(root)
     if epoch > 0 and target not in listed:
         raise ReleaseUnsafe("OLD_RELEASE_CANNOT_START_WITH_EPOCH_DB")
+    required_auth=_required_sso_auth_contract(root,target,mode=mode,port=port)
     if _worker_lock_busy(root):
         raise ReleaseUnsafe("ACTIVE_PROVIDER_WORKER_BLOCKS_RELEASE")
     if _queue_running(root):
@@ -137,6 +199,7 @@ def validate(root: Path, *, mode: str, port: int = 18100,
     if mode == "worker" and epoch == 0:
         raise ReleaseUnsafe("WORKER_REQUIRES_INITIALIZED_EPOCH")
     return {"release": target, "policy_epoch": epoch, "mode": mode,
+            "required_auth": required_auth,
             "worker_lock": "FREE", "queue_running": 0}
 
 

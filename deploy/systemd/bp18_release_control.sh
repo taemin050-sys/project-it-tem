@@ -55,7 +55,9 @@ restore(){
  # Only trusted fallback: its explicit epoch guard must permit restoration.
  ln -s "releases/$FROM" "$ROOT/.b5-restore-$FROM"
  mv -Tf "$ROOT/.b5-restore-$FROM" "$ROOT/repo"
- if python3 "$CONTROL/bp18_release_prestart.py" --mode web --port 18100;then
+ # Operator precheck has no systemd Environment; systemd ExecStartPre
+ # validates the active unit SSO env at actual port 18100.
+ if python3 "$CONTROL/bp18_release_prestart.py" --mode web --port 0;then
   systemctl --user start "$UNIT"
   echo "ROLLBACK_TO_VERIFIED_OLD_RELEASE=$FROM"
  else
