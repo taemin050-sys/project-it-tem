@@ -14,6 +14,11 @@ def test_b_systemd_uses_independent_prestart_and_nonbillable_web():
     assert "control/bp18_release_prestart.py --mode web --port 18100" in data
     assert "control/bp18_web_exec.sh" in data
     assert "IT_TEM_QA_FIXTURE_ENABLED=NO" in data
+    assert "IT_TEM_TAILNET_AUTH_ENABLED=YES" in data
+    assert "IT_TEM_TAILNET_SSO_ONLY=YES" in data
+    assert "IT_TEM_TAILNET_EXPECTED_HOST=macstudio-macstudio.tail17dfff.ts.net:10500" in data
+    assert "bp18_tailnet_hmac.key" in data
+    assert "bp18_tailnet_roles.json" in data
     assert "IT_TEM_LIVE_ENABLED=NO" in data
     assert "IT_TEM_LIVE_EXECUTION_APPROVED=NO" in data
     assert "IT_TEM_LIVE_WEB_QUEUE_ENABLED=NO" in data

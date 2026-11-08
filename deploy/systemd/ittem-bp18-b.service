@@ -19,7 +19,11 @@ Environment=IT_TEM_LIVE_EXECUTION_APPROVED=NO
 Environment=IT_TEM_LIVE_WEB_QUEUE_ENABLED=NO
 Environment=IT_TEM_PROVIDER_READINESS_CONFIRMED=NO
 Environment=IT_TEM_QA_FIXTURE_ENABLED=NO
-Environment=IT_TEM_TAILNET_AUTH_ENABLED=NO
+Environment=IT_TEM_TAILNET_AUTH_ENABLED=YES
+Environment=IT_TEM_TAILNET_SSO_ONLY=YES
+Environment=IT_TEM_TAILNET_AUTH_KEY_FILE=/home/macstudio/ittem-bp18-product-completion-20261111/config/bp18_tailnet_hmac.key
+Environment=IT_TEM_TAILNET_ACTORS_FILE=/home/macstudio/ittem-bp18-product-completion-20261111/config/bp18_tailnet_roles.json
+Environment=IT_TEM_TAILNET_EXPECTED_HOST=macstudio-macstudio.tail17dfff.ts.net:10500
 Environment=IT_TEM_BP18_VISUAL_V3_ENABLED=YES
 Environment=IT_TEM_BP18_F11_ENABLED=YES
 Environment=IT_TEM_BP18_REVIEW_POLICY_ID=bp18-f11-compliance-policy-v1
