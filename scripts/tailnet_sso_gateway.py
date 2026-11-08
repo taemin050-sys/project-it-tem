@@ -136,19 +136,31 @@ class Gateway(BaseHTTPRequestHandler):
               str(args[1]) if len(args)>1 else "",flush=True)
 
 
+# Isolated A/B gateways reuse 8443 verified security implementation.
+# Existing 8443 default remains untouched; separate instances get dedicated
+# signing keys, ports and user-to-actor maps.
+SERVICES = {
+    "8443": (18987, 18988),
+    "10443": (19097, 19096),
+    "10500": (19101, 19100),
+}
+
 def run():
     key=key_from_file(os.environ["IT_TEM_TAILNET_GATEWAY_KEY_FILE"])
     users=load_users(os.environ["IT_TEM_TAILNET_GATEWAY_USERS_FILE"])
     expected=os.environ["IT_TEM_TAILNET_EXPECTED_HOST"].lower()
-    if not re.fullmatch(r"[a-z0-9.-]+\.ts\.net:8443",expected):
+    service_port=expected.rsplit(":",1)[-1]
+    if (service_port not in SERVICES or
+        not re.fullmatch(r"[a-z0-9.-]+\.ts\.net:"+service_port,expected)):
         raise RuntimeError("UNAPPROVED_TAILSCALE_HOST")
-    server=ThreadingHTTPServer(("127.0.0.1",18987),Gateway)
+    listen_port,target_port=SERVICES[service_port]
+    server=ThreadingHTTPServer(("127.0.0.1",listen_port),Gateway)
     server.secret=key
     server.allowed_users=users
     server.expected_host=expected
-    server.target_port=18988
-    print("IT_TEM_TAILNET_SSO_MAC_GATEWAY_18987_STARTED",len(users),"identities",
-          "UPSTREAM_127.0.0.1:18988",flush=True)
+    server.target_port=target_port
+    print("IT_TEM_TAILNET_SSO_MAC_GATEWAY_STARTED",listen_port,len(users),
+          "identities","UPSTREAM_PORT",target_port,flush=True)
     server.serve_forever(poll_interval=.25)
 
 
