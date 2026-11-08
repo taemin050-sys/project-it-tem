@@ -2,7 +2,7 @@ import { useQuery } from '@tanstack/react-query'
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { getBlob } from '../api/jobs'
-import { startNewAdLink, useBlobUrl, useJob, useLiveSnapshot } from '../api/useJob'
+import { startNewAdLink, useBlobQuery, useBlobUrl, useJob, useLiveSnapshot } from '../api/useJob'
 import {retryCompose} from '../api/liveFlow'
 import {shareLive,listPublishedLive} from '../api/liveJobs'
 import {isPublishedFinal} from '../api/liveMapping'
@@ -52,13 +52,17 @@ export default function ExportPage() {
   }
   const final = job?.artifacts?.final
   const captionPath = job?.artifacts?.caption?.download_url
+  const finalFile = useBlobQuery(final?.download_url)
   const finalUrl = useBlobUrl(final?.download_url)
-  const { data: caption } = useQuery({
+  const captionFile = useQuery({
     queryKey: ['text', captionPath],
     queryFn: async () => (await getBlob(captionPath!)).text(),
     enabled: captionPath !== undefined,
     staleTime: Infinity,
+    retry: false,
+    refetchOnWindowFocus: false,
   })
+  const caption = captionFile.data
   const [size, setSize] = useState<{ width: number; height: number }>()
   const [copied, setCopied] = useState<'idle' | 'done' | 'error'>('idle')
 
@@ -112,6 +116,25 @@ export default function ExportPage() {
           원본 사진과 법률 표시사항을 사람이 확인한 뒤 게시해 주세요.</p>
       </div>}
       <RunStatus />
+
+      {job?.status==='COMPLETED' && (finalFile.isError || captionFile.isError) && (
+        <div className="notice notice-danger" role="alert">
+          <p className="notice-title">완료된 광고 파일을 불러오지 못했습니다</p>
+          <p>완료한 광고와 승인 기록은 서버에 유지됩니다. 아래 버튼은 파일을 GET으로 다시 가져오기만 하며 이미지 생성이나 유료 AI 호출을 재시작하지 않습니다.</p>
+          <div className="button-row">
+            {finalFile.isError && <button type="button" className="button secondary small"
+              disabled={finalFile.isFetching}
+              onClick={() => void finalFile.refetch()}>
+              {finalFile.isFetching ? '이미지 다시 조회 중…' : '이미지 파일 다시 가져오기'}
+            </button>}
+            {captionFile.isError && <button type="button" className="button secondary small"
+              disabled={captionFile.isFetching}
+              onClick={() => void captionFile.refetch()}>
+              {captionFile.isFetching ? '본문 다시 조회 중…' : '본문 파일 다시 가져오기'}
+            </button>}
+          </div>
+        </div>
+      )}
 
       {composeFailed && (
         <div className="notice notice-warning" role="status">

@@ -35,14 +35,22 @@ export function useJob() {
   })
 }
 
-// 서버 파일(이미지 Asset·산출물)을 blob으로 받는다. 경로가 바뀌지 않는 한 다시 받지 않는다
-export function useBlob(path: string | undefined) {
+// Artifact 읽기는 GET-only이며 실패해도 AI 생성/합성을 다시 실행하지 않는다.
+// UI에서 오류와 수동 조회 재시도를 처리할 수 있게 상태를 노출한다.
+export function useBlobQuery(path: string | undefined) {
   return useQuery({
     queryKey: ['blob', path],
     queryFn: () => getBlob(path!),
     enabled: path !== undefined,
     staleTime: Infinity,
-  }).data
+    retry: false,
+    refetchOnWindowFocus: false,
+  })
+}
+
+// 기존 Owner FE/미리보기 소비자는 이전 단순 Blob API를 그대로 사용한다.
+export function useBlob(path: string | undefined) {
+  return useBlobQuery(path).data
 }
 
 // blob URL로 그린다: 다른 출처 이미지나 인증이 필요한 경로도 같은 방식으로 받기 위해
