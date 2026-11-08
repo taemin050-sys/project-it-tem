@@ -43,6 +43,8 @@ def test_control_prechecks_both_target_and_fallback_before_stopping():
     assert s.index('bp18_backup_runtime.py')<c
     assert "systemctl --user start" in s
     assert "ROLLBACK_TO_VERIFIED_OLD_RELEASE" in s
+    assert 'for i in 1 2 3 4 5 6 7 8 9 10 11 12' in s
+    assert 'if [ "$READY" != YES ]' in s
 
 
 def test_sqlite_backup_never_overwrites_and_has_integrity_check():

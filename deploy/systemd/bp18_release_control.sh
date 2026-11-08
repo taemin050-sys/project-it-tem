@@ -70,7 +70,17 @@ if ! systemctl --user start "$UNIT";then
  restore
  exit 93
 fi
-if ! curl -fsS --max-time 4 http://127.0.0.1:18100/health >/dev/null;then
+# systemd Type=simple reports "active" before ASGI lifespan startup.
+# Wait for a bounded ready check before deciding rollback; no provider I/O.
+READY=NO
+for i in 1 2 3 4 5 6 7 8 9 10 11 12;do
+ if curl -fsS --max-time 2 http://127.0.0.1:18100/health >/dev/null 2>&1;then
+  READY=YES
+  break
+ fi
+ sleep .5
+done
+if [ "$READY" != YES ];then
  echo "TARGET_HEALTH_FAILED_FALLBACK_REQUIRED" >&2
  systemctl --user stop "$UNIT"
  restore
