@@ -28,10 +28,21 @@ export function runStep(jobId: string, step: Step, body?: unknown) {
   })
 }
 
-// 거절하면 COPY_REJECTED·IMAGE_REJECTED로 끝난다 (거절 후 수정·재승인은 고도화)
+// 거절하면 COPY_REJECTED·IMAGE_REJECTED로 끝난다 (mock은 거절 대신 reviseJob으로 수정 요청)
 // shortcut: 레거시는 { approved } 만 받는다. 카피 승인 V2(copy_revision·copy_sha256)가 동결되면 필드 추가
 export function review(jobId: string, kind: 'copy' | 'image', approved: boolean) {
   return request<Job>(`/api/v1/jobs/${jobId}/approvals/${kind}`, { method: 'POST', ...json({ approved }) })
+}
+
+// shortcut: 아래 둘은 mock 전용 경로(서버 API 없음), 서빙 API 명세를 받으면 경로·본문을 맞춘다
+// 거절 대신 요구사항을 보내 모델이 고친 카피·이미지를 다시 검토 단계로 받는다. 직전 버전은 서버가 보관한다
+export function reviseJob(jobId: string, kind: 'copy' | 'image', instruction: string) {
+  return request<Job>(`/api/v1/jobs/${jobId}/revise/${kind}`, { method: 'POST', timeoutMs: AI_REQUEST_TIMEOUT_MS, ...json({ instruction }) })
+}
+
+// 현재 버전과 직전 버전을 바꾼다 (다시 누르면 원래대로)
+export function restorePrevious(jobId: string, kind: 'copy' | 'image') {
+  return request<Job>(`/api/v1/jobs/${jobId}/restore/${kind}`, { method: 'POST' })
 }
 
 // Asset·산출물 다운로드 경로는 서버가 준 값(download_url 등)을 그대로 쓴다

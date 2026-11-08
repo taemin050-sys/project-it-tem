@@ -54,10 +54,10 @@ const plan: AdCopyOutput['plan'] = {
   mood: ['내추럴', '미니멀'],
 }
 
-const adCopy: AdCopy = { headline: '하루 종일 촉촉하게 빛나는 피부결', subline: '가볍게 스며드는\n데일리 보습 세럼', cta: '지금 만나보세요' }
+const adCopy: AdCopy = { headline: '하루 종일 촉촉한 피부결', subline: '가볍게 스며드는\n데일리 보습 세럼', cta: '지금 만나보세요' }
 const HASHTAGS = ['#보습세럼', '#데일리케어', '#신제품']
 
-// 카피 길이는 실험 중(10/26)이라 고정하지 않는다. 긴·짧은 한글이 화면에서 깨지지 않는지 보려는 예시
+// 글자 수 기준(10/30): 헤드 15자, 서브 15자×2줄(\n, 총 25자), CTA 10자. default·blocked는 기준 안, long(기준 초과)·short(아주 짧음)는 화면이 깨지지 않는지 보려는 예시
 export type CopyVariant = 'default' | 'blocked' | 'long' | 'short'
 
 const COPIES: Record<CopyVariant, Omit<AdCopyOutput, 'plan'>> = {
@@ -96,9 +96,22 @@ function issue(field: CopyField, source: string, text: string, rest: Omit<Compli
 const NOTICE = '검수 결과는 참고용이며 법적 판단이 아닙니다. 게시 전 최종 확인 책임은 사용자에게 있습니다.'
 const CHECKLIST = ['제품명·용량이 실제 제품과 같은지 확인하세요.', '지속 시간·효능 표현은 시험 근거가 있는지 확인하세요.']
 
-// '하루 종일'은 근거 확인 필요(승인 가능), '피부 재생'은 위반 의심(승인 차단)
 export function mockCopyReview(variant: CopyVariant): { copy: AdCopyOutput; report: ComplianceReport } {
   const copy: AdCopyOutput = { plan, ...COPIES[variant] }
+  return { copy, report: reviewMockCopy(copy) }
+}
+
+// mock 수정 요청 결과: 글자 수 기준 안의 대체 카피를 차례로 돌려준다 (요구사항 반영은 실제 모델 몫)
+const REVISIONS: AdCopy[] = [
+  { headline: '아침을 깨우는 촉촉함', subline: '한 방울로 시작하는\n가벼운 보습 루틴', cta: '자세히 보기' },
+  { headline: '가볍게, 더 촉촉하게', subline: '끈적임 없이 스며드는\n데일리 보습 세럼', cta: '지금 만나보세요' },
+  { headline: '매일 쓰는 보습 세럼', subline: '산뜻하게 마무리되는\n글로우 세럼', cta: '구매하기' },
+]
+export const revisedMockCopy = (copy: AdCopyOutput, instruction: string, n: number): AdCopyOutput =>
+  ({ ...copy, plan: { ...copy.plan, concept: `${copy.plan.concept} (수정 요청: ${instruction})` }, ad_copy: REVISIONS[n % REVISIONS.length] })
+
+// '하루 종일'은 근거 확인 필요(승인 가능), '피부 재생'은 위반 의심(승인 차단). 수정한 카피도 같은 규칙으로 다시 검수한다
+export function reviewMockCopy(copy: AdCopyOutput): ComplianceReport {
   const issues: ComplianceIssue[] = []
   if (copy.caption.includes('피부 재생')) {
     issues.push(issue('caption', copy.caption, '피부 재생', {
@@ -124,22 +137,28 @@ export function mockCopyReview(variant: CopyVariant): { copy: AdCopyOutput; repo
   }
   const passed = !issues.some((i) => i.risk_level === '위반 의심')
   return {
-    copy,
-    report: {
-      passed,
-      issues,
-      revised_fields: passed ? {} : { caption: copy.caption.replace('피부 재생', '피부결 관리') },
-      checklist: CHECKLIST,
-      notice: NOTICE,
-    },
+    passed,
+    issues,
+    revised_fields: passed ? {} : { caption: copy.caption.replace('피부 재생', '피부결 관리') },
+    checklist: CHECKLIST,
+    notice: NOTICE,
   }
 }
 
 export const MOCK_IMAGE_URL = '/mock/ad_beige.svg'
+// mock 이미지 수정 요청은 이 순서로 다른 배경을 돌려준다
+export const MOCK_IMAGE_URLS = [MOCK_IMAGE_URL, '/mock/ad_moss.svg', '/mock/ad_tile.svg']
+
+type Size = { width: number; height: number }
+
+// mock 이미지(1080×1350 SVG)를 고른 비율 크기로 바꾼다. 비율이 다르면 가운데를 채워 자른다
+export const mockImageAtSize = (svg: string, { width, height }: Size) =>
+  svg.replace(/<svg([^>]*?) width="\d+" height="\d+"/, `<svg$1 width="${width}" height="${height}" preserveAspectRatio="xMidYMid slice"`)
 
 const escapeXml = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
 
 // mock 합성: 생성 이미지 SVG 위에 카피를 글자 레이어로 올린다 (실제 합성은 이미지 담당·서버, 방식은 실험 중)
+// 글자 레이어는 viewBox(1080×1350) 좌표라 비율이 바뀐 이미지에서도 같이 맞춰 잘린다
 export function composeMockSvg(baseSvg: string, copy: AdCopy): string {
   const layer = `<foreignObject x="0" y="0" width="1080" height="1350"><div xmlns="http://www.w3.org/1999/xhtml" style="height:1350px;display:flex;flex-direction:column;justify-content:flex-end">`
     + `<div style="display:flex;flex-direction:column;align-items:flex-start;gap:20px;padding:180px 54px 67.5px;color:#fff;background:linear-gradient(rgba(0,0,0,0),rgba(0,0,0,.55) 180px);font-family:sans-serif;word-break:keep-all">`
@@ -155,12 +174,12 @@ export const adExamples = [
   {
     mood: '숲속 무드',
     imageUrl: '/mock/ad_moss.svg',
-    copy: { headline: '숲에서 시작하는 하루의 결', subline: '차분한 아침을 위한 데일리 보습 세럼', cta: '지금 만나보세요' },
+    copy: { headline: '숲에서 시작하는 하루의 결', subline: '차분한 아침을 위한\n데일리 보습 세럼', cta: '지금 만나보세요' },
   },
   { mood: '웜 베이지', imageUrl: MOCK_IMAGE_URL, copy: adCopy },
   {
     mood: '그린 타일',
     imageUrl: '/mock/ad_tile.svg',
-    copy: { headline: '욕실 선반 위 작은 루틴', subline: '가볍게 스며드는 데일리 보습 세럼', cta: '자세히 보기' },
+    copy: { headline: '욕실 선반 위 작은 루틴', subline: '가볍게 스며드는\n데일리 보습 세럼', cta: '자세히 보기' },
   },
 ]

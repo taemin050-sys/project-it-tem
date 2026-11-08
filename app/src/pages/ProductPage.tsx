@@ -2,17 +2,17 @@ import { useState, type FormEvent } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { isUnreachable } from '../api/client'
 import { createJob } from '../api/jobs'
-import { advance } from '../api/useJob'
+import { advance,hasUnfinishedJob,productPayload,recoverLiveInput,resetJob } from '../api/useJob'
 import Field from '../components/Field'
 import MockFallback from '../components/MockFallback'
 import OptionGroup from '../components/OptionGroup'
 import PhotoDrop from '../components/PhotoDrop'
 import StepPage from '../components/StepPage'
-import { PRODUCT_PHOTOS, REFERENCE_PHOTOS, SHRINK } from '../config'
+import { PRODUCT_PHOTOS, RATIOS, REFERENCE_PHOTOS, SHRINK, type Ratio } from '../config'
 import { shrinkImage } from '../lib/shrinkImage'
 import { validateProduct, type ProductErrors } from '../lib/validateProduct'
 import { useProjectStore } from '../store/projectStore'
-import { AD_PURPOSES, PRODUCT_TYPES } from '../types/textSchema'
+import { AD_PURPOSES, EMOJI_LEVELS, FUNCTIONAL_TYPES, PRODUCT_TYPES, type EmojiLevel, type FunctionalType } from '../types/textSchema'
 
 const LIMITS = { product: PRODUCT_PHOTOS, reference: REFERENCE_PHOTOS }
 
@@ -22,14 +22,26 @@ const FOCUS_ORDER: [keyof ProductErrors, string][] = [
   ['references', 'references'],
   ['product_name', 'product_name'],
   ['features', 'features'],
+  ['functional_types', 'functional_types'],
   ['photo_verified', 'photo_verified'],
 ]
+
+// 텍스트 schemas.py emoji_level 설명과 같은 뜻
+const EMOJI_DESC: Record<EmojiLevel, string> = {
+  없음: '이모티콘 없이 차분하게',
+  보통: '문단마다 1~2개',
+  많이: '거의 모든 줄 + 친근한 말투',
+}
+
+// 기능성 종류 목록 순서를 유지한 채 켜고 끈다
+const toggle = (list: FunctionalType[], t: FunctionalType, on: boolean) =>
+  FUNCTIONAL_TYPES.filter((x) => (x === t ? on : list.includes(x)))
 
 const describedBy = (...ids: (string | false | undefined)[]) => ids.filter(Boolean).join(' ') || undefined
 
 export default function ProductPage() {
   const navigate = useNavigate()
-  const { images, references, product, run, setImages, setReferences, setProduct: saveProduct } = useProjectStore()
+  const { images, references, product, ratio, run, jobId, setImages, setReferences, setRatio, setProduct: saveProduct } = useProjectStore()
   const [errors, setErrors] = useState<ProductErrors>({})
   const [uploading, setUploading] = useState(false)
   const [uploadError, setUploadError] = useState<{ message: string; offline: boolean }>()
@@ -38,7 +50,7 @@ export default function ProductPage() {
   const setError = (key: keyof ProductErrors, message?: string) => setErrors((e) => ({ ...e, [key]: message }))
   function setProduct(patch: Parameters<typeof saveProduct>[0]) {
     saveProduct(patch)
-    for (const key of ['product_name', 'features', 'photo_verified'] as const) {
+    for (const key of ['product_name', 'features', 'functional_types', 'photo_verified'] as const) {
       if (key in patch) setError(key)
     }
   }
@@ -52,6 +64,8 @@ export default function ProductPage() {
       document.getElementById(first[1])?.focus()
       return
     }
+    // 진행 중인 작업이 있는데 새로 제출하면 그 작업은 이 화면에서 사라진다 (서버 Job은 남음)
+    if (hasUnfinishedJob() && !window.confirm('진행 중인 광고가 있습니다. 이 정보로 새로 만들면 진행 중인 광고는 이 화면에서 사라집니다. 이전 작업은 서버에 남습니다. 새로 만들까요?')) return
     setUploading(true)
     setUploadError(undefined)
     try {
@@ -60,11 +74,13 @@ export default function ProductPage() {
         Promise.all(references.map((f) => shrinkImage(f, SHRINK))),
       ])
       const job = await createJob(productFiles, referenceFiles, {
-        ...product,
+        ...productPayload(),
         brand_name: product.brand_name?.trim() || null,
         product_image_count: productFiles.length,
         reference_image_count: referenceFiles.length,
       })
+      // 업로드가 성공한 뒤에 비워야 실패해도 이전 작업으로 돌아갈 수 있다
+      resetJob()
       navigate('/create/copy')
       void advance(async () => job)
     } catch (err) {
@@ -87,14 +103,22 @@ export default function ProductPage() {
         </button>
       }
       actionsNote={
-        uploadError
+        <>
+        {!import.meta.env.DEV && jobId && !run.busy &&
+          <button type="button" className="button secondary small"
+            onClick={()=>void recoverLiveInput().then(()=>navigate('/create/copy')).catch(()=>{})}>
+            기존 업로드 이어서 처리하기 (재업로드 없음)
+          </button>}
+        {uploadError
           ? (
             <>
               <p className="field-error" role="alert">{uploadError.message}</p>
-              {uploadError.offline && <MockFallback onSwitch={() => setUploadError(undefined)} />}
+              {import.meta.env.DEV && uploadError.offline && <MockFallback onSwitch={() => setUploadError(undefined)} />}
             </>
           )
-          : Object.values(errors).some(Boolean) && <p className="field-error">입력하지 않았거나 확인이 필요한 항목이 있습니다.</p>
+          : Object.values(errors).some(Boolean) && <p className="field-error">입력하지 않았거나 확인이 필요한 항목이 있습니다.</p>}
+        {run.error && <p className="field-error" role="alert">{run.error}</p>}
+        </>
       }
     >
       {/* noValidate: 브라우저 기본 말풍선 대신 각 항목 아래에 한국어 오류를 보여준다 */}
@@ -180,6 +204,17 @@ export default function ProductPage() {
           />
         </section>
 
+        <section className="panel" aria-label="이모티콘">
+          <OptionGroup
+            legend="게시글 이모티콘"
+            name="emoji_level"
+            value={product.emoji_level}
+            options={EMOJI_LEVELS.map((v) => ({ value: v, label: v, desc: EMOJI_DESC[v] }))}
+            onChange={(v) => setProduct({ emoji_level: v })}
+          />
+          <p className="field-hint panel-footnote">게시글 본문에만 들어갑니다. 이미지 위 문구·해시태그에는 넣지 않습니다.</p>
+        </section>
+
         <section className="panel" aria-label="화장품 구분">
           <OptionGroup
             legend="화장품 구분"
@@ -189,7 +224,34 @@ export default function ProductPage() {
               { value: 'general', label: '일반 화장품', desc: '기능성 인증을 받지 않은 제품' },
               { value: 'functional', label: '기능성 화장품', desc: '식약처 심사·보고를 마친 기능성화장품' },
             ]}
-            onChange={(v) => setProduct({ is_functional: v === 'functional' })}
+            onChange={(v) => setProduct({ is_functional: v === 'functional', functional_types: [] })}
+          />
+          {product.is_functional && (
+            <fieldset id="functional_types" className="subgroup check-group" tabIndex={-1}
+              aria-describedby={describedBy('functional_types-hint', errors.functional_types && 'functional_types-error')}>
+              <legend className="group-label">기능성 종류</legend>
+              <p id="functional_types-hint" className="field-hint">심사·보고를 마친 기능성 효능을 모두 골라 주세요. 여드름완화는 인체세정용 제품만 해당합니다.</p>
+              <div className="check-grid">
+                {FUNCTIONAL_TYPES.map((t) => (
+                  <label key={t} className="check-item">
+                    <input type="checkbox" checked={product.functional_types.includes(t)}
+                      onChange={(e) => setProduct({ functional_types: toggle(product.functional_types, t, e.target.checked) })} />
+                    {t}
+                  </label>
+                ))}
+              </div>
+              {errors.functional_types && <p id="functional_types-error" className="field-error">{errors.functional_types}</p>}
+            </fieldset>
+          )}
+        </section>
+
+        <section className="panel" aria-label="이미지 비율">
+          <OptionGroup
+            legend="이미지 비율"
+            name="ratio"
+            value={ratio}
+            options={(Object.keys(RATIOS) as Ratio[]).map((r) => ({ value: r, label: RATIOS[r].label, desc: `${RATIOS[r].desc} · ${RATIOS[r].width}×${RATIOS[r].height}` }))}
+            onChange={setRatio}
           />
         </section>
 
