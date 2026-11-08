@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import {asProductJob,guardCopyApproval,guardImageApproval,isPublishedFinal,type LiveSnapshot} from '../src/api/liveMapping.ts'
+import {asProductJob,guardCopyApproval,guardCopyRevision,guardImageApproval,isPublishedFinal,sameCopyReview,sameImageCandidate,type LiveSnapshot} from '../src/api/liveMapping.ts'
 import type {Job} from '../src/types/draft.ts'
 const raw:Job={job_id:'a'.repeat(32),status:'INPUTS_VALIDATED',assets:[{
   asset_id:'A',role:'product',original_filename:'a.png',content_type:'image/png',
@@ -25,6 +25,27 @@ test('copy approval locks generation, compliance and review SHA',()=>{
   assert.throws(()=>guardCopyApproval({...review,compliance:{...review.compliance,passed:false}}))
   assert.throws(()=>guardCopyApproval({...review,review_sha:null}))
 })
+test('copy revision is allowed on a failed review but stays locked to the current review',()=>{
+  const review={...example,state:'COPY_REVIEW_REQUIRED' as const,
+    generation:2,review_sha:'d'.repeat(64),copy_sha:'e'.repeat(64),
+    compliance:{passed:false,issues:[],revised_fields:{},checklist:[],notice:'review'}}
+  assert.doesNotThrow(()=>guardCopyRevision(review))
+  assert.throws(()=>guardCopyRevision({...review,review_sha:null}))
+  assert.throws(()=>guardCopyRevision({...review,state:'COPY_APPROVED'}))
+})
+test('approval is refused when the server moved past the version the user saw',()=>{
+  const seen={...example,state:'COPY_REVIEW_REQUIRED' as const,generation:2,review_sha:'r2',copy_sha:'c2'}
+  assert.equal(sameCopyReview(seen,{...seen}),true)
+  assert.equal(sameCopyReview(seen,{...seen,generation:3}),false)
+  assert.equal(sameCopyReview(seen,{...seen,review_sha:'r3'}),false)
+  assert.equal(sameCopyReview(seen,{...seen,copy_sha:'c3'}),false)
+})
+test('image approval compares the candidate the user saw',()=>{
+  const seen={...example,image_sha:'a'.repeat(64)}
+  assert.equal(sameImageCandidate(seen,{...seen}),true)
+  assert.equal(sameImageCandidate(seen,{...seen,image_sha:'b'.repeat(64)}),false)
+  assert.equal(sameImageCandidate(example,example),false)
+})
 test('image approval requires an active copy approval and candidate SHA',()=>{
   const candidate={...example,state:'IMAGE_REVIEW_REQUIRED' as const,image_sha:'a'.repeat(64),
     approval_current:true,mode:'LIVE'}
@@ -38,6 +59,12 @@ test('real final download maps to the owner-scoped server, no offline artifacts'
   assert.equal(job.final_output?.mock,false)
   assert.equal(job.artifacts?.final?.download_url,
     '/demo/api/live/jobs/'+raw.job_id+'/artifacts/final')
+  assert.equal(job.final_output?.height,1350)
+})
+test('final size follows the snapshot output_size (selected ratio)',()=>{
+  const job=asProductJob({...example,state:'COMPLETED',mode:'LIVE',
+    output_size:{width:1080,height:1920}},raw)
+  assert.deepEqual([job.final_output?.width,job.final_output?.height],[1080,1920])
 })
 test('offline fixture and cross-job DTOs never pass as live',()=>{
   assert.throws(()=>asProductJob({...example,mode:'OFFLINE_FIXTURE'},raw))

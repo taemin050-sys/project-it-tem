@@ -1,10 +1,11 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { continueOrStartNew } from '../api/useJob'
+import { continueOrStartNew, startNewAdLink } from '../api/useJob'
 import FluidAdPreview from '../components/FluidAdPreview'
 import { SERVICE_NAME } from '../config'
 import { adExamples, mockCopyReview } from '../mocks/sampleResult'
 import AdCanvas from '../renderer/AdCanvas'
+import { useProjectStore } from '../store/projectStore'
 
 const NAV = [
   { href: '#about', label: '서비스 소개' },
@@ -108,6 +109,8 @@ function SiteHeader() {
 
 export default function LandingPage() {
   const hero = adExamples[0]
+  // 결과까지 끝나지 않은 작업: 이어 갈지 새로 시작할지 사용자가 고르게 한다 (말없이 비우지 않음)
+  const unfinished = useProjectStore((s) => s.jobId !== null && s.jobId !== s.finishedJobId)
 
   return (
     <>
@@ -123,6 +126,16 @@ export default function LandingPage() {
               <span>광고 한 편.</span>
             </h1>
             <p className="hero-lead">제품 사진만 준비하세요. 복잡한 디자인 작업 없이 광고 시안을 만들어보세요.</p>
+            {unfinished && (
+              <div className="notice notice-info resume-notice" role="status">
+                <p className="notice-title">진행 중인 광고가 있습니다</p>
+                <p>이어서 만들면 저장된 진행 상황을 다시 불러옵니다. 새로 시작하면 이 화면의 입력과 진행 상황이 지워지고, 이전 작업은 서버에 남습니다.</p>
+                <div className="button-row">
+                  <Link className="button small" to="/create" onClick={continueOrStartNew}>이어서 만들기</Link>
+                  <Link className="button secondary small" to="/create/product" onClick={startNewAdLink}>새 광고 시작</Link>
+                </div>
+              </div>
+            )}
             <div className="hero-actions">
               <Link className="button" to="/create" onClick={continueOrStartNew}>광고 시안 만들기</Link>
               <a className="text-link" href="#how">만드는 방법 보기</a>

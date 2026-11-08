@@ -11,7 +11,7 @@ export type ProductForm = Omit<ProductInput, 'product_image_count' | 'reference_
 export type RunState = { busy: boolean; step: Step | null; error: string | null; offline?: boolean }
 
 // 처음 화면의 입력값. 새 광고를 시작하면 이 값으로 되돌린다 (이모티콘은 가운데 값을 기본으로)
-const INITIAL_PRODUCT: ProductForm = {
+export const INITIAL_PRODUCT: ProductForm = {
   brand_name: null,
   product_name: '',
   product_category: null,
@@ -22,7 +22,7 @@ const INITIAL_PRODUCT: ProductForm = {
   emoji_level: '보통',
   photo_verified: false,
 }
-const INITIAL_RATIO: Ratio = '4:5'
+export const INITIAL_RATIO: Ratio = '4:5'
 
 type ProjectState = {
   images: File[]

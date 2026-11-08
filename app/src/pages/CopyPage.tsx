@@ -1,7 +1,6 @@
 import { Link, Navigate, useNavigate } from 'react-router-dom'
 import { restorePrevious, review, reviseJob } from '../api/jobs'
-import { approveCopyAndCreateImage, rejectCopy } from '../api/liveFlow'
-import {getLiveSnapshot} from '../api/liveJobs'
+import { approveCopyAndCreateImage, restoreCopy, reviseCopy } from '../api/liveFlow'
 import { useState, useRef } from 'react'
 import { advance, resetJob, useJob, useLiveSnapshot } from '../api/useJob'
 import JobBadges from '../components/JobBadges'
@@ -90,6 +89,9 @@ export default function CopyPage() {
   const approved = job !== undefined && ['COPY_APPROVED', 'IMAGE_REVIEW_REQUIRED', 'IMAGE_APPROVED', 'IMAGE_REJECTED', 'COMPLETED'].includes(job.status)
   const canApprove = job !== undefined && canApproveCopy(job)
   const overs = copy ? overLimits(copy.ad_copy) : []
+  // 되돌릴 이전 카피가 있는지: mock은 Job에, Live는 스냅샷 플래그로 온다
+  const canRestore = mock ? job?.previous_copy_output !== undefined : live?.previous_copy_available === true
+  const feedback = mock ? undefined : live?.revision_feedback ?? undefined
 
   // 글자 수를 넘었으면 줄여 달라는 요청을 미리 채워 둔다 (사용자가 기준을 몰라도 바로 보낼 수 있게)
   function openRevision() {
@@ -101,25 +103,27 @@ export default function CopyPage() {
 
   function onApprove() {
     if(!mock){
-      if(!jobId || approvalInFlight.current)return
+      if(!live || approvalInFlight.current)return
       approvalInFlight.current=true
-      // Always read the current server review hash at the click boundary.
-      // Stale React Query data cannot silently discard approval clicks.
-      void getLiveSnapshot(jobId).then(current=>{
-        navigate('/create/draft')
-        return approveCopyAndCreateImage(current,evidenceAck)
-      }).catch(e=>useProjectStore.getState().setRun({
-        error:e instanceof Error?e.message:'승인 상태 조회 실패. 재호출하지 마세요.'
-      })).finally(()=>{approvalInFlight.current=false})
+      // 화면에서 본 검수본(live)과 클릭 시점 서버값을 비교하고, 승인이 성공한 뒤에만 이동한다. 실패 문구는 RunStatus가 보여준다
+      void approveCopyAndCreateImage(live,evidenceAck,()=>navigate('/create/draft'))
+        .catch(()=>{}).finally(()=>{approvalInFlight.current=false})
     }else{
-      navigate('/create/draft')
-      void advance(() => review(jobId!, 'copy', true))
+      void advance(async () => { const j = await review(jobId!, 'copy', true); navigate('/create/draft'); return j })
     }
   }
   function sendRevision() {
     if (!jobId || !instruction.trim()) return
     setRevising(false)
-    void advance(() => reviseJob(jobId, 'copy', instruction.trim()), 'ai/copy-review').then(() => setInstruction(''))
+    const sent = mock
+      ? advance(() => reviseJob(jobId, 'copy', instruction.trim()), 'ai/copy-review')
+      : reviseCopy(jobId, instruction.trim())
+    // 실패 문구는 RunStatus가 보여준다
+    void sent.then(() => setInstruction(''), () => {})
+  }
+  function restore() {
+    if (!jobId) return
+    void (mock ? advance(() => restorePrevious(jobId, 'copy')) : restoreCopy(jobId)).catch(() => {})
   }
 
   if (analysis && !analysis.is_cosmetic) {
@@ -146,22 +150,14 @@ export default function CopyPage() {
           ? <Link className="button" to="/create/product" onClick={resetJob}>제품 정보에서 다시 시작</Link>
           : (
             <div className="button-row">
-              {mock
-                ? <button className="button secondary" disabled={!reviewing || busy} onClick={openRevision}>수정 요청</button>
-                : <button className="button secondary" disabled={!reviewing || busy} onClick={() =>
-                    jobId && void getLiveSnapshot(jobId).then(rejectCopy).catch(e=>
-                      useProjectStore.getState().setRun({error:String(e)}))}>
-                    카피 거절
-                  </button>}
-              <button className="button" disabled={!canApprove || !evidenceAck || overs.length > 0 || busy} onClick={onApprove}>이 카피로 이미지 만들기</button>
+              <button className="button secondary" disabled={!reviewing || busy} onClick={openRevision}>수정 요청</button>
+              <button className="button" disabled={!canApprove || !evidenceAck || overs.length > 0 || busy || (!mock && !live)} onClick={onApprove}>이 카피로 이미지 만들기</button>
             </div>
           )}
       actionsNote={<>
         {reviewing && job && <ApprovalNote job={job} />}
         {reviewing && overs.length > 0 && <p className="field-error" role="alert">
-          글자 수 기준을 넘어 이미지를 만들 수 없습니다: {overs.join(', ')}. {mock
-            ? '수정 요청을 누르면 줄여 달라는 요청이 채워져 있습니다.'
-            : '카피를 거절하고 제품 정보에서 다시 만들어 주세요.'}</p>}
+          글자 수 기준을 넘어 이미지를 만들 수 없습니다: {overs.join(', ')}. 수정 요청을 누르면 줄여 달라는 요청이 채워져 있습니다.</p>}
         {reviewing && <label className="field-hint">
           <input type="checkbox" checked={evidenceAck}
             onChange={e=>setEvidenceAck(e.target.checked)}/>
@@ -194,11 +190,14 @@ export default function CopyPage() {
               <button type="button" className="button secondary" onClick={()=>setRevising(false)}>취소</button>
             </div>
           </section>}
-          {mock && reviewing && job?.previous_copy_output && <div className="notice notice-info" role="status">
+          {reviewing && (canRestore || feedback) && <div className="notice notice-info" role="status">
             <p className="notice-title">수정된 카피입니다</p>
-            <p>마음에 들지 않으면 이전 버전으로 되돌릴 수 있습니다. 다시 누르면 지금 버전으로 돌아옵니다.</p>
-            <button type="button" className="button secondary small" disabled={busy}
-              onClick={()=>void advance(()=>restorePrevious(jobId!,'copy'))}>이전 버전으로 되돌리기</button>
+            {feedback && <p>{feedback.note}{feedback.changed_fields.length > 0 &&
+              ` (바뀐 항목: ${feedback.changed_fields.map((f) => FIELD_LABELS[f]).join(', ')})`}</p>}
+            {canRestore && <>
+              <p>마음에 들지 않으면 이전 버전으로 되돌릴 수 있습니다. 되돌린 카피도 다시 검수합니다.</p>
+              <button type="button" className="button secondary small" disabled={busy} onClick={restore}>이전 버전으로 되돌리기</button>
+            </>}
           </div>}
           <ReviewSummary report={report} />
 
@@ -297,7 +296,7 @@ function ApprovalNote({ job }: { job: Job }) {
   if (report) {
     return report.passed
       ? <p className="field-hint">{report.notice}</p>
-      : <p className="field-error">위반 의심 표현이 있어 이 카피는 승인할 수 없습니다. 수정하기로 표현을 고쳐 주세요.</p>
+      : <p className="field-error">위반 의심 표현이 있어 이 카피는 승인할 수 없습니다. 수정 요청으로 표현을 고쳐 주세요.</p>
   }
   return canApproveCopy(job)
     ? <p className="field-hint">mock 카피는 규제 검수 없이 흐름 확인용으로만 승인할 수 있습니다. 실제 광고에 쓰지 마세요.</p>
