@@ -1,4 +1,4 @@
-"""텍스트 모듈 스키마 (v0.10)
+"""텍스트 모듈 스키마 (v0.11)
 
 흐름 : 사용자 입력 → 제품 분석(VLM) → 기획 AI 사전 조사 → 콘셉트·카피 생성 → 규제 검수
       → 카피 승인 → 이미지 프롬프트 → (이미지 생성·합성은 이미지/서비스 파트)
@@ -323,11 +323,13 @@ class ComplianceIssue(BaseModel):
     end: int
     category: RiskCategory
     risk_level: RiskLevel
-    reason: str
+    reason: str = Field(..., description="사용자에게 보여줄 설명 (왜 문제인지)")
     suggestion: str | None = Field(None, description="대체 문구, 삭제 권장이면 None")
     basis: str | None = Field(
-        None, description="근거 출처, 예: '지침 별표1 p.9', 'FAQ'"
+        None,
+        description="근거 위치, 예: '지침 별표1 p.9', '2025 질문집 Q312 (p.201~202)'",
     )
+    basis_url: str | None = Field(None, description="근거 원문 링크, 없으면 None")
     detected_by: Literal["rule", "llm"]
     auto_fixed: bool = Field(
         False, description="생성 단계에서 자동으로 대체 문구로 바꿨는지"
