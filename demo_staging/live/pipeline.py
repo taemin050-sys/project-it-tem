@@ -58,10 +58,12 @@ class OfficialTextProvider:
         from src.text_generation.image_prompt_generator import generate_image_prompt
         return generate_image_prompt(plan,analysis,model=self.text_model)
 
-    def revise_copy(self,product,analysis,research,previous,instruction):
+    def revise_copy(self,product,analysis,research,previous,instruction,
+                    *,compliance_context=None):
         from src.text_generation.copy_generator import revise_copy
         return revise_copy(product,analysis,research,previous,instruction,
-                           model=self.text_model)
+                           model=self.text_model,
+                           compliance_context=compliance_context)
 
 
 def atomic_write(path:Path,data:bytes):
@@ -239,18 +241,18 @@ class LivePipeline:
         report=json.loads(job["compliance_json"])
         analysis=json.loads(job["analysis_json"])
         current_copy=json.loads(job["copy_json"])
-        # The review proof binds exactly the report the user saw, not a
-        # stale saved issue list or a newly inferred regulatory verdict.
+        # A B-only F11 deployment requires a CURRENT versioned policy proof.
+        from .review_policy import enabled as policy_enabled, review_digest
+        review_policy=self.state.ensure_policy_current(actor,job_id) if policy_enabled() else None
         from src.image_generation.contracts import content_hash
         if (content_hash(current_copy)!=job["copy_sha"] or
-            digest({"input_sha":job["input_sha"],"analysis":analysis,
-                    "copy":current_copy,"report":report,
-                    "generation":job["generation"]})!=job["review_sha"]):
+            review_digest(job["input_sha"],analysis,current_copy,report,
+                          job["generation"],review_policy)!=job["review_sha"]):
             raise LiveGateError("REVISION_REVIEW_CONTEXT_INTEGRITY_FAILED")
         issues=[{k:record.get(k) for k in (
             "field","text","risk_level","reason","suggestion","basis")}
             for record in report.get("issues",[])]
-        return {
+        response={
             "job_id":job_id,"generation":job["generation"],
             "review_sha":job["review_sha"],"copy_sha":job["copy_sha"],
             "input_sha":job["input_sha"],"instruction":instruction,
@@ -260,6 +262,10 @@ class LivePipeline:
             "compliance_issues":issues,
             "basis_verification":"UNVERIFIED_FREE_TEXT_NOT_LEGAL_ADVICE",
         }
+        if review_policy is not None:
+            response.update(review_policy_version=review_policy["version"],
+                            review_policy_sha=review_policy["sha"])
+        return response
 
     def revise_copy(self,actor,job_id,instruction,expected_generation,
                     expected_review_sha,provider:TextProvider|None=None,*,offline=False,
@@ -287,6 +293,7 @@ class LivePipeline:
                 raise LiveGateError("INJECTED_PROVIDER_FORBIDDEN_IN_LIVE")
             provider=OfficialTextProvider(text_model,text_model)
 
+        from .review_policy import enabled as policy_enabled
         from src.serving.text_v08_mapper import verify_analysis,verify_research,verify_copy
         product=ProductInput.model_validate(
             json.loads(job["input_json"])["product"],strict=True)
@@ -300,8 +307,24 @@ class LivePipeline:
         result=self.checkpoints.load(actor,job_id,"copy_revision",
                                      fingerprint,mode,CopyRevisionOutput)
         if result is None:
-            action=lambda:provider.revise_copy(
-                product,analysis.analysis,research,previous,instruction)
+            if policy_enabled():
+                from src.text_generation.copy_generator import BP18_COMPLIANCE_CONTEXT_VERSION
+                selected_context={
+                    "contract_version":BP18_COMPLIANCE_CONTEXT_VERSION,
+                    "copy_sha":context["copy_sha"],
+                    "review_sha":context["review_sha"],
+                    "compliance_report_sha":context["compliance_report_sha"],
+                    "policy_version":context["review_policy_version"],
+                    "policy_sha":context["review_policy_sha"],
+                    "issues":context["compliance_issues"],
+                    "basis_verification":context["basis_verification"],
+                }
+                action=lambda:provider.revise_copy(
+                    product,analysis.analysis,research,previous,instruction,
+                    compliance_context=selected_context)
+            else:
+                action=lambda:provider.revise_copy(
+                    product,analysis.analysis,research,previous,instruction)
             proposed=(action() if offline else
                 self._guarded(actor,job_id,"copy_revision",context,action))
             result=self.checkpoints.commit(

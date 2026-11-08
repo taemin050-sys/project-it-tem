@@ -1,7 +1,7 @@
 import { Link, Navigate, useNavigate } from 'react-router-dom'
 import { restorePrevious, review, reviseJob } from '../api/jobs'
 import { approveCopyAndCreateImage, reviseCopyFromInstruction, restorePreviousLiveCopy } from '../api/liveFlow'
-import {getLiveSnapshot,getTextCostEstimate,type TextCostEstimate} from '../api/liveJobs'
+import {getLiveSnapshot,getTextCostEstimate,revalidateLiveReviewPolicy,type TextCostEstimate} from '../api/liveJobs'
 import { useState, useRef,useEffect } from 'react'
 import { advance, resetJob, useJob, useLiveProgress, useLiveSnapshot } from '../api/useJob'
 import JobBadges from '../components/JobBadges'
@@ -11,6 +11,7 @@ import { COPY_LIMITS, countChars, overLimits, SUBLINE_LINE_MAX, SUBLINE_MAX_LINE
 import { copyFieldText, splitByIssues } from '../lib/highlight'
 import { canApproveCopy } from '../lib/pipeline'
 import { isCopyReviewHydrated } from '../api/liveMapping'
+import { queryClient } from '../api/queryClient'
 import { useProjectStore } from '../store/projectStore'
 import type { Job } from '../types/draft'
 import type { ComplianceIssue, ComplianceReport, CopyField, ResearchResult, RiskLevel, SourceType } from '../types/textSchema'
@@ -110,13 +111,39 @@ export default function CopyPage() {
   const reviewing = job?.status === 'COPY_REVIEW_REQUIRED'
   const rejected = job?.status === 'COPY_REJECTED'
   const approved = job !== undefined && ['COPY_APPROVED', 'IMAGE_REVIEW_REQUIRED', 'IMAGE_APPROVED', 'IMAGE_REJECTED', 'COMPLETED'].includes(job.status)
-  const canApprove = job !== undefined && canApproveCopy(job) && liveReady
+  const canApprove = job !== undefined && canApproveCopy(job) && liveReady &&
+    !(['REVALIDATION_REQUIRED','LEGACY_UNBOUND','BINDING_TAMPERED']
+      .includes(live?.review_policy?.status??'CURRENT'))
   const overs = copy ? overLimits(copy.ad_copy) : []
   const captionChars=copy ? countChars(copy.caption):0
   const captionMin=250
   const captionMax=(!mock && live?.emoji_level==='많이')?350:400
   const captionOutOfRange=Boolean(copy && (captionChars<captionMin || captionChars>captionMax))
   const revisionFeedback=(!mock && liveReady)?live?.revision_feedback:null
+  const policyMustRevalidate=!mock && live && live.state !== 'COMPLETED' &&
+    ['REVALIDATION_REQUIRED','LEGACY_UNBOUND','BINDING_TAMPERED']
+      .includes(live.review_policy?.status??'CURRENT')
+  const policyBlocked=Boolean(policyMustRevalidate)
+  async function resetCurrentReviewQueries(){
+    await queryClient.invalidateQueries({queryKey:['live-snapshot',jobId]})
+    await queryClient.invalidateQueries({queryKey:['job',jobId]})
+  }
+  function requestPolicyRevalidation(){
+    if(!jobId || !live || busy)return
+    void getLiveSnapshot(jobId).then(current=>{
+      if(current.generation!==live.generation ||
+        current.review_sha!==live.review_sha ||
+        current.copy_sha!==live.copy_sha)
+        throw Error('POLICY_REVIEW_CHANGED_BEFORE_REVALIDATION')
+      return revalidateLiveReviewPolicy(current)
+    }).then(()=>{
+      setAckKey(null)
+      setRevisionFence(null)
+      void resetCurrentReviewQueries()
+    }).catch(error=>useProjectStore.getState().setRun({
+      error:error instanceof Error?error.message:'정책 재검수 실패'
+    }))
+  }
 
   // 글자 수를 넘었으면 줄여 달라는 요청을 미리 채워 둔다 (사용자가 기준을 몰라도 바로 보낼 수 있게)
   function openRevision() {
@@ -224,11 +251,17 @@ export default function CopyPage() {
           ? <Link className="button" to="/create/product" onClick={resetJob}>제품 정보에서 다시 시작</Link>
           : (
             <div className="button-row">
-              <button className="button secondary" disabled={!reviewing || busy || !liveReady} onClick={openRevision}>수정 요청</button>
-              <button className="button" disabled={!canApprove || !evidenceAck || overs.length > 0 || busy} onClick={onApprove}>이 카피로 이미지 만들기</button>
+              <button className="button secondary" disabled={!reviewing || busy || !liveReady || policyBlocked} onClick={openRevision}>수정 요청</button>
+              <button className="button" disabled={!canApprove || !evidenceAck || overs.length > 0 || busy || policyBlocked} onClick={onApprove}>이 카피로 이미지 만들기</button>
             </div>
           )}
       actionsNote={<>
+        {policyBlocked && <div className="notice notice-warning" role="alert">
+          <strong>카피 검수 정책이 변경되었거나 정책 결속이 확인되지 않았습니다.</strong>
+          <p>기존 승인·이미지 생성은 차단됩니다. 정책 재검수는 현재 원문 카피를 바꾸지 않고 새 검수 버전으로 시작하며, 이전 승인을 복구하지 않습니다.</p>
+          <button type="button" className="button secondary small" disabled={busy}
+            onClick={requestPolicyRevalidation}>현재 정책으로 재검수</button>
+        </div>}
         {reviewing && job && <ApprovalNote job={job} />}
         {reviewing && overs.length > 0 && <p className="field-error" role="alert">
           글자 수 기준을 넘어 이미지를 만들 수 없습니다: {overs.join(', ')}.
@@ -298,7 +331,7 @@ export default function CopyPage() {
             <p className="notice-title">이전 카피 버전이 보존돼 있습니다</p>
             <p>되돌리면 새 Generation으로 재검수하며 과거 승인·확인은 재활성화되지 않습니다.</p>
             <button type="button" className="button secondary small"
-              disabled={busy || !liveReady} onClick={restoreLivePrevious}>이전 버전으로 되돌리기</button>
+              disabled={busy || !liveReady || policyBlocked} onClick={restoreLivePrevious}>이전 버전으로 되돌리기</button>
           </div>}
           {mock && reviewing && job?.previous_copy_output && <div className="notice notice-info" role="status">
             <p className="notice-title">수정된 카피입니다</p>

@@ -122,6 +122,9 @@ def register_live_api(app:FastAPI, ledger, runtime_root:Path, cookie_name:str):
             return HTTPException(status_code=409 if ("STATE" in code or "STALE" in code or
                              "APPROVAL" in code or "CONFLICT" in code or
                              code in ("REAL_COMPLIANCE_BLOCKED","REVISION_IN_PROGRESS",
+                                      "REVIEW_POLICY_REVALIDATION_REQUIRED",
+                                      "REVIEW_POLICY_BINDING_TAMPERED",
+                                      "REVIEW_POLICY_ALREADY_CURRENT",
                                       "IMAGE_RETRY_OUTSTANDING_OR_UNKNOWN",
                                       "IMAGE_RETRY_STALE_REJECTION",
                                       "IMAGE_RETRY_LEDGER_MISMATCH"))
@@ -134,11 +137,14 @@ def register_live_api(app:FastAPI, ledger, runtime_root:Path, cookie_name:str):
         attempt=flow.state.current_image_attempt(job["actor"],job["job_id"])
         # Never return internal Provider errors, signed URLs, input file paths
         # or private reference image contents to the browser.
+        review_policy=flow.state.policy_status(job["actor"],job["job_id"])
         out={"job_id":job["job_id"],"state":job["state"],"mode":job["mode"],
              "generation":job["generation"],"input_sha":job["input_sha"],
              "copy_sha":job["copy_sha"],"review_sha":job["review_sha"],
              "image_sha":job["image_sha"],"final_sha":job["final_sha"],"caption_sha":job["caption_sha"],
-             "approval_current":bool(job["approval_sha"]),
+             "approval_current":bool(job["approval_sha"]) and
+                 review_policy["status"] in ("CURRENT","LEGACY_POLICY_MODE"),
+             "review_policy":review_policy,
              "previous_copy_available":flow.state.previous_copy_available(job["actor"],job["job_id"]),
              "revision_feedback":flow.state.revision_feedback(job["actor"],job["job_id"]),
              "image_attempt_version":attempt["attempt_version"] if attempt else 1,
@@ -495,6 +501,15 @@ def register_live_api(app:FastAPI, ledger, runtime_root:Path, cookie_name:str):
             return visible(flow.state.restore_previous_copy(
                 actor,job_id,body.expected_generation,body.expected_review_sha))
         except (LiveGateError,ValueError) as e:raise safe_error(e) from None
+
+    @app.post(prefix+"/jobs/{job_id}/revalidate-policy")
+    def revalidate_review_policy(job_id:str,body:CopyRestoreRequest,request:Request):
+        actor=authorized(request,job_id)
+        try:
+            return visible(flow.state.revalidate_review_policy(
+                actor,job_id,body.expected_generation,body.expected_review_sha))
+        except (LiveGateError,ValueError) as error:
+            raise safe_error(error) from None
 
     @app.post(prefix+"/jobs/{job_id}/approve-copy")
     def approve_copy(job_id:str,body:CopyApproval,request:Request):

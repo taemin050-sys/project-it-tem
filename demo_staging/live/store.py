@@ -11,6 +11,7 @@ from pathlib import Path
 from uuid import uuid4
 
 from .contracts import LiveGateError, digest, validate_input, strict_review, live_prompt, owner_text_snapshots
+from .review_policy import enabled as policy_enabled, current as current_policy, review_digest
 from .template_contract import (A_ID,A_VERSION,LEGACY_ID,LEGACY_VERSION,SIZE_PREFIX,BP18_PREFIX,
     owner_a_policy,owner_size_policy,historical_a_v1_layout,normalize_layout,verify_policy,canonical)
 
@@ -78,6 +79,12 @@ class LiveStore:
                 candidate_receipt_sha TEXT,
                 created_utc TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
                 PRIMARY KEY(job_id,attempt_version), UNIQUE(job_id,request_key)
+            );
+            CREATE TABLE IF NOT EXISTS live_review_policy (
+                job_id TEXT NOT NULL, generation INTEGER NOT NULL,
+                policy_version TEXT NOT NULL, policy_sha TEXT NOT NULL,
+                review_sha TEXT NOT NULL,
+                PRIMARY KEY(job_id,generation)
             );
             CREATE TABLE IF NOT EXISTS live_queue (
                 job_id TEXT NOT NULL, stage TEXT NOT NULL,
@@ -161,6 +168,112 @@ class LiveStore:
         with self.db() as c:
             return self._read(c,job_id,actor)
 
+    @staticmethod
+    def _bind_review_policy(c,job_id,generation,review_sha,policy):
+        if policy is None:return
+        c.execute("""INSERT INTO live_review_policy
+             (job_id,generation,policy_version,policy_sha,review_sha)
+             VALUES (?,?,?,?,?)""",
+             (job_id,generation,policy["version"],policy["sha"],review_sha))
+
+    @staticmethod
+    def _ensure_current_review_policy(c,job):
+        if not policy_enabled():return None
+        stored=c.execute("""SELECT policy_version,policy_sha,review_sha
+             FROM live_review_policy WHERE job_id=? AND generation=?""",
+             (job["job_id"],job["generation"])).fetchone()
+        if stored is None:
+            raise LiveGateError("REVIEW_POLICY_REVALIDATION_REQUIRED")
+        bound={"version":stored["policy_version"],"sha":stored["policy_sha"]}
+        if (stored["review_sha"]!=job["review_sha"] or
+            review_digest(job["input_sha"],json.loads(job["analysis_json"]),
+                          json.loads(job["copy_json"]),json.loads(job["compliance_json"]),
+                          job["generation"],bound)!=job["review_sha"]):
+            raise LiveGateError("REVIEW_POLICY_BINDING_TAMPERED")
+        if bound!=current_policy():
+            raise LiveGateError("REVIEW_POLICY_REVALIDATION_REQUIRED")
+        return bound
+
+    def ensure_policy_current(self,actor,job_id):
+        with self.db() as c:
+            return self._ensure_current_review_policy(c,self._read(c,job_id,actor))
+
+    def policy_status(self,actor,job_id):
+        with self.db() as c:
+            job=self._read(c,job_id,actor)
+            if not policy_enabled():
+                return {"status":"LEGACY_POLICY_MODE","version":None,"sha":None}
+            policy=current_policy()
+            row=c.execute("""SELECT policy_version,policy_sha,review_sha
+                       FROM live_review_policy WHERE job_id=? AND generation=?""",
+                       (job_id,job["generation"])).fetchone()
+            if row is None:
+                return {"status":"LEGACY_UNBOUND","version":None,"sha":None}
+            actual={"version":row["policy_version"],"sha":row["policy_sha"]}
+            try:self._ensure_current_review_policy(c,job)
+            except LiveGateError as exc:
+                return {"status":("REVALIDATION_REQUIRED" if
+                    exc.code=="REVIEW_POLICY_REVALIDATION_REQUIRED" else
+                    "BINDING_TAMPERED"),**actual}
+            return {"status":"CURRENT",**actual}
+
+    def revalidate_review_policy(self,actor,job_id,expected_generation,expected_review_sha):
+        """Explicit compare-and-swap policy re-review; never revives old approval."""
+        if not policy_enabled():
+            raise LiveGateError("REVIEW_POLICY_FEATURE_NOT_ENABLED")
+        policy=current_policy()
+        with self.db() as c:
+            c.execute("BEGIN IMMEDIATE")
+            job=self._read(c,job_id,actor)
+            if job["state"] not in ("COPY_REVIEW_REQUIRED","COPY_APPROVED",
+                                    "COPY_REJECTED","PROMPT_READY",
+                                    "IMAGE_REVIEW_REQUIRED","IMAGE_REJECTED",
+                                    "IMAGE_APPROVED"):
+                raise LiveGateError("REVIEW_POLICY_REVALIDATION_STATE_CONFLICT")
+            if (type(expected_generation) is not int or
+                expected_generation!=job["generation"] or
+                expected_review_sha!=job["review_sha"]):
+                raise LiveGateError("STALE_REVIEW_OR_REVISION")
+            old=c.execute("""SELECT policy_version,policy_sha,review_sha
+                   FROM live_review_policy WHERE job_id=? AND generation=?""",
+                   (job_id,job["generation"])).fetchone()
+            if old is not None:
+                prior={"version":old["policy_version"],"sha":old["policy_sha"]}
+                if (old["review_sha"]!=job["review_sha"] or
+                    review_digest(job["input_sha"],json.loads(job["analysis_json"]),
+                      json.loads(job["copy_json"]),json.loads(job["compliance_json"]),
+                      job["generation"],prior)!=job["review_sha"]):
+                    raise LiveGateError("REVIEW_POLICY_BINDING_TAMPERED")
+                if prior==policy:
+                    raise LiveGateError("REVIEW_POLICY_ALREADY_CURRENT")
+            else:
+                # Pre-F11 historical pending jobs have the former digest format.
+                legacy=review_digest(job["input_sha"],json.loads(job["analysis_json"]),
+                            json.loads(job["copy_json"]),json.loads(job["compliance_json"]),
+                            job["generation"])
+                if legacy!=job["review_sha"]:
+                    raise LiveGateError("REVIEW_POLICY_LEGACY_BINDING_INVALID")
+            product=json.loads(job["input_json"])["product"]
+            analysis=json.loads(job["analysis_json"])
+            copy=json.loads(job["copy_json"])
+            report=strict_review(copy,product,analysis)
+            generation=job["generation"]+1
+            bound=review_digest(job["input_sha"],analysis,copy,report,generation,policy)
+            c.execute("""UPDATE live_jobs SET state='COPY_REVIEW_REQUIRED',
+                generation=?,compliance_json=?,review_sha=?,approval_sha=NULL,
+                approved_generation=NULL,evidence_acknowledged=0,
+                prompt_json=NULL,image_sha=NULL,image_approval_sha=NULL,
+                final_sha=NULL,caption_sha=NULL WHERE job_id=?""",
+                (generation,json.dumps(report,ensure_ascii=False),bound,job_id))
+            c.execute("DELETE FROM live_copy_previous WHERE job_id=?",(job_id,))
+            c.execute("DELETE FROM live_copy_revision_feedback WHERE job_id=?",(job_id,))
+            self._bind_review_policy(c,job_id,generation,bound,policy)
+            updated=self._read(c,job_id,actor)
+            self._event(c,updated,"bp18_policy_revalidated_old_approval_invalidated",
+                        updated["state"],bound)
+            c.commit()
+            return updated
+
     def store_text(self,actor,job_id,analysis,research,copy,*,mode="OFFLINE_FIXTURE"):
         if mode not in ("OFFLINE_FIXTURE","LIVE"):
             raise LiveGateError("INVALID_PROVENANCE")
@@ -172,8 +285,9 @@ class LiveStore:
                 raise LiveGateError("LIVE_TEXT_STATE_CONFLICT")
             context=json.loads(job["input_json"])
             report=strict_review(candidate,context["product"],a)
-            report_sha=digest({"input_sha":job["input_sha"],"analysis":a,
-                              "copy":candidate,"report":report,"generation":job["generation"]+1})
+            policy=current_policy() if policy_enabled() else None
+            report_sha=review_digest(job["input_sha"],a,candidate,report,
+                         job["generation"]+1,policy)
             c.execute("""UPDATE live_jobs SET state='COPY_REVIEW_REQUIRED',mode=?,generation=generation+1,
                analysis_json=?,research_json=?,research_display_json=?,
                copy_json=?,copy_sha=?,compliance_json=?,review_sha=? WHERE job_id=?""",
@@ -182,6 +296,7 @@ class LiveStore:
                 json.dumps(candidate,ensure_ascii=False),sha,
                 json.dumps(report,ensure_ascii=False),report_sha,job_id))
             updated=self._read(c,job_id,actor)
+            self._bind_review_policy(c,job_id,updated["generation"],report_sha,policy)
             self._event(c,updated,"real_review_evaluated",updated["state"],report_sha)
             c.commit()
             return updated
@@ -201,8 +316,8 @@ class LiveStore:
             analysis=json.loads(job["analysis_json"])
             report=strict_review(parsed.output,context["product"],analysis)
             generation=job["generation"]+1
-            report_sha=digest({"input_sha":job["input_sha"],"analysis":analysis,
-                              "copy":parsed.output,"report":report,"generation":generation})
+            policy=current_policy() if policy_enabled() else None
+            report_sha=review_digest(job["input_sha"],analysis,parsed.output,report,generation,policy)
             # A legacy manual edit is a different edit path. Prevent a stale
             # QA previous-copy row from surviving an unrelated direct edit.
             c.execute("DELETE FROM live_copy_previous WHERE job_id=?",(job_id,))
@@ -214,6 +329,7 @@ class LiveStore:
               (generation,json.dumps(parsed.output,ensure_ascii=False),parsed.sha256,
                json.dumps(report,ensure_ascii=False),report_sha,job_id))
             updated=self._read(c,job_id,actor)
+            self._bind_review_policy(c,job_id,generation,report_sha,policy)
             self._event(c,updated,"copy_edited_review_restarted",updated["state"],report_sha)
             c.commit()
             return updated
@@ -271,6 +387,7 @@ class LiveStore:
                 raise LiveGateError("COPY_REVISION_STATE_CONFLICT")
             if job["generation"]!=expected_generation or job["review_sha"]!=expected_review_sha:
                 raise LiveGateError("STALE_REVIEW_OR_REVISION")
+            self._ensure_current_review_policy(c,job)
             original=json.loads(job["copy_json"])
             context=json.loads(job["input_json"])
             analysis=json.loads(job["analysis_json"])
@@ -299,8 +416,8 @@ class LiveStore:
                 c.commit()
                 return self._read(c,job_id,actor)
             generation=job["generation"]+1
-            report_sha=digest({"input_sha":job["input_sha"],"analysis":analysis,
-                               "copy":parsed.output,"report":report,"generation":generation})
+            policy=current_policy() if policy_enabled() else None
+            report_sha=review_digest(job["input_sha"],analysis,parsed.output,report,generation,policy)
             # One-step undo: retain the exact last approved-for-review content;
             # restoring never recreates an approval or external provider receipt.
             if parsed.sha256!=job["copy_sha"]:
@@ -324,6 +441,7 @@ class LiveStore:
                 (generation,json.dumps(parsed.output,ensure_ascii=False),
                  parsed.sha256,json.dumps(report,ensure_ascii=False),report_sha,job_id))
             updated=self._read(c,job_id,actor)
+            self._bind_review_policy(c,job_id,generation,report_sha,policy)
             if owner_feedback is None:
                 c.execute("DELETE FROM live_copy_revision_feedback WHERE job_id=?",(job_id,))
             else:
@@ -360,6 +478,7 @@ class LiveStore:
                 raise LiveGateError("COPY_RESTORE_STATE_CONFLICT")
             if job["generation"]!=expected_generation or job["review_sha"]!=expected_review_sha:
                 raise LiveGateError("STALE_REVIEW_OR_REVISION")
+            self._ensure_current_review_policy(c,job)
             old=c.execute("SELECT * FROM live_copy_previous WHERE job_id=?",
                          (job_id,)).fetchone()
             if old is None:raise LiveGateError("COPY_PREVIOUS_UNAVAILABLE")
@@ -370,8 +489,8 @@ class LiveStore:
             analysis=json.loads(job["analysis_json"])
             report=strict_review(parsed.output,context["product"],analysis)
             generation=job["generation"]+1
-            report_sha=digest({"input_sha":job["input_sha"],"analysis":analysis,
-                               "copy":parsed.output,"report":report,"generation":generation})
+            policy=current_policy() if policy_enabled() else None
+            report_sha=review_digest(job["input_sha"],analysis,parsed.output,report,generation,policy)
             c.execute("""UPDATE live_copy_previous SET copy_json=?,copy_sha=?,
                 origin_generation=?,reason_sha=? WHERE job_id=?""",
                 (job["copy_json"],job["copy_sha"],job["generation"],
@@ -385,16 +504,22 @@ class LiveStore:
                  json.dumps(report,ensure_ascii=False),report_sha,job_id))
             c.execute("DELETE FROM live_copy_revision_feedback WHERE job_id=?",(job_id,))
             updated=self._read(c,job_id,actor)
+            self._bind_review_policy(c,job_id,generation,report_sha,policy)
             self._event(c,updated,"copy_previous_restored_review_started",
                         updated["state"],report_sha)
             c.commit()
             return updated
 
     def approval_binding(self,job):
-        return digest({"input_sha":job["input_sha"],"analysis":json.loads(job["analysis_json"]),
-                       "copy_sha":job["copy_sha"],"review_sha":job["review_sha"],
-                       "generation":job["generation"],
-                       "evidence_acknowledged":bool(job["evidence_acknowledged"])})
+        payload={"input_sha":job["input_sha"],"analysis":json.loads(job["analysis_json"]),
+                 "copy_sha":job["copy_sha"],"review_sha":job["review_sha"],
+                 "generation":job["generation"],
+                 "evidence_acknowledged":bool(job["evidence_acknowledged"])}
+        if policy_enabled():
+            policy=current_policy()
+            payload.update(review_policy_version=policy["version"],
+                           review_policy_sha=policy["sha"])
+        return digest(payload)
 
     def approve_copy(self,actor,job_id,expected_generation,expected_review_sha,*,acknowledge_evidence=False):
         if type(expected_generation) is not int:
@@ -406,6 +531,7 @@ class LiveStore:
                 raise LiveGateError("COPY_APPROVAL_STATE_CONFLICT")
             if job["generation"]!=expected_generation or job["review_sha"]!=expected_review_sha:
                 raise LiveGateError("STALE_REVIEW_OR_REVISION")
+            self._ensure_current_review_policy(c,job)
             review=json.loads(job["compliance_json"])
             if not review["passed"]:
                 raise LiveGateError("REAL_COMPLIANCE_BLOCKED")
@@ -446,7 +572,13 @@ class LiveStore:
             c.commit()
             return updated
 
-    def _approved(self,job):
+    def _approved(self,job,c=None):
+        if policy_enabled():
+            if c is None:
+                with self.db() as con:
+                    self._ensure_current_review_policy(con,job)
+            else:
+                self._ensure_current_review_policy(c,job)
         if not (job["state"] in {"COPY_APPROVED","PROMPT_READY","IMAGE_REVIEW_REQUIRED","IMAGE_APPROVED","IMAGE_REJECTED"}
                 and job["approval_sha"] and job["approved_generation"]==job["generation"]
                 and job["approval_sha"]==self.approval_binding(job)
@@ -459,7 +591,7 @@ class LiveStore:
             job=self._read(c,job_id,actor)
             if job["state"]!="COPY_APPROVED":
                 raise LiveGateError("PROMPT_REQUIRES_COPY_APPROVAL")
-            self._approved(job)
+            self._approved(job,c)
             cp=json.loads(job["copy_json"])
             parsed=live_prompt(prompt,cp)
             c.execute("UPDATE live_jobs SET state='PROMPT_READY',prompt_json=? WHERE job_id=?",
@@ -504,7 +636,7 @@ class LiveStore:
                 return dict(previous)
             if job["state"]!="IMAGE_REJECTED" or job["image_sha"]!=expected_sha:
                 raise LiveGateError("IMAGE_RETRY_STALE_REJECTION")
-            self._approved(job)
+            self._approved(job,c)
             if previous is None:
                 # Old Jobs made before the new audit table are not rewritten.
                 c.execute("""INSERT INTO live_image_attempts
@@ -542,7 +674,7 @@ class LiveStore:
             job=self._read(c,job_id,actor)
             if job["state"]!="PROMPT_READY":
                 raise LiveGateError("IMAGE_REQUIRES_PROMPT")
-            self._approved(job)
+            self._approved(job,c)
             profile_row=c.execute("SELECT * FROM live_job_templates WHERE job_id=?",
                                   (job_id,)).fetchone()
             policy=verify_policy(profile_row)
@@ -598,7 +730,7 @@ class LiveStore:
             job=self._read(c,job_id,actor)
             if job["state"]!="PROMPT_READY":
                 raise LiveGateError("IMAGE_STATE_CONFLICT")
-            self._approved(job)
+            self._approved(job,c)
             prior=c.execute("""SELECT * FROM live_image_attempts WHERE job_id=?
                 ORDER BY attempt_version DESC LIMIT 1""",(job_id,)).fetchone()
             if prior is None:
@@ -632,7 +764,7 @@ class LiveStore:
             job=self._read(c,job_id,actor)
             if job["state"]!="IMAGE_REVIEW_REQUIRED" or expected_sha!=job["image_sha"]:
                 raise LiveGateError("IMAGE_APPROVAL_MISMATCH")
-            self._approved(job)
+            self._approved(job,c)
             bind=digest({"image_sha":job["image_sha"],"approval_sha":job["approval_sha"],
                          "generation":job["generation"],
                        "evidence_acknowledged":bool(job["evidence_acknowledged"])})
@@ -652,7 +784,7 @@ class LiveStore:
             job=self._read(c,job_id,actor)
             if job["state"]!="IMAGE_REVIEW_REQUIRED" or expected_sha!=job["image_sha"]:
                 raise LiveGateError("IMAGE_REJECTION_STATE_CONFLICT")
-            self._approved(job)
+            self._approved(job,c)
             c.execute("""UPDATE live_jobs SET state='IMAGE_REJECTED',
               image_approval_sha=NULL WHERE job_id=?""",(job_id,))
             c.execute("""UPDATE live_image_attempts SET state='REJECTED'
@@ -672,7 +804,7 @@ class LiveStore:
             job=self._read(c,job_id,actor)
             if job["state"]!="IMAGE_APPROVED":
                 raise LiveGateError("FINAL_REQUIRES_IMAGE_APPROVAL")
-            self._approved(job)
+            self._approved(job,c)
             expected=digest({"image_sha":job["image_sha"],
                  "approval_sha":job["approval_sha"],"generation":job["generation"],
                  "evidence_acknowledged":bool(job["evidence_acknowledged"])})
@@ -733,7 +865,7 @@ class LiveStore:
         job=self._read(connection,job_id,actor)
         if job["state"]!="IMAGE_APPROVED":
             raise LiveGateError("FINAL_REQUIRES_IMAGE_APPROVAL")
-        self._approved(job)
+        self._approved(job,connection)
         profile=verify_policy(connection.execute(
             "SELECT * FROM live_job_templates WHERE job_id=?",(job_id,)).fetchone())
         if (not profile or profile["layout_sha"]!=plan["layout_sha"] or
@@ -824,7 +956,7 @@ class LiveStore:
             job=self._read(c,job_id,actor)
             if job["state"]!="IMAGE_APPROVED":
                 raise LiveGateError("FINAL_REQUIRES_IMAGE_APPROVAL")
-            self._approved(job)
+            self._approved(job,c)
             policy=c.execute("SELECT profile_id FROM live_job_templates WHERE job_id=?",
                              (job_id,)).fetchone()
             if policy and policy["profile_id"]==A_ID:

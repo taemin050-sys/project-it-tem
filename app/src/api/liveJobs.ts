@@ -58,6 +58,9 @@ export const getLiveTask=(id:string)=>request<LiveTask>(
   prefix+'/tasks/'+encodeURIComponent(id))
 export const editLiveCopy=(id:string,copy:AdCopyOutput)=>
   request<LiveSnapshot>(url(id)+'/copy',json({copy_output:copy}))
+export const revalidateLiveReviewPolicy=(s:LiveSnapshot)=>
+  request<LiveSnapshot>(url(s.job_id)+'/revalidate-policy',
+    json({expected_generation:s.generation,expected_review_sha:s.review_sha}))
 /** User initiated only. QA gives an explicit Fixture snapshot.
  * LIVE accepts an asynchronous, one-shot, signed Text Owner worker task.
  * Never perform a paid model request directly from the browser.

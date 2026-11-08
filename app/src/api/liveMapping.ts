@@ -10,6 +10,8 @@ export type LiveSnapshot={
   input_sha:string;copy_sha:string|null;review_sha:string|null;
   image_sha:string|null;final_sha:string|null;caption_sha:string|null;
   approval_current:boolean;previous_copy_available?:boolean;
+  review_policy?:{status:'CURRENT'|'REVALIDATION_REQUIRED'|'LEGACY_UNBOUND'|
+    'BINDING_TAMPERED'|'LEGACY_POLICY_MODE';version:string|null;sha:string|null};
   functional_types?:string[];
   functional_types_status?:'OWNER_TEXT_V010_APPLIED'|'OWNER_TEXT_DTO_PENDING'|'NO_SELECTION';
   emoji_level?:'없음'|'보통'|'많이';
@@ -96,7 +98,8 @@ export function guardCopyReviewMutation(s:LiveSnapshot){
 export const guardCopyRevision=guardCopyReviewMutation
 export function guardCopyApproval(s:LiveSnapshot){
   if(s.state!=='COPY_REVIEW_REQUIRED'||!s.review_sha||!s.copy_sha||
-      !Number.isSafeInteger(s.generation)||s.generation<1||!s.compliance?.passed)
+      !Number.isSafeInteger(s.generation)||s.generation<1||!s.compliance?.passed||
+      (s.review_policy && !['CURRENT','LEGACY_POLICY_MODE'].includes(s.review_policy.status)))
     throw Error('COPY_COMPLIANCE_OR_REVISION_NOT_APPROVED')
 }
 // Owner #26: bind approval to the exact copy/image the user saw, not merely fresh GET.
