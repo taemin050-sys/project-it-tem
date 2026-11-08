@@ -26,7 +26,11 @@ def _checklist(issues: list[ComplianceIssue], product: ProductInput) -> list[str
         items.append(
             f"{_quote(need_proof)} 표현은 시험·심사 자료 등 근거가 있을 때만 사용하세요"
         )
-    if product.is_functional:
+    if product.functional_types:
+        items.append(
+            f"기능성 화장품({', '.join(product.functional_types)}) 심사(보고)를 받은 효능 범위 안의 표현인지 확인하세요"
+        )
+    elif product.is_functional:
         items.append(
             "기능성 화장품 심사(보고)를 받은 효능 범위 안의 표현인지 확인하세요"
         )
@@ -37,8 +41,6 @@ def _checklist(issues: list[ComplianceIssue], product: ProductInput) -> list[str
 def build_report(
     issues: list[ComplianceIssue], product: ProductInput
 ) -> ComplianceReport:
-    # revised_fields(대체 문구 자동 반영본)는 1차 규칙 검수에서 만들지 않음
-    # 단어만 바꾸면 문장이 어색해져서, 문장 단위 재작성은 LLM 단계(고도화)에서 처리
     return ComplianceReport(
         passed=not any(i.risk_level == "위반 의심" for i in issues),
         issues=issues,
