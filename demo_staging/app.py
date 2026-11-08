@@ -232,7 +232,13 @@ def make_demo_app(root: Path, invite_file: Path, frontend: Path,
     # a shared localhost cookie. Default keeps existing Live/QA unchanged.
     configured_cookie=os.environ.get("IT_TEM_DEMO_COOKIE_NAME")
     cookie_name=configured_cookie or (_COOKIE if secure_cookie else "ittem_demo_local")
-    if configured_cookie and not re.fullmatch(r"[A-Za-z][A-Za-z0-9_-]{6,48}",configured_cookie):
+    # HTTPS A/B share one Tailnet hostname but use different ports. Cookies
+    # ignore ports, so distinct __Host- names are mandatory for Actor isolation.
+    # Retain old nonsecure naming for historical loopback-only QA sessions.
+    if configured_cookie and not re.fullmatch(
+        r"(?:__Host-[A-Za-z][A-Za-z0-9_-]{2,40}|[A-Za-z][A-Za-z0-9_-]{6,48})",
+        configured_cookie,
+    ):
         raise ValueError("DEMO_COOKIE_AUDIENCE_INVALID")
     if secure_cookie and not cookie_name.startswith("__Host-"):
         raise ValueError("SECURE_COOKIE_REQUIRES_HOST_PREFIX")
