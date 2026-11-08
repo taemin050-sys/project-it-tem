@@ -15,6 +15,7 @@ from .schemas import (
     ResearchOutput,
     ResearchResult,
     SummaryLine,
+    functional_label,
 )
 
 logger = logging.getLogger(__name__)
@@ -40,7 +41,7 @@ INSTRUCTIONS = """너는 소상공인 화장품 브랜드의 인스타그램 피
 
 [출력 항목]
 - product_summary : 사용자 입력을 바탕으로 제품을 2문장으로 요약. 사진 라벨에서 읽은 성분·효능은 넣지 마 (용기 모양·색은 써도 됨)
-- functional_notes : 기능성 여부에 따라 쓸 수 있는 효능 표현 범위 1문장. 사용자 입력에 의약품으로 오인될 수 있는 표현이 있으면 기능성 효능과 구분해서 "의약품 오인 표현이라 사용 불가"라고 함께 적어
+- functional_notes : 기능성 여부·종류에 따라 쓸 수 있는 효능 표현 범위 1문장. 사용자 입력에 의약품으로 오인될 수 있는 표현이 있으면 기능성 효능과 구분해서 "의약품 오인 표현이라 사용 불가"라고 함께 적어
 - market_insights : 시장 트렌드 2~3개, 각 한 문장
 - similar_products : 유사 제품의 특징과 광고 방향 2~3개, 각 한 문장
 - ad_direction : 광고 방향 1~2문장 (톤·무드는 정하지 마. 다음 단계에서 정함)
@@ -59,7 +60,8 @@ INSTRUCTIONS = """너는 소상공인 화장품 브랜드의 인스타그램 피
 - 브랜드명·제품명은 사용자 입력을 그대로 써. 사진에서 읽은 라벨 글자는 틀릴 수 있으니 확인된 사실로 쓰지 마
 - 사용자가 입력하지 않은 효능·성분을 만들어내지 마
 - 일반 화장품(기능성 아님)이면 미백, 주름 개선, 자외선 차단 같은 기능성 효능 표현은 쓸 수 없다고 functional_notes에 적어
-- 기능성 화장품이면 심사·보고된 효능 범위 안에서만 표현할 수 있고 근거 확인이 필요하다고 적어
+- 기능성 화장품이고 종류가 입력됐으면, 그 종류의 효능만 심사·보고된 범위 안에서 표현할 수 있고 나머지 기능성 효능은 쓸 수 없다고 적어 (예: 자외선차단만 입력됐으면 미백·주름 개선은 사용 불가)
+- 기능성 화장품인데 종류가 입력되지 않았으면, 심사·보고된 효능 범위 안에서만 표현할 수 있고 근거 확인이 필요하다고 적어
 - 치료, 재생, 염증·피부염 완화, 질환명처럼 병을 고치거나 피부를 회복시키는 표현은 기능성 효능이 아니라 의약품으로 오인될 수 있는 표현이야. 기능성 화장품이어도 쓸 수 없고, 이런 표현을 "기능성 효능"이라고 부르지 마
 - 유사 제품의 광고 문구는 방향 참고용으로만 정리하고, 문구를 그대로 옮겨 적지 마"""
 
@@ -74,7 +76,7 @@ def _build_input(product: ProductInput, analysis: ProductAnalysis) -> str:
 - 제품 카테고리 : {product.product_category or "미입력"}
 - 제품 특징 : {product.features}
 - 광고 목적 : {product.ad_purpose}
-- 기능성 화장품 : {"예" if product.is_functional else "아니오"}
+- 기능성 화장품 : {functional_label(product)}
 
 [사진 분석 (AI 추론)]
 - 제품 종류 : {analysis.product_type}
@@ -148,6 +150,9 @@ def _downgrade_search_sources(output: ResearchOutput) -> ResearchOutput:
 
 
 def _functional_notes(product: ProductInput) -> str:
+    if product.functional_types:
+        types = ", ".join(product.functional_types)
+        return f"기능성 화장품({types})으로 입력됨. {types} 효능만 심사·보고된 범위 안에서 표현 가능, 근거 확인 필요. 그 외 기능성 효능 표현 사용 불가."
     if product.is_functional:
         return "기능성 화장품으로 입력됨. 기능성 효능은 심사·보고된 범위 안에서만 표현 가능, 근거 확인 필요."
     return "일반 화장품. 미백·주름 개선·자외선 차단 등 기능성 효능 표현 사용 불가."
