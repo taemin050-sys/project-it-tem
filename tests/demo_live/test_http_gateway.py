@@ -111,6 +111,9 @@ def test_live_performance_prices_saved_image_usage_only(tmp_path):
                  "input_image_tokens": 5808, "output_tokens": 418, "total_tokens": 6909}
         cases = [
             ("image", model, usage, "0.062419"),
+            ("image", "gpt-image-2.6-sunburst",
+             {"input_tokens": 4947, "input_text_tokens": 1847, "input_image_tokens": 3100,
+              "output_tokens": 1212, "total_tokens": 6159}, "0.070395"),
             ("image", model, {**usage, "input_image_tokens": None}, None),
             ("image", model, {**usage, "input_image_tokens": 5807}, None),
             ("image", model, {**usage, "output_tokens": True}, None),
@@ -130,12 +133,35 @@ def test_live_performance_prices_saved_image_usage_only(tmp_path):
                 "provider_response_id": f"req_test_{index}", "model": model_id,
                 "usage": counts, "billing_status": "UNPRICED_RESERVATION_HELD",
             })
+        for state in ("reserved", "unknown"):
+            pending = ledger.reserve(actor="alice", role="live_operator", job_id=job_id,
+                                     stage="image", payload={"state": state},
+                                     estimated_usd=0, pm_authorized=True)
+            if state == "unknown":
+                ledger.dispatch_intent(pending["id"])
+                ledger.mark_billing_unknown(pending["id"])
 
         assert other.get(f"{url}/performance").status_code == 404
         result = owner.get(f"{url}/performance")
         assert result.status_code == 200, result.text
-        attempts = result.json()["provider_attempts"]
-        assert len(attempts) == len(cases)
+        body = result.json()
+        assert body["image_cost_summary"] == {
+            "known_estimated_cost_usd": "0.132814",
+            "estimated_total_usd": "0.444909",
+            "priced_attempt_count": 3,
+            "unpriced_attempt_count": 5,
+        }
+        comparison = body["image_savings_estimate"]
+        assert comparison["reference_cost_usd"] == "0.062419"
+        assert comparison["direct_attempt_count"] == 2
+        assert comparison["service_attempt_count"] == 8
+        assert comparison["service_attempt_count_is_estimated"] is False
+        assert comparison["direct_estimated_cost_usd"] == "0.124838"
+        assert comparison["service_estimated_cost_usd"] == "0.499352"
+        assert comparison["estimated_savings_usd"] == "-0.374514"
+        assert comparison["estimated_savings_tokens"] == -41454
+        attempts = body["provider_attempts"]
+        assert len(attempts) == len(cases) + 2
         for attempt, (stage, model_id, counts, expected) in zip(attempts, cases):
             assert attempt["stage"] == stage
             assert attempt["model"] == model_id

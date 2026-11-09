@@ -29,3 +29,23 @@ def test_image_owner_monitoring_only_allows_zero_without_duplicate(tmp_path):
     with pytest.raises(GatewayError,match="already has a provider attempt"):
         store.begin(job,project,req,budget_limit_usd="0",
                     reservation_usd="0",monitoring_only=True)
+
+
+def test_older_live_candidate_uses_explicit_one_attempt_scenario():
+    from src.image_generation.cost_estimate import summarize_image_costs
+
+    empty, no_comparison = summarize_image_costs([], has_candidate=False)
+    assert empty["estimated_total_usd"] is None
+    assert no_comparison is None
+
+    summary, comparison = summarize_image_costs([], has_candidate=True)
+    assert summary == {
+        "known_estimated_cost_usd": None,
+        "estimated_total_usd": "0.062419",
+        "priced_attempt_count": 0,
+        "unpriced_attempt_count": 1,
+    }
+    assert comparison["service_attempt_count"] == 1
+    assert comparison["service_attempt_count_is_estimated"] is True
+    assert comparison["estimated_savings_usd"] == "0.062419"
+    assert comparison["estimated_savings_tokens"] == 6909

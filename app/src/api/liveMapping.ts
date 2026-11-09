@@ -20,8 +20,30 @@ export type LiveTask={task_id:string;job_id:string;stage:string;state:
 export type LivePerformance={
   mode:'LIVE';job_id:string;timings:Array<{stage:string;state:string;server_elapsed_s:number|null}>;
   provider_attempts:Array<{stage:string;state:string;model:string|null;
-    usage:Record<string,number>|null;billing_unknown:boolean;
+    usage:Record<string,number|null>|null;billing_unknown:boolean;
     estimated_cost_usd?:string|null;estimate_rate_version?:string|null}>;
+  image_cost_summary?:{
+    known_estimated_cost_usd:string|null;
+    estimated_total_usd?:string|null;
+    priced_attempt_count:number;
+    unpriced_attempt_count:number;
+  };
+  image_savings_estimate?:{
+    reference_usage:{
+      input_text_tokens:number;
+      input_image_tokens:number;
+      output_tokens:number;
+      total_tokens:number;
+    };
+    reference_cost_usd:string;
+    direct_attempt_count:number;
+    service_attempt_count:number;
+    service_attempt_count_is_estimated:boolean;
+    direct_estimated_cost_usd:string;
+    service_estimated_cost_usd:string;
+    estimated_savings_usd:string;
+    estimated_savings_tokens:number;
+  }|null;
   project_spend_status:string;application_cost_policy:string
 }
 const stateMap:Record<LiveState,JobStatus>={

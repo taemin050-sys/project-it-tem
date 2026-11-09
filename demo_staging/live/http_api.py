@@ -261,9 +261,9 @@ def register_live_api(app:FastAPI, ledger, runtime_root:Path, cookie_name:str):
     @app.get(prefix+"/jobs/{job_id}/performance")
     def live_performance(job_id:str,request:Request):
         actor=authorized(request,job_id)
-        flow.state.get(actor,job_id)
+        job=flow.state.get(actor,job_id)
         from datetime import datetime,timezone
-        from src.image_generation.cost_estimate import estimate_image_cost
+        from src.image_generation.cost_estimate import estimate_image_cost,summarize_image_costs
         timings=[]
         with queue.db() as db:
             records=db.execute("""SELECT stage,state,created_at,started_at,ended_at
@@ -301,8 +301,11 @@ def register_live_api(app:FastAPI, ledger, runtime_root:Path, cookie_name:str):
                     estimate,rate_version=estimate_image_cost(attempt["model"],attempt["usage"])
                     attempt.update(estimated_cost_usd=estimate,estimate_rate_version=rate_version)
                 attempts.append(attempt)
+        image_cost_summary,image_savings_estimate=summarize_image_costs(
+            attempts,has_candidate=job["mode"]=="LIVE" and bool(job["image_sha"]))
         return {"mode":"LIVE","job_id":job_id,"timings":timings,
-          "provider_attempts":attempts,"project_spend_usd":None,
+          "provider_attempts":attempts,"image_cost_summary":image_cost_summary,
+          "image_savings_estimate":image_savings_estimate,"project_spend_usd":None,
           "project_spend_status":"사용액 확인 필요",
           "application_cost_policy":"MONITOR_ONLY",
           "project_budget_warning_usd":25,"project_reference_budget_usd":30}

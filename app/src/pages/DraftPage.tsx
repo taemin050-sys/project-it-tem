@@ -21,6 +21,11 @@ function AssetThumb({ jobId, asset, index }: { jobId: string; asset: Asset; inde
   return <li>{url ? <img src={url} alt={`제품 사진 ${index + 1}`} /> : <span className="muted">불러오는 중…</span>}</li>
 }
 
+function displayTokenCount(actual: number | null | undefined, reference: number | undefined) {
+  if (actual != null) return actual.toLocaleString('ko-KR')
+  return reference == null ? '확인 필요' : `${reference.toLocaleString('ko-KR')} (추정)`
+}
+
 export default function DraftPage() {
   const navigate = useNavigate()
   const jobId = useProjectStore((s) => s.jobId)
@@ -37,12 +42,29 @@ export default function DraftPage() {
     enabled: !!candidateSha,
     retry: false,
   })
-  const imageAttempts = performance?.job_id === jobId
-    ? performance.provider_attempts.filter(attempt => attempt.stage === 'image' &&
-      (attempt.state === 'SUCCEEDED_USAGE_UNPRICED' || attempt.state === 'SUCCEEDED'))
-    : []
+  const jobPerformance = performance?.job_id === jobId ? performance : undefined
+  const imageAttempts = jobPerformance?.provider_attempts.filter(attempt => attempt.stage === 'image' &&
+    (attempt.state === 'SUCCEEDED_USAGE_UNPRICED' || attempt.state === 'SUCCEEDED')) ?? []
   // The performance response identifies the job, but does not link an attempt to the candidate SHA.
-  const imageEstimate = imageAttempts.length === 1 ? imageAttempts[0].estimated_cost_usd : null
+  const imageAttempt = imageAttempts.length === 1 ? imageAttempts[0] : undefined
+  const imageUsage = imageAttempt?.usage
+  const imageSavings = jobPerformance?.image_savings_estimate
+  const referenceUsage = imageSavings?.reference_usage
+  const imageEstimate = imageAttempt?.estimated_cost_usd
+  const candidateCost = imageEstimate != null ? `US$ ${imageEstimate}`
+    : imageSavings ? `US$ ${imageSavings.reference_cost_usd} (1회 기준 추정)` : '확인 필요'
+  const imageCostSummary = jobPerformance?.image_cost_summary
+  const unpricedImageAttempts = imageCostSummary?.unpriced_attempt_count ?? 0
+  const knownImageCost = imageCostSummary?.known_estimated_cost_usd
+  const estimatedImageTotal = imageCostSummary?.estimated_total_usd
+  let cumulativeImageCost = '확인 필요'
+  if (estimatedImageTotal != null) {
+    cumulativeImageCost = `US$ ${estimatedImageTotal}`
+    if (unpricedImageAttempts > 0) cumulativeImageCost += ` (미확인 ${unpricedImageAttempts}건은 기준 비용으로 추정)`
+  } else {
+    if (knownImageCost != null) cumulativeImageCost = `확인된 추정액 US$ ${knownImageCost}`
+    if (unpricedImageAttempts > 0) cumulativeImageCost += ` (미확인 ${unpricedImageAttempts}건)`
+  }
   const imageUrl = useBlobUrl(job && imagePath(job))
   const imageBlob = useBlob(job && imagePath(job))
   // 크기는 불러온 이미지 URL과 같이 저장해, 수정 요청·되돌리기로 이미지가 바뀌면 이전 크기를 쓰지 않는다
@@ -160,9 +182,28 @@ export default function DraftPage() {
               <figcaption className="button-row">
                 <button type="button" className="button secondary small" onClick={saveImage}>이미지만 저장</button>
                 {size && <span className="muted">{size.width}×{size.height}px · 카피 합성 전</span>}
-                {candidateSha && <span className="muted">사용량 기준 이미지 추정 비용 · {
-                  costLoading ? '조회 중…' : imageEstimate == null ? '확인 필요' : 'US$ ' + imageEstimate
-                }</span>}
+                {candidateSha && <div className="field-hint draft-image-cost">
+                  <div>사용량 기준 이미지 추정 비용 · {costLoading ? '조회 중…' : candidateCost}</div>
+                  <div>이번 후보 토큰 · {costLoading ? '조회 중…' : <>
+                    사진 입력 {displayTokenCount(imageUsage?.input_image_tokens, referenceUsage?.input_image_tokens)}
+                    {' · '}텍스트 입력 {displayTokenCount(imageUsage?.input_text_tokens, referenceUsage?.input_text_tokens)}
+                    {' · '}출력 {displayTokenCount(imageUsage?.output_tokens, referenceUsage?.output_tokens)}
+                  </>}</div>
+                  <div>작업 누적 이미지 추정 비용 · {costLoading ? '조회 중…' : cumulativeImageCost}</div>
+                  {imageSavings ? <>
+                    <div>직접 제작 대비 절감 추정 · {imageSavings.estimated_savings_tokens === 0 ? '비용·토큰 차이 없음' : <>
+                      US$ {imageSavings.estimated_savings_usd.replace(/^-/, '')}
+                      {imageSavings.estimated_savings_usd.startsWith('-') ? ' 증가' : ' 절감'}
+                      {' · '}{Math.abs(imageSavings.estimated_savings_tokens).toLocaleString('ko-KR')} 토큰
+                      {imageSavings.estimated_savings_tokens < 0 ? ' 증가' : ' 절감'}
+                    </>}</div>
+                    <div>직접 {imageSavings.direct_attempt_count}회 (가정) US$ {imageSavings.direct_estimated_cost_usd}
+                      {' · '}잇템 {imageSavings.service_attempt_count}회{imageSavings.service_attempt_count_is_estimated && ' (가정)'}
+                      {' '}US$ {imageSavings.service_estimated_cost_usd}
+                    </div>
+                    <div>두 경로 동일 기준 · 4:5 이미지 1회 {imageSavings.reference_usage.total_tokens.toLocaleString('ko-KR')} 토큰 · US$ {imageSavings.reference_cost_usd}</div>
+                  </> : <div>직접 제작 대비 절감 추정 · {costLoading ? '조회 중…' : '확인 필요'}</div>}
+                </div>}
               </figcaption>
             )}
           </figure>
