@@ -47,6 +47,9 @@ export default function ProductPage() {
   const [errors, setErrors] = useState<ProductErrors>({})
   const [uploading, setUploading] = useState(false)
   const [uploadError, setUploadError] = useState<{ message: string; offline: boolean }>()
+  // FE mode and ratio are a single immutable server Job decision. Prevent a
+  // second selection while upload/AI is running or a prior Job is active.
+  const imageSelectionLocked=uploading || run.busy || (Boolean(jobId) && hasUnfinishedJob())
   const [textEstimate,setTextEstimate]=useState<{photoCount:number;estimate:TextCostEstimate}>()
   const [combinedEstimate,setCombinedEstimate]=useState<{key:string;estimate:CombinedCostEstimate}>()
   useEffect(()=>{
@@ -303,7 +306,7 @@ export default function ProductPage() {
         <section className="panel" aria-label="이미지 생성 방식">
           <OptionGroup legend="이미지 생성 방식 · 이미지 1장" name="generation-mode"
             value={generationMode} onChange={setGenerationMode}
-            disabled={Boolean(jobId) && hasUnfinishedJob()}
+            disabled={imageSelectionLocked}
             options={[
               {value:'composed' as const,label:'합성형',desc:'AI로 제품·배경을 생성하고 서버가 승인 문구를 한글 폰트로 합성'},
               {value:'freeform' as const,label:'자유형',desc:'AI가 승인 문구와 제품을 이미지에 직접 그림 · 정확도 수동 검수 필요'},
@@ -314,6 +317,7 @@ export default function ProductPage() {
           <OptionGroup
             legend="이미지 비율"
             name="ratio"
+            disabled={imageSelectionLocked}
             value={ratio}
             options={(Object.keys(RATIOS) as Ratio[]).map((r) => ({ value: r, label: RATIOS[r].label, desc: `${RATIOS[r].desc} · ${RATIOS[r].width}×${RATIOS[r].height}` }))}
             onChange={setRatio}

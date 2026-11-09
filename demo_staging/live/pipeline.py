@@ -423,6 +423,8 @@ class LivePipeline:
     def image_input(self,actor,job_id):
         job=self.state.get(actor,job_id)
         snapshot=json.loads(job["input_json"])
+        from .contracts import assert_single_image_scope
+        assert_single_image_scope(snapshot)
         photos,refs=self._photos(job_id,snapshot["ordered_asset_hashes"])
         return self.state.image_request(actor,job_id,photos,refs)
 

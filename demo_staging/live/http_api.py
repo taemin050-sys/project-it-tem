@@ -13,8 +13,9 @@ from pathlib import Path
 from fastapi import FastAPI,HTTPException,Request
 from fastapi.responses import FileResponse,JSONResponse
 from pydantic import BaseModel,ConfigDict,Field
+from typing import Literal
 
-from .contracts import LiveGateError,digest
+from .contracts import LiveGateError,digest,assert_single_image_scope,assert_single_image_request_params
 from .pipeline import LivePipeline
 from .queue import LiveQueue
 from .reviews import LiveShares
@@ -25,8 +26,8 @@ from demo_staging.live_safety import LiveNotAuthorized
 class InputPayload(BaseModel):
     model_config=ConfigDict(extra="forbid",strict=True)
     product: dict
-    image_size: str | None = None
-    generation_mode: str | None = None
+    image_size: Literal["3:4","4:5","9:16"] | None = None
+    generation_mode: Literal["composed","freeform"] | None = None
     customer_request_id: str
 
 
@@ -199,9 +200,9 @@ def register_live_api(app:FastAPI, ledger, runtime_root:Path, cookie_name:str):
             return visible(flow.text(actor,job_id,FakeOwner(),offline=True))
         except (LiveGateError,ValueError) as e:raise safe_error(e) from None
 
-    @app.post("/demo/api/qa/jobs/{job_id}/prompt-image")
-    def qa_prompt_image(job_id:str,request:Request):
-        actor=qa_access(request,job_id)
+    def qa_generate_one_candidate(actor:str,job_id:str):
+        # QA uses the exact A single-image store/approval path without
+        # provider calls. Rejection retry uses this helper, never a batch API.
         try:
             from tests.demo_live.test_pipeline import FakeOwner,png
             from src.image_generation.backend_adapter import BackendGeneratedImage
@@ -232,14 +233,25 @@ def register_live_api(app:FastAPI, ledger, runtime_root:Path, cookie_name:str):
             return visible(flow.accept_image_result(actor,job_id,candidate,offline=True))
         except (LiveGateError,ValueError) as e:raise safe_error(e) from None
 
+    @app.post("/demo/api/qa/jobs/{job_id}/prompt-image")
+    async def qa_prompt_image(job_id:str,request:Request):
+        actor=qa_access(request,job_id)
+        try:assert_single_image_request_params(request)
+        except LiveGateError as e:raise safe_error(e) from None
+        if await request.body():
+            raise HTTPException(422,detail={"code":"PM_IMAGE_MULTICANDIDATE_SCOPE_NOT_APPROVED"})
+        return qa_generate_one_candidate(actor,job_id)
+
     @app.post("/demo/api/qa/jobs/{job_id}/regenerate-image")
     def qa_regenerate_image(job_id:str,body:ImageRegenerateRequest,request:Request):
         actor=qa_access(request,job_id)
         try:
+            assert_single_image_request_params(request)
+            assert_single_image_scope(json.loads(flow.state.get(actor,job_id)["input_json"]))
             queue.assert_image_retry_safe(actor,job_id)
             flow.begin_image_retry(actor,job_id,body.expected_image_sha,body.request_key)
             # This is a deterministic offline candidate, never a new paid request.
-            return qa_prompt_image(job_id,request)
+            return qa_generate_one_candidate(actor,job_id)
         except (LiveGateError,ValueError) as e:raise safe_error(e) from None
 
     @app.post("/demo/api/qa/jobs/{job_id}/compose")
@@ -357,7 +369,10 @@ def register_live_api(app:FastAPI, ledger, runtime_root:Path, cookie_name:str):
         return {"live_enabled":allowed,
                 "mode":"LIVE_QUEUE_READY" if allowed else "LIVE_BLOCKED",
                 "reason":None if allowed else "COST_AND_CONTRACT_PM_GATE",
-                "provisional_wire":True,"mock_fallback":False}
+                "provisional_wire":True,"mock_fallback":False,
+                "image_generation":{"candidate_count":1,"batch_supported":False,
+                    "generation_modes":["composed","freeform"],
+                    "image_ratios":["3:4","4:5","9:16"]}}
 
     @app.post(prefix+"/jobs/{job_id}/input")
     def create_input(job_id:str,body:InputPayload,request:Request):
@@ -526,12 +541,20 @@ def register_live_api(app:FastAPI, ledger, runtime_root:Path, cookie_name:str):
                             status_code=202)
 
     @app.post(prefix+"/jobs/{job_id}/queue-image")
-    def queue_image(job_id:str,request:Request):
+    async def queue_image(job_id:str,request:Request):
         actor=authorized(request,job_id)
+        # FE Owner does not submit a batch payload here: mode and ratio were
+        # immutable at /input. Reject rather than silently discard N/mix flags.
+        try:assert_single_image_request_params(request)
+        except LiveGateError as e:raise safe_error(e) from None
+        if await request.body():
+            raise HTTPException(422,detail={"code":"PM_IMAGE_MULTICANDIDATE_SCOPE_NOT_APPROVED"})
         if not (flow.live_enabled and flow.pm_authorized and
                 actor in flow.approved_actors):
             raise HTTPException(status_code=423,detail="LIVE_PROVIDER_NOT_APPROVED")
         j=flow.state.get(actor,job_id)
+        try:assert_single_image_scope(json.loads(j["input_json"]))
+        except LiveGateError as e:raise safe_error(e) from None
         if j["state"]!="PROMPT_READY" or not j["prompt_json"]:
             raise HTTPException(status_code=409,detail="IMAGE_NOT_READY")
         attempt=flow.state.current_image_attempt(actor,job_id)
@@ -545,6 +568,10 @@ def register_live_api(app:FastAPI, ledger, runtime_root:Path, cookie_name:str):
     @app.post(prefix+"/jobs/{job_id}/regenerate-image")
     def regenerate_image(job_id:str,body:ImageRegenerateRequest,request:Request):
         actor=authorized(request,job_id)
+        try:
+            assert_single_image_request_params(request)
+            assert_single_image_scope(json.loads(flow.state.get(actor,job_id)["input_json"]))
+        except LiveGateError as e:raise safe_error(e) from None
         if not (flow.live_enabled and flow.pm_authorized and actor in flow.approved_actors):
             raise HTTPException(423,"LIVE_PROVIDER_NOT_APPROVED")
         try:

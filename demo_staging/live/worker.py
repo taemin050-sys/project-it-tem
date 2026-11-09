@@ -139,6 +139,9 @@ def _run_locked(root:Path,flow:LivePipeline)->str:
             if retry and (current["state"]!="REQUESTED" or
                           current["approval_sha"]!=job["approval_sha"]):
                 raise LiveGateError("IMAGE_ATTEMPT_NOT_REQUESTED")
+            from .contracts import assert_single_image_scope
+            import json
+            assert_single_image_scope(json.loads(job["input_json"]))
             req=flow.image_input(actor,jid)
             adapter=live_image_adapter(root/"live"/"owner_image",req)
             fingerprint={"copy_sha":req.copy_hash,"revision":req.copy_revision,

@@ -40,6 +40,37 @@ class LiveInput(BaseModel):
     customer_request_id: str=Field(min_length=10,max_length=128)
 
 
+# PM_TRACK_A_OWNER_INTEGRATION_PRIORITY_AND_IMAGE_SCOPE_20261109
+# The Owner Image library can generate individually for different Job IDs,
+# but Track A does NOT authorize batch/mixed candidates per Job/request.
+# Validate at ingress, Queue admission, and again in the paid Worker.
+_SINGLE_IMAGE_SNAPSHOT_KEYS=frozenset({
+    "product","customer_request_id","image_size","generation_mode",
+    "ordered_asset_hashes",
+})
+
+
+def assert_single_image_scope(snapshot: dict) -> None:
+    """Require exactly one frozen mode/ratio; no count/mix/batch extension.
+
+    Legacy approved Jobs without explicit mode/ratio remain composed, 4:5.
+    This validator has no IO and must execute before any paid reservation.
+    """
+    if type(snapshot) is not dict or set(snapshot)-_SINGLE_IMAGE_SNAPSHOT_KEYS:
+        raise LiveGateError("PM_IMAGE_MULTICANDIDATE_SCOPE_NOT_APPROVED")
+    mode=snapshot.get("generation_mode","composed")
+    ratio=snapshot.get("image_size","4:5")
+    if (mode not in ("composed","freeform") or ratio not in ("3:4","4:5","9:16")
+            or ("generation_mode" in snapshot and "image_size" not in snapshot)):
+        raise LiveGateError("PM_IMAGE_SINGLE_MODE_RATIO_INVALID")
+
+
+def assert_single_image_request_params(request) -> None:
+    """Reject count/mix flags on bodyless queue actions, even if ignored by old handlers."""
+    if request.query_params:
+        raise LiveGateError("PM_IMAGE_MULTICANDIDATE_SCOPE_NOT_APPROVED")
+
+
 def validate_input(value: dict, asset_rows: list[dict]) -> tuple[dict,str]:
     try:
         incoming=LiveInput.model_validate(value,strict=True)
@@ -78,6 +109,7 @@ def validate_input(value: dict, asset_rows: list[dict]) -> tuple[dict,str]:
         snapshot["ordered_asset_hashes"]=[
             {"asset_id":a["asset_id"],"role":a["role"],"sha256":a["sha256"]}
             for a in asset_rows]
+        assert_single_image_scope(snapshot)
         return snapshot,digest(snapshot)
     except (TypeError,ValueError) as e:
         if isinstance(e,LiveGateError):raise

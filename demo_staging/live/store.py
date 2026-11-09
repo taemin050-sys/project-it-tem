@@ -10,7 +10,8 @@ import sqlite3
 from pathlib import Path
 from uuid import uuid4
 
-from .contracts import LiveGateError, digest, validate_input, strict_review, live_prompt, owner_text_snapshots
+from .contracts import (LiveGateError,digest,validate_input,assert_single_image_scope,
+                        strict_review,live_prompt,owner_text_snapshots)
 from .template_contract import (A_ID,A_VERSION,LEGACY_ID,LEGACY_VERSION,SIZE_PREFIX,
     owner_a_policy,owner_size_policy,historical_a_v1_layout,normalize_layout,verify_policy,canonical)
 
@@ -555,6 +556,7 @@ class LiveStore:
             elif policy is not None:
                 metadata["safe_zone"]=policy["safe_zone"]
             saved=json.loads(job["input_json"])
+            assert_single_image_scope(saved)
             selected_mode=saved.get("generation_mode","composed")
             if selected_mode=="freeform":
                 metadata["generation_mode"]="freeform"
