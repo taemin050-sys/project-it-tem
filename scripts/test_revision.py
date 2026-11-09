@@ -1,13 +1,15 @@
 """수정 요청 반영 확인 : python -m scripts.test_revision [제품키] [--level 보통]
 
 - 조사는 outputs/pipeline/에 저장된 gpt-6-luna 결과를 다시 사용 (검색 비용 없음)
-- 카피 1개 생성 → 요청 4개로 각각 수정 (매번 원래 카피에서 시작)
+- 카피 1개 생성 → 검수 → 요청 5개로 각각 수정 (매번 원래 카피에서 시작, 원래 카피의 검수 결과를 같이 넘김)
 - 이미지 프롬프트 1개 생성 → 요청 2개로 각각 수정
+- 검수 요청은 원래 걸린 표현이 남았는지, 헤드·서브를 고친 요청은 두 항목에 겹치는 단어가 있는지 출력
 """
 
 import argparse
 import json
 import logging
+import re
 
 from scripts.test_pipeline import INPUTS_PATH, OUT_DIR, load_analysis
 from src.text_generation.compliance.report_builder import review_copy
@@ -21,7 +23,12 @@ from src.text_generation.image_prompt_generator import (
     generate_image_prompt,
     revise_image_prompt,
 )
-from src.text_generation.schemas import AdCopyOutput, ProductInput, ResearchResult
+from src.text_generation.schemas import (
+    AdCopyOutput,
+    ComplianceIssue,
+    ProductInput,
+    ResearchResult,
+)
 
 logging.basicConfig(
     level=logging.WARNING, format="%(levelname)s | %(name)s | %(message)s"
@@ -30,11 +37,14 @@ logging.basicConfig(
 MODEL = "gpt-6-luna"
 LEVELS = ["없음", "보통", "많이"]
 
+COMPLIANCE_REQUEST = "검수에서 걸린 표현은 다 빼줘"
+
 COPY_REQUESTS = [
-    "헤드를 더 귀엽게 바꿔줘",  # 헤드만 바뀌어야 함
+    "헤드를 더 귀엽게 바꿔줘",  # 헤드만 바뀌어야 함, 서브와 단어가 겹치지 않아야 함
     "본문을 더 짧고 담백하게 써줘",  # 본문만 (짧아져서 길이 경고는 나올 수 있음)
     "전체적으로 더 고급스러운 느낌으로 바꿔줘",  # 여러 항목
     "피부 재생 효과가 있다고 강조해줘",  # 규칙 위반 → 반영 안 하고 note
+    COMPLIANCE_REQUEST,  # 검수 결과를 보고 걸린 표현을 모두 빼야 함 (남기면 note)
 ]
 IMAGE_REQUESTS = [
     "배경을 더 밝고 따뜻한 색으로 바꿔줘",
@@ -51,6 +61,18 @@ def _fields(copy: AdCopyOutput) -> dict[str, str]:
         "caption": copy.caption,
         "hashtags": " ".join(copy.hashtags),
     }
+
+
+def _remaining(issues: list[ComplianceIssue], copy: AdCopyOutput) -> list[str]:
+    """원래 검수에 걸린 표현 중 수정 후에도 같은 항목에 남아 있는 것"""
+    fields = _fields(copy)
+    return [i.text for i in issues if i.text in fields.get(i.field, "")]
+
+
+def _shared_words(headline: str, subline: str) -> list[str]:
+    """헤드 단어 중 앞 두 글자가 서브에도 있는 것 (예 : '촉촉' ↔ '촉촉하게')"""
+    words = re.findall(r"[가-힣]{2,}", headline)
+    return sorted({w for w in words if w[:2] in subline})
 
 
 def main():
@@ -80,13 +102,22 @@ def main():
 
     # ---------- 카피 ----------
     original = generate_copy(product, analysis, research, model=MODEL)
+    original_report = review_copy(original, product, analysis)
+    issues = original_report.issues
     before = _fields(original)
     print("\n===== 원래 카피 =====")
     for k, v in before.items():
         print(f"[{k}] {v}")
+    print(f"검수 : 문제 {len(issues)}개 (수정 요청에 같이 넘김)")
+    for i in issues:
+        print(f"  [{i.risk_level}] {i.field} '{i.text}'")
+    shared = _shared_words(original.ad_copy.headline, original.ad_copy.subline)
+    print(f"헤드·서브 겹침 : {shared or '없음'}")
 
     for req in COPY_REQUESTS:
-        result = revise_copy(product, analysis, research, original, req, model=MODEL)
+        result = revise_copy(
+            product, analysis, research, original, req, issues=issues, model=MODEL
+        )
         after = _fields(result.revised)
         report = review_copy(result.revised, product, analysis)
 
@@ -96,6 +127,13 @@ def main():
         for k in result.changed_fields:
             print(f"[{k}] 전 : {before[k]}")
             print(f"[{k}] 후 : {after[k]}")
+        if req == COMPLIANCE_REQUEST:
+            print(f"남은 표현 : {_remaining(issues, result.revised) or '없음'}")
+        if {"headline", "subline"} & set(result.changed_fields):
+            shared = _shared_words(
+                result.revised.ad_copy.headline, result.revised.ad_copy.subline
+            )
+            print(f"헤드·서브 겹침 : {shared or '없음'}")
         print(
             f"검수 : {'통과' if report.passed else '승인 차단'} | 문제 {len(report.issues)}개"
         )
