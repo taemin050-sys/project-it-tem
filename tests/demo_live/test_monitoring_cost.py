@@ -47,5 +47,5 @@ def test_older_live_candidate_uses_explicit_one_attempt_scenario():
     }
     assert comparison["service_attempt_count"] == 1
     assert comparison["service_attempt_count_is_estimated"] is True
-    assert comparison["estimated_savings_usd"] == "0.062419"
-    assert comparison["estimated_savings_tokens"] == 6909
+    assert comparison["estimated_savings_usd"] == "0.187257"
+    assert comparison["estimated_savings_tokens"] == 20727

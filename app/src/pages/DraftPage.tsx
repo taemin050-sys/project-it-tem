@@ -50,6 +50,8 @@ export default function DraftPage() {
   const imageUsage = imageAttempt?.usage
   const imageSavings = jobPerformance?.image_savings_estimate
   const referenceUsage = imageSavings?.reference_usage
+  const directStages = imageSavings?.direct_baseline_stages ?? []
+  const dimensionExperiment = imageSavings?.dimension_experiment
   const imageEstimate = imageAttempt?.estimated_cost_usd
   const candidateCost = imageEstimate != null ? `US$ ${imageEstimate}`
     : imageSavings ? `US$ ${imageSavings.reference_cost_usd} (1회 기준 추정)` : '확인 필요'
@@ -197,11 +199,19 @@ export default function DraftPage() {
                       {' · '}{Math.abs(imageSavings.estimated_savings_tokens).toLocaleString('ko-KR')} 토큰
                       {imageSavings.estimated_savings_tokens < 0 ? ' 증가' : ' 절감'}
                     </>}</div>
-                    <div>직접 {imageSavings.direct_attempt_count}회 (가정) US$ {imageSavings.direct_estimated_cost_usd}
+                    <div>직접 {imageSavings.direct_attempt_count}회 {directStages.length > 0 ? '(과거 실험 환산)' : '(가정)'} US$ {imageSavings.direct_estimated_cost_usd}
                       {' · '}잇템 {imageSavings.service_attempt_count}회{imageSavings.service_attempt_count_is_estimated && ' (가정)'}
                       {' '}US$ {imageSavings.service_estimated_cost_usd}
                     </div>
+                    {directStages.length > 0 && <div>롬앤 동일 시안 시도 · {directStages.map(stage =>
+                      stage.attempt_count === 1 ? stage.label : `${stage.label} ${stage.attempt_count}회`).join(' + ')}</div>}
                     <div>두 경로 동일 기준 · 4:5 이미지 1회 {imageSavings.reference_usage.total_tokens.toLocaleString('ko-KR')} 토큰 · US$ {imageSavings.reference_cost_usd}</div>
+                    {dimensionExperiment && <details>
+                      <summary>별도 실험 기록 · 스킨푸드 {dimensionExperiment.variant_count}시안</summary>
+                      <div>초기 {dimensionExperiment.initial_attempt_count}회 + 17개 디멘션 적용 재출력 {dimensionExperiment.refinement_attempt_count}회
+                        {' = '}{dimensionExperiment.initial_attempt_count + dimensionExperiment.refinement_attempt_count}회</div>
+                      <div>실제 사용량 {dimensionExperiment.total_tokens.toLocaleString('ko-KR')} 토큰 · 추정 비용 US$ {dimensionExperiment.estimated_cost_usd}</div>
+                    </details>}
                   </> : <div>직접 제작 대비 절감 추정 · {costLoading ? '조회 중…' : '확인 필요'}</div>}
                 </div>}
               </figcaption>

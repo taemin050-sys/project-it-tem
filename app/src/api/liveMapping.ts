@@ -37,12 +37,20 @@ export type LivePerformance={
     };
     reference_cost_usd:string;
     direct_attempt_count:number;
+    direct_baseline_stages?:Array<{label:string;attempt_count:number}>;
     service_attempt_count:number;
     service_attempt_count_is_estimated:boolean;
     direct_estimated_cost_usd:string;
     service_estimated_cost_usd:string;
     estimated_savings_usd:string;
     estimated_savings_tokens:number;
+    dimension_experiment?:{
+      variant_count:number;
+      initial_attempt_count:number;
+      refinement_attempt_count:number;
+      total_tokens:number;
+      estimated_cost_usd:string;
+    };
   }|null;
   project_spend_status:string;application_cost_policy:string
 }

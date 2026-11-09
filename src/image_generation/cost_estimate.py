@@ -14,7 +14,7 @@ _MODEL_RATES = {
     "gpt-image-2.6-sunburst": (5, 8, 30),
 }
 # One team-observed 4:5 medium PNG edit, used as the same comparison unit for
-# both paths. The direct path assumes an initial generation and one revision.
+# both paths.
 _REFERENCE_MODEL = "gpt-image-2.5-sunburst-2026-09-08"
 _REFERENCE_USAGE = {
     "input_tokens": 6491,
@@ -23,7 +23,24 @@ _REFERENCE_USAGE = {
     "output_tokens": 418,
     "total_tokens": 6909,
 }
-_DIRECT_ATTEMPTS = 2
+# Saved Romand T1 exploration (audit-themes.md): T0, T1R, T1E, T2E.
+# R and E explored alternatives for the same theme. Count their shared
+# original once. The later usage-only remeasurement is a separate experiment.
+_DIRECT_BASELINE_STAGES = (
+    "초기 생성",
+    "프롬프트 보강 후 재생성",
+    "기존 이미지 편집 비교",
+    "팀 피드백 반영 수정",
+)
+# Saved Skinfood N01–N08 initial and 17-dimension refinement summaries.
+# These totals describe eight distinct variants, separate from the one-theme baseline.
+_DIMENSION_EXPERIMENT = {
+    "variant_count": 8,
+    "initial_attempt_count": 8,
+    "refinement_attempt_count": 8,
+    "total_tokens": 97022,
+    "estimated_cost_usd": "1.297805",
+}
 
 
 def estimate_image_cost(model: object, usage: object) -> tuple[str | None, str | None]:
@@ -75,14 +92,19 @@ def summarize_image_costs(attempts: list[dict], *, has_candidate: bool) -> tuple
     if not service_attempts:
         return summary, None
 
-    saved_attempts = _DIRECT_ATTEMPTS - service_attempts
+    direct_attempts = len(_DIRECT_BASELINE_STAGES)
+    saved_attempts = direct_attempts - service_attempts
     comparison = {
         "reference_usage": dict(_REFERENCE_USAGE),
         "reference_cost_usd": reference_usd,
-        "direct_attempt_count": _DIRECT_ATTEMPTS,
+        "direct_attempt_count": direct_attempts,
+        "direct_baseline_stages": [
+            {"label": label, "attempt_count": 1} for label in _DIRECT_BASELINE_STAGES
+        ],
+        "dimension_experiment": dict(_DIMENSION_EXPERIMENT),
         "service_attempt_count": service_attempts,
         "service_attempt_count_is_estimated": assumed_count,
-        "direct_estimated_cost_usd": format(reference_cost * _DIRECT_ATTEMPTS, "f"),
+        "direct_estimated_cost_usd": format(reference_cost * direct_attempts, "f"),
         "service_estimated_cost_usd": format(reference_cost * service_attempts, "f"),
         "estimated_savings_usd": format(reference_cost * saved_attempts, "f"),
         "estimated_savings_tokens": _REFERENCE_USAGE["total_tokens"] * saved_attempts,

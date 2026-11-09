@@ -153,13 +153,26 @@ def test_live_performance_prices_saved_image_usage_only(tmp_path):
         }
         comparison = body["image_savings_estimate"]
         assert comparison["reference_cost_usd"] == "0.062419"
-        assert comparison["direct_attempt_count"] == 2
+        assert comparison["direct_attempt_count"] == 4
+        assert comparison["direct_baseline_stages"] == [
+            {"label": "초기 생성", "attempt_count": 1},
+            {"label": "프롬프트 보강 후 재생성", "attempt_count": 1},
+            {"label": "기존 이미지 편집 비교", "attempt_count": 1},
+            {"label": "팀 피드백 반영 수정", "attempt_count": 1},
+        ]
+        assert comparison["dimension_experiment"] == {
+            "variant_count": 8,
+            "initial_attempt_count": 8,
+            "refinement_attempt_count": 8,
+            "total_tokens": 97022,
+            "estimated_cost_usd": "1.297805",
+        }
         assert comparison["service_attempt_count"] == 8
         assert comparison["service_attempt_count_is_estimated"] is False
-        assert comparison["direct_estimated_cost_usd"] == "0.124838"
+        assert comparison["direct_estimated_cost_usd"] == "0.249676"
         assert comparison["service_estimated_cost_usd"] == "0.499352"
-        assert comparison["estimated_savings_usd"] == "-0.374514"
-        assert comparison["estimated_savings_tokens"] == -41454
+        assert comparison["estimated_savings_usd"] == "-0.249676"
+        assert comparison["estimated_savings_tokens"] == -27636
         attempts = body["provider_attempts"]
         assert len(attempts) == len(cases) + 2
         for attempt, (stage, model_id, counts, expected) in zip(attempts, cases):
