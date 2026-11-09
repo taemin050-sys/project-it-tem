@@ -94,6 +94,20 @@ export function guardCopyReviewMutation(s:LiveSnapshot){
 }
 // Owner #26 naming retained as a single alias, never a second/looser approval gate.
 export const guardCopyRevision=guardCopyReviewMutation
+/** A no-op Text Owner revision is a review outcome, not a new generation.
+ * It must release a pending revision UI fence but NEVER restore an old ack.
+ */
+export function isNoChangeRevision(before:LiveSnapshot,after:LiveSnapshot):boolean{
+  return before.job_id===after.job_id &&
+    before.state==='COPY_REVIEW_REQUIRED' && after.state==='COPY_REVIEW_REQUIRED' &&
+    before.generation===after.generation && before.copy_sha!==null &&
+    before.copy_sha===after.copy_sha && before.review_sha!==null &&
+    before.review_sha===after.review_sha &&
+    Array.isArray(after.revision_feedback?.changed_fields) &&
+    after.revision_feedback.changed_fields.length===0 &&
+    typeof after.revision_feedback.note==='string' &&
+    after.revision_feedback.note.trim().length>0
+}
 export function guardCopyApproval(s:LiveSnapshot){
   if(s.state!=='COPY_REVIEW_REQUIRED'||!s.review_sha||!s.copy_sha||
       !Number.isSafeInteger(s.generation)||s.generation<1||!s.compliance?.passed)

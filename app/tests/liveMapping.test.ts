@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import {asProductJob,guardCopyApproval,guardCopyReviewMutation,guardCopyRevision,sameCopyReview,sameImageCandidate,guardImageApproval,isPublishedFinal,isCopyReviewHydrated,type LiveSnapshot} from '../src/api/liveMapping.ts'
+import {asProductJob,guardCopyApproval,guardCopyReviewMutation,guardCopyRevision,sameCopyReview,sameImageCandidate,guardImageApproval,isPublishedFinal,isCopyReviewHydrated,isNoChangeRevision,type LiveSnapshot} from '../src/api/liveMapping.ts'
 import type {Job} from '../src/types/draft.ts'
 const raw:Job={job_id:'a'.repeat(32),status:'INPUTS_VALIDATED',assets:[{
   asset_id:'A',role:'product',original_filename:'a.png',content_type:'image/png',
@@ -129,4 +129,22 @@ test('Owner Image #23 final dimensions are server-bound, not silently forced to 
     assert.equal(job.artifacts?.final?.download_url,
       '/demo/api/live/jobs/'+raw.job_id+'/artifacts/final')
   }
+})
+
+
+test('Owner no-change revision frees only UI fence; changed copy/review/generation cannot',()=>{
+  const original:LiveSnapshot={...example,state:'COPY_REVIEW_REQUIRED',mode:'LIVE',
+    generation:7,copy_sha:'c'.repeat(64),review_sha:'r'.repeat(64)}
+  const noChange={...original,revision_feedback:{
+    note:'수정할 부분이 없습니다.',changed_fields:[],source:'owner'}}
+  assert.equal(isNoChangeRevision(original,noChange),true)
+  assert.equal(isNoChangeRevision(original,{...noChange,generation:8}),false)
+  assert.equal(isNoChangeRevision(original,{...noChange,review_sha:'x'.repeat(64)}),false)
+  assert.equal(isNoChangeRevision(original,{...noChange,copy_sha:'x'.repeat(64)}),false)
+  assert.equal(isNoChangeRevision(original,{...noChange,job_id:'other'}),false)
+  assert.equal(isNoChangeRevision(original,{...noChange,revision_feedback:{
+    note:'변경됨',changed_fields:['caption'],source:'owner'}}),false)
+  assert.equal(isNoChangeRevision(original,{...noChange,revision_feedback:{
+    note:'',changed_fields:[],source:'owner'}}),false)
+  assert.equal(isNoChangeRevision(original,{...noChange,state:'COPY_APPROVED'}),false)
 })

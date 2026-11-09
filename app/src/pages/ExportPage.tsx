@@ -2,6 +2,7 @@ import { useQuery } from '@tanstack/react-query'
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { getBlob } from '../api/jobs'
+import {assertBlobSha} from '../api/verifiedBlob'
 import { startNewAdLink, useBlobUrl, useJob, useLiveSnapshot } from '../api/useJob'
 import {retryCompose} from '../api/liveFlow'
 import {shareLive,listPublishedLive} from '../api/liveJobs'
@@ -50,25 +51,32 @@ export default function ExportPage() {
     catch(e){setShareError(e instanceof Error?e.message:'공유 실패')}
     finally{setSharing(false)}
   }
-  const final = job?.artifacts?.final
-  const captionPath = job?.artifacts?.caption?.download_url
-  const finalUrl = useBlobUrl(final?.download_url)
+  const bound=mock || Boolean(job && live.data?.job_id===job.job_id &&
+    live.data.state==='COMPLETED' && live.data.final_sha && live.data.caption_sha)
+  const final = bound ? job?.artifacts?.final : undefined
+  const captionPath = bound ? job?.artifacts?.caption?.download_url : undefined
+  const finalUrl = useBlobUrl(final?.download_url,mock?undefined:live.data?.final_sha??undefined)
   const { data: caption } = useQuery({
-    queryKey: ['text', captionPath],
-    queryFn: async () => (await getBlob(captionPath!)).text(),
-    enabled: captionPath !== undefined,
-    staleTime: Infinity,
+    queryKey: ['text', captionPath, mock?null:live.data?.caption_sha??null],
+    queryFn: async () => {
+      const blob=await getBlob(captionPath!)
+      if(!mock)await assertBlobSha(blob,live.data!.caption_sha!)
+      return blob.text()
+    },
+    enabled: captionPath !== undefined, staleTime:Infinity,retry:false,
   })
-  const [size, setSize] = useState<{ width: number; height: number }>()
+  const [loaded, setLoaded] = useState<{url:string;width:number;height:number}>()
+  const size=loaded?.url===finalUrl?loaded:undefined
   const [copied, setCopied] = useState<'idle' | 'done' | 'error'>('idle')
 
-  const ready = job?.status === 'COMPLETED' && finalUrl !== undefined && caption !== undefined
+  const ready = job?.status === 'COMPLETED' && bound && finalUrl !== undefined && caption !== undefined
   // Owner #26: 서버에 고정된 Live output_size와 최종 PNG 실제 크기를 대조한다.
   const target = job?.final_output ?? CANVAS
   const sizeOk = size?.width === target.width && size?.height === target.height
   const expected = job && approvedText(job)
   const captionOk = caption !== undefined && expected !== undefined && caption.includes(expected)
   const ext = final?.content_type.includes('svg') ? 'svg' : 'png'
+  const artifactReady=ready && sizeOk && captionOk
 
   async function copyPost() {
     try {
@@ -99,7 +107,7 @@ export default function ExportPage() {
             <Link className="button secondary" to="/create/product" onClick={startNewAdLink}>새 광고 만들기</Link>
           </>}
           {composeFailed && <button className="button secondary" onClick={() => void retryCompose(live.data!.job_id).catch(() => {})}>합성만 다시 시도</button>}
-          <button className="button" disabled={!ready} onClick={() => download(finalUrl!, `ad_${target.width}x${target.height}.${ext}`)}>
+          <button className="button" disabled={!artifactReady} onClick={() => download(finalUrl!, `ad_${target.width}x${target.height}.${ext}`)}>
             광고 이미지 저장 ({ext.toUpperCase()})
           </button>
         </div>
@@ -128,7 +136,7 @@ export default function ExportPage() {
         </div>
       )}
 
-      {!mock && ready && <section className="panel">
+      {!mock && artifactReady && <section className="panel">
         <h2 className="panel-title">팀 공동 품질 평가</h2>
         <p>최종 광고 이미지와 Caption만 다른 인증된 팀원과 공유합니다. 원본 제품 사진과 비공개 Job 정보는 공유하지 않습니다.</p>
         <button className="button secondary" type="button" disabled={sharing||alreadyShared||publications.isLoading}
@@ -145,8 +153,8 @@ export default function ExportPage() {
               <p className="post-text">{caption}</p>
               {!captionOk && <p className="field-error">본문 파일에 승인한 카피가 그대로 들어 있지 않습니다. 게시 전에 확인해 주세요.</p>}
               <div className="button-row">
-                <button className="button secondary small" onClick={copyPost}>본문 복사</button>
-                <button className="button secondary small" onClick={saveCaption}>텍스트 저장 (.txt)</button>
+                <button className="button secondary small" disabled={!artifactReady} onClick={copyPost}>본문 복사</button>
+                <button className="button secondary small" disabled={!artifactReady} onClick={saveCaption}>텍스트 저장 (.txt)</button>
               </div>
               <p className="field-hint" role="status">
                 {copied === 'done' ? '✓ 본문과 해시태그를 복사했습니다.' : copied === 'error' ? '복사하지 못했습니다. 텍스트를 직접 선택해 복사해 주세요.' : ''}
@@ -171,7 +179,7 @@ export default function ExportPage() {
                 src={finalUrl}
                 alt="최종 광고 이미지"
                 style={size && { aspectRatio: `${size.width} / ${size.height}` }}
-                onLoad={(e) => setSize({ width: e.currentTarget.naturalWidth, height: e.currentTarget.naturalHeight })}
+                onLoad={(e) => setLoaded({url:finalUrl!,width:e.currentTarget.naturalWidth,height:e.currentTarget.naturalHeight})}
               />
               <figcaption>
                 {!size ? '크기 확인 중…' : sizeOk

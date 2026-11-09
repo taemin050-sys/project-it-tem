@@ -9,6 +9,7 @@ import { getBlob, getJob, runStep } from './jobs'
 import { queryClient } from './queryClient'
 import {getProductLiveJob,createLiveInput,queueLive,getLiveSnapshot,getLiveTask,latestLiveTask,qaText} from './liveJobs'
 import {QA_OFFLINE_FIXTURE} from '../config'
+import {assertBlobSha} from './verifiedBlob'
 import type {ProductInput} from '../types/textSchema'
 
 const jobKey = (jobId: string | null) => ['job', jobId]
@@ -35,19 +36,22 @@ export function useJob() {
   })
 }
 
-// 서버 파일(이미지 Asset·산출물)을 blob으로 받는다. 경로가 바뀌지 않는 한 다시 받지 않는다
-export function useBlob(path: string | undefined) {
+// Live artifact URLs can be reused for later candidates. Bind both cache and
+// displayed bytes to the immutable SHA, and never retry a mismatched GET.
+export function useBlob(path: string | undefined, expectedSha?: string) {
   return useQuery({
-    queryKey: ['blob', path],
-    queryFn: () => getBlob(path!),
-    enabled: path !== undefined,
-    staleTime: Infinity,
+    queryKey: ['blob', path, expectedSha ?? null],
+    queryFn: async () => {
+      const blob = await getBlob(path!)
+      return expectedSha ? assertBlobSha(blob, expectedSha) : blob
+    },
+    enabled: path !== undefined, staleTime: Infinity, retry:false,
   }).data
 }
 
-// blob URL로 그린다: 다른 출처 이미지나 인증이 필요한 경로도 같은 방식으로 받기 위해
-export function useBlobUrl(path: string | undefined) {
-  const blob = useBlob(path)
+// Blob URLs are scoped to the verified artifact version.
+export function useBlobUrl(path: string | undefined, expectedSha?: string) {
+  const blob = useBlob(path, expectedSha)
   const blobs = useMemo(() => (blob ? [blob] : []), [blob])
   return useObjectUrls(blobs)[0] as string | undefined
 }

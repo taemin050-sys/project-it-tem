@@ -29,11 +29,18 @@ export default function DraftPage() {
   const mock=useProjectStore(s=>s.mock)
   const {data:live}=useLiveSnapshot()
   const {data:task}=useLiveProgress()
-  const imageUrl = useBlobUrl(job && imagePath(job))
-  const imageBlob = useBlob(job && imagePath(job))
+  // Reused candidate URL is mutable. Bind the Blob cache and preview bytes
+  // to the exact SHA of the current candidate (never the previous attempt).
+  const expectedSha=mock?undefined:live?.image_sha??undefined
+  const candidatePath=job && (mock||expectedSha) ? imagePath(job) : undefined
+  const imageUrl=useBlobUrl(candidatePath,expectedSha)
+  const imageBlob=useBlob(candidatePath,expectedSha)
   // 크기는 불러온 이미지 URL과 같이 저장해, 수정 요청·되돌리기로 이미지가 바뀌면 이전 크기를 쓰지 않는다
   const [loaded, setLoaded] = useState<{ url: string; width: number; height: number }>()
   const size = loaded?.url === imageUrl ? loaded : undefined
+  const previewVerified=mock ? Boolean(imageUrl) : Boolean(
+    live?.image_sha && imageBlob && imageUrl && size &&
+    live.state==='IMAGE_REVIEW_REQUIRED' && live.approval_current)
   const [revising, setRevising] = useState(false)
   const [instruction, setInstruction] = useState('')
 
@@ -58,7 +65,7 @@ export default function DraftPage() {
 
   function onApprove() {
     if(!mock){
-      if(!jobId||!live)return
+      if(!jobId||!live||!previewVerified)return
       void getLiveSnapshot(jobId).then(current=>{
         if(!sameImageCandidate(live,current))
           throw Error('이미지 검토 버전이 변경됐습니다. 최신 이미지를 다시 확인해 주세요.')
@@ -67,8 +74,9 @@ export default function DraftPage() {
         error:e instanceof Error?e.message:'이미지 승인 확인 실패'
       }))
     }else{
-      navigate('/create/export')
-      void advance(() => review(jobId!, 'image', true))
+      void advance(() => review(jobId!, 'image', true)).then(()=>{
+        if(!useProjectStore.getState().run.error)navigate('/create/export')
+      })
     }
   }
 
@@ -104,7 +112,7 @@ export default function DraftPage() {
                       useProjectStore.getState().setRun({error:String(e)}))}>
                     이미지 거절
                   </button>}
-              <button className="button" disabled={!reviewing || !imageUrl || run.busy || (!mock && !live)} onClick={onApprove}>이 이미지로 광고 완성하기</button>
+              <button className="button" disabled={!reviewing || !previewVerified || run.busy} onClick={onApprove}>이 이미지로 광고 완성하기</button>
             </div>
           )}
       actionsNote={<>

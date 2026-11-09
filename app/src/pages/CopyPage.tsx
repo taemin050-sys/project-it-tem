@@ -10,7 +10,7 @@ import StepPage from '../components/StepPage'
 import { COPY_LIMITS, countChars, overLimits, SUBLINE_LINE_MAX, SUBLINE_MAX_LINES } from '../lib/copyLimits'
 import { copyFieldText, splitByIssues } from '../lib/highlight'
 import { canApproveCopy } from '../lib/pipeline'
-import { isCopyReviewHydrated } from '../api/liveMapping'
+import { isCopyReviewHydrated,isNoChangeRevision } from '../api/liveMapping'
 import { useProjectStore } from '../store/projectStore'
 import type { Job } from '../types/draft'
 import type { ComplianceIssue, ComplianceReport, CopyField, ResearchResult, RiskLevel, SourceType } from '../types/textSchema'
@@ -142,8 +142,9 @@ export default function CopyPage() {
         error:e instanceof Error?e.message:'승인 상태 조회 실패. 재호출하지 마세요.'
       })).finally(()=>{approvalInFlight.current=false})
     }else{
-      navigate('/create/draft')
-      void advance(() => review(jobId!, 'copy', true))
+      void advance(() => review(jobId!, 'copy', true)).then(()=>{
+        if(!useProjectStore.getState().run.error)navigate('/create/draft')
+      })
     }
   }
   function sendRevision() {
@@ -167,8 +168,20 @@ export default function CopyPage() {
         current.review_sha!==live.review_sha || current.copy_sha!==live.copy_sha)
         throw Error('서버 카피가 변경됐습니다. 현재 검수 버전을 다시 확인해 주세요.')
       return reviseCopyFromInstruction(current,requested)
-    }).then(()=>{setRevising(false);setInstruction('')})
-      .catch(e=>{
+    }).then(async()=>{
+      // Owner Text may return an explicit no-change outcome in the same
+      // generation. Release this local fence only after a fresh GET, and
+      // always revoke the prior human acknowledgement on this outcome.
+      const current=await getLiveSnapshot(jobId)
+      if(isNoChangeRevision(live,current)){
+        setRevisionFence(null)
+        setAckKey(null)
+      }else if(!(current.generation>beforeGeneration &&
+          current.review_sha!==live.review_sha && current.copy_sha)){
+        throw Error('TEXT_REVISION_RESULT_NOT_CURRENT')
+      }
+      setRevising(false);setInstruction('')
+    }).catch(e=>{
         // Clear the fence only if a fresh authoritative read proves that
         // the server did not move to a new generation.
         void getLiveSnapshot(jobId).then(current=>{

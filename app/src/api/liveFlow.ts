@@ -5,7 +5,7 @@ import {approveLiveCopy,rejectLiveCopy,queueLive,waitLiveTask,approveLiveImage,
     rejectLiveImage,composeLive,getLiveSnapshot,qaPromptImage,qaCompose,
   reviseLiveCopy,restoreLiveCopy,regenerateLiveImage,qaRegenerateImage} from './liveJobs'
 import { AD_LAYOUT, QA_OFFLINE_FIXTURE } from '../config'
-import {guardCopyApproval,guardImageApproval,type LiveSnapshot} from './liveMapping'
+import {guardCopyApproval,guardImageApproval,isNoChangeRevision,type LiveSnapshot} from './liveMapping'
 // Legacy-only composition layout. Managed A Jobs NEVER receive this value.
 // The server records each Job's layout version/hash and composes from it.
 export const LEGACY_LAYOUT={text_regions:{
@@ -85,10 +85,7 @@ export async function reviseCopyFromInstruction(s:LiveSnapshot,instruction:strin
       useProjectStore.getState().setLiveTask(result.task_id)
       const updated=await waitLiveTask(s.job_id,result.task_id,'COPY_REVIEW_REQUIRED')
       const changed=updated.generation>s.generation && updated.review_sha!==s.review_sha
-      const unchanged=updated.generation===s.generation &&
-        updated.copy_sha===s.copy_sha && updated.review_sha===s.review_sha &&
-        updated.revision_feedback?.changed_fields.length===0 &&
-        Boolean(updated.revision_feedback?.note)
+      const unchanged=isNoChangeRevision(s,updated)
       if(!changed && !unchanged)throw Error('TEXT_REVISION_NOT_COMMITTED')
     }
   })
