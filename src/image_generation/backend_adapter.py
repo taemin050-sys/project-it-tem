@@ -19,6 +19,7 @@ from uuid import UUID, uuid5
 from pydantic import Field, field_validator, model_validator
 
 from .api_image_processor import ExternalImageProcessor
+from .composed_prompt import COMPOSED_PROMPT_VERSION
 from .contracts import (Contract, CopyRevision, ExternalImageRequest, ImageComplexity,
                         ImagePrompt, ImageProviderModel, LayoutSelection, content_hash,
                         resolve_image_complexity)
@@ -224,6 +225,8 @@ class BackendImageAdapter:
                         raise ValueError("Stored request integrity failed")
                     return request
                 prompt = self._build_prompt(body, version)
+                if prompt.prompt_version in {"backend-v02-ko-v1", "backend-v02-ko-v2", "backend-v02-ko-v3"}:
+                    prompt = prompt.model_copy(update={"prompt_version": COMPOSED_PROMPT_VERSION})
                 # Assets are immutable. A crash may leave unreferenced assets,
                 # but no provider call occurs until this binding is committed.
                 products = [self.processor.assets.put_upload(data, project_id=project_id)

@@ -158,7 +158,7 @@ def test_new_safe_zone_policy_is_versioned_and_replays_without_upload(tmp_path, 
     zone, _ = make_a_template()
     payload = backend.body(copy_revision=revision, safe_zone=zone)
     request = adapter._bind(payload, project)
-    assert request.prompt.prompt_version == "backend-v02-ko-v3"
+    assert request.prompt.prompt_version == "backend-composed-ko-v1"
     assert request.prompt.positive.startswith(payload.image_prompt.prompt)
     for word in ("제품·소품", "복잡한 무늬", "강한 반사광", "카피 글자는 직접 생성하지 않는다"):
         assert word in request.prompt.positive

@@ -17,6 +17,7 @@ from uuid import UUID
 import httpx
 from pydantic import ValidationError
 
+from .composed_prompt import COMPOSED_PROMPT_VERSION, composed_dimension_sources, render_composed_direction
 from .contracts import ExternalImageRequest, ImageProviderUsage
 from .korean_image_policy import render_korean_image_policy
 
@@ -123,7 +124,12 @@ class OpenAIImagesAdapter:
     def validate_request(self, request: ExternalImageRequest) -> None:
         """Validate configuration and the request before an attempt is reserved."""
         self._validate_config()
-        self._snapshot(request)
+        snapshot = self._snapshot(request)
+        if snapshot.prompt is not None and snapshot.prompt.prompt_version == COMPOSED_PROMPT_VERSION:
+            try:
+                composed_dimension_sources(snapshot.prompt.positive)
+            except ValueError:
+                raise OpenAIImagesError("PROVIDER_INPUT_INVALID") from None
 
     def validate_input(self, request: ExternalImageRequest, product_images: list[bytes],
                        reference_images: list[bytes]) -> None:
@@ -143,7 +149,10 @@ class OpenAIImagesAdapter:
 
     @staticmethod
     def _prompt(request: ExternalImageRequest) -> str:
-        return render_korean_image_policy(request)
+        rendered = render_korean_image_policy(request)
+        if request.prompt is not None and request.prompt.prompt_version == COMPOSED_PROMPT_VERSION:
+            return rendered + "\n\n" + render_composed_direction(request.prompt.positive)
+        return rendered
 
     def execute(self, request: ExternalImageRequest, product_images: list[bytes],
                 reference_images: list[bytes], *, client_request_id: UUID) -> ProviderImageResponse:

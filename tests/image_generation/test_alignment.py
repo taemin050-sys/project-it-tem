@@ -76,7 +76,7 @@ def test_no_invented_concept_or_mood_and_same_representation_replays(tmp_path):
     assert '위 한국어 프롬프트의 분위기 지시를 따르고' in positive
     assert saved['prompt']['language'] == 'ko'
     assert saved['prompt']['source_revision'] == result.copy_revision == 'mock-copy-r01'
-    assert saved['prompt']['prompt_version'] == 'backend-v02-ko-v2'
+    assert saved['prompt']['prompt_version'] == 'backend-composed-ko-v1'
     replay = adapter.generate(backend.body(image_prompt={'prompt': korean},
                                          copy_revision='mock-copy-r01'), project_id=project)
     assert replay == result and len(requests) == 1

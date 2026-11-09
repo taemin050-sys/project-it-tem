@@ -95,6 +95,7 @@ def test_real_boundary_order_metadata_and_restart_replay(tmp_path, counts):
     assert "전달받은 광고 무드: 청량, 선명" in prompt
     assert "PRODUCT REFERENCES" not in prompt and "WATERMARK POLICY" not in prompt
     assert WATERMARK_POLICY_KO in prompt
+    assert "제품 단독 합성형 연출" in prompt
     assert "오늘의 루틴" not in prompt  # Copy is kept for later composition, not drawn accidentally.
 
 
