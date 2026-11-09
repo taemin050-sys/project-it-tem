@@ -27,6 +27,17 @@
 - 실제 VLM이 화장품으로 분류했고, Research가 검색 출처 3개를 주장에 연결했다. 요약에 출처가 연결되지 않은 문장은 AI 추론으로 표시한다. [BeautyMatter](https://beautymatter.com/articles/the-shifts-defining-hair-care) · [YouGov 미국 조사](https://yougov.com/en-us/articles/52808-us-hair-care-trends-2025-consumer-concerns-routines-and-market) · [THG Labs](https://www.thglabs.com/resources/blog/haircare-report-q-and-a-aurelie)
 - `gpt-6-luna` VLM·Research·Copy·F09 각각 실제 영수증 1개를 남겼다. 합계 26,517 토큰이며 실제 청구 금액은 확인 전이다. 최초 대기 약 2초, 분석 처리 약 25초. `BILLING_UNKNOWN`은 0건이다.
 - 최초 카피 SHA `6336a7679b814e196dba172c55166e91546a9dbb525b96e7a3506b98874ee746`, 검수 SHA `2a82c9d5a607796d6eb7d4878e6c4a9255db6670a4f5176861236415f3ad0e83`다. 두 단계 검수 결과 통과, 지적 0건. 검수 영수증 SHA `4dd39fd457757316dde1bcf8b9b37a120530f21410610469601abaf8ef579629`가 Copy SHA와 정책 epoch 2에 연결돼 있다. 적용 근거는 [화장품법 제13조](https://www.law.go.kr/LSW/lsSideInfoP.do?docCls=jo&joBrNo=00&joNo=0013&lsiSeq=291337&urlMode=lsScJoRltInfoR)에서 확인했다.
-- 실제 사람의 카피 승인과 이미지 생성·시각 평가·다운로드 단계는 이어서 기록한다. 광고 품질과 PM·Owner의 최종 수용은 별도다.
+- 사용자가 위 카피를 승인한 뒤 B 브라우저에서 이미지 1장을 생성했다. Copy Approval SHA `c9479b6712aa9dee1c9182bbf477e15be0572f1995a63e4c70dbedcc4354f036`와 Prompt SHA `36d02a4e39d590cc8049dfd3ea385b68d3912ac28b2452db5424e7d575387d00`가 이미지 작업과 결속됐다. 1152×1440 후보의 브라우저 다운로드 SHA `7b80ae12ae05e5bced24b08263291b0ec1078a244ce9da98f974f2acb6679380`를 대조한 뒤 사용자가 해당 후보를 별도로 승인했다. Image Approval SHA는 `9bb3144176cc54b60d62aee9f4329a1fdd5070feb3a5ba0151a2c203a2f5296e`다.
+- `gpt-6-luna` Prompt Attempt `dfaa309a5af7438cb5f48c4f669c157a` 1,063 토큰, `gpt-image-2.6-sunburst` Image Attempt `6cf38ddbd2814ee891ddae8e74f2e291` 5,222 토큰. 이미지 영수증 SHA `a870832e1339e9d0a4eec7afb2dd1ee88df1c0da7aeb9ad4522082638e2656fb`. 전체 Job에 모델 시도 6건과 사용량 영수증 6건, 총 32,802 토큰, `BILLING_UNKNOWN` 0건. 이미지 Queue 대기 약 1초, 처리 약 27초. 실제 청구액은 아직 대사하지 않았다.
+- 최종 Job은 `COMPLETED`다. 로컬 합성 영수증 SHA `34d11f1bb37a05ea6afb0f2a036ce095a192ee5f24abee560b6304a47f003be8`에 `provider_calls=0`, 이미지 CTA와 한 줄씩의 승인 문구 세 개가 기록됐다. 출력에 실제 사용한 NanumGothic.ttf SHA `48a28e97b34fc8e5b157657633670cd1b7de126cfc414da65ce9c3d5bc8be733`는 `fonts-nanum 20200506-1`의 설치 파일과 일치한다. 설치된 패키지의 글꼴 라이선스는 OFL-1.1이다.
+
+| 브라우저 다운로드 | 확인 | SHA-256 |
+|---|---|---|
+| `ad_1080x1350.png` | PNG 1080×1350, 1,245,917바이트 | `c1d7ab6a4cc7a3102258233352b7ef1ec66b86c899f8d932a9d378bcfc191f34` |
+| `caption.txt` | UTF-8, 754바이트, 승인 본문과 해시태그가 정확히 일치 | `5c929f00213f9a14e8db4ecdf21e7139b6b365a53168867734cc3c28eba8dfe6` |
+
+- 두 다운로드 SHA는 브라우저·Job·서버 파일에서 일치했다. 데스크톱과 360px·390px Chromium 화면에서 스크롤 후 Caption 버튼을 포인터로 눌러 동일 SHA를 확인했다. 360px에서 하단 작업 바가 197px를 차지하며 스크롤 위치에 따라 내용과 겹친다. 모바일 입력·업로드부터의 전체 여정과 실기기 UAT는 남아 있다.
+- B 시각 대조에서 헤드라인 `하루의 샴푸 루틴`, 서브 `매일 만나는 세정 시간`, CTA `루틴에 더하기`가 한 번씩 표시되며 잘림과 용기 겹침이 없었다. 흰색 펌프, 은색 연결부, 남색 로고, 브랜드·제품명과 300ml 표기를 확인했다. 연청색 원형 표식의 작은 곡선 문자는 원본과의 정확한 일치를 확인하지 못했다. V01 세부 라벨과 V08 Owner·PM 수용은 열려 있다.
+- B2에서 실제 모델과 사용자 승인 두 건을 포함한 개발 E2E **1/6**을 확인했다. F07·F09·F16·F20은 이번 Job의 실제 근거가 추가됐다. F11 실제 수정, 여섯 조합, Owner·PM UAT, 38개 최종 인수는 별도다. 배포 상태는 B1의 GCP B `4baa67eb`, epoch 2로 유지된다.
 
 검증 로그, Build SHA 목록, 조회한 Attempt·Receipt 및 승인 결속은 Mac 내부 디스크의 [B 실행 증거](/Users/Shared/ittem-bp18-codex-evidence-20261109)에 보존했다.
