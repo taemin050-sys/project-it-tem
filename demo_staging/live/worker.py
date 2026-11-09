@@ -6,6 +6,8 @@ execute this process after verifying model entitlements and provider receipts.
 from __future__ import annotations
 
 import os
+import json
+import sqlite3
 from pathlib import Path
 from contextlib import contextmanager
 import fcntl
@@ -93,14 +95,104 @@ def run_once(root:Path)->str:
         return _run_locked(root,flow)
 
 
+
+# A2: trusted web ACL is persisted in demo.sqlite3, not carried by Queue.
+# The worker must verify BOTH the live job and the original web-claimed job.
+_STAGE_STATES={
+    "analysis":frozenset({"INPUT_STORED"}),
+    "copy_revision":frozenset({"COPY_REVIEW_REQUIRED"}),
+    "image_prompt":frozenset({"COPY_APPROVED"}),
+    "image":frozenset({"PROMPT_READY"}),
+}
+
+
+def authorize_worker_item(flow:LivePipeline,item:dict) -> dict:
+    """Server-side last-mile auth; a queued Actor string is not authority."""
+    actor,jid,stage=item["actor"],item["job_id"],item["stage"]
+    if (not flow.live_enabled or not flow.pm_authorized or
+            actor not in flow.approved_actors or
+            os.environ.get("IT_TEM_LIVE_ENABLED")!="YES" or
+            os.environ.get("IT_TEM_LIVE_EXECUTION_APPROVED")!="YES" or
+            os.environ.get("IT_TEM_PROVIDER_READINESS_CONFIRMED")!="YES" or
+            os.environ.get("IT_TEM_LIVE_COST_POLICY")!="MONITOR_ONLY" or
+            actor not in {x.strip() for x in
+                os.environ.get("IT_TEM_LIVE_APPROVED_ACTORS","").split(",") if x.strip()}):
+        raise LiveGateError("WORKER_ACTOR_REVOKED_OR_DISABLED")
+    if stage not in _STAGE_STATES or item.get("mode")!="LIVE":
+        raise LiveGateError("WORKER_STAGE_NOT_AUTHORIZED")
+    # The read-only application ledger is the Actor ownership SSOT, separate
+    # from the queue and LiveStore. Missing DB/table/row fails closed.
+    try:
+        with sqlite3.connect(flow.root.parent/"demo.sqlite3",timeout=10) as db:
+            owned=db.execute("SELECT actor FROM jobs WHERE job_id=?",(jid,)).fetchone()
+        if owned is None or owned[0]!=actor:
+            raise LiveGateError("WORKER_JOB_OWNER_REVOKED")
+        original=flow.jobs.get_job(jid)
+        if (original.get("job_id")!=jid or
+                original.get("status") in {"CANCELLED","CANCELED","DELETED","FAILED"}):
+            raise LiveGateError("WORKER_ORIGINAL_JOB_INACTIVE")
+        job=flow.state.get(actor,jid)
+    except (sqlite3.Error,OSError,KeyError,ValueError) as exc:
+        if isinstance(exc,LiveGateError):raise
+        raise LiveGateError("WORKER_IDENTITY_UNVERIFIABLE") from None
+    except Exception:
+        raise LiveGateError("WORKER_ORIGINAL_JOB_UNAVAILABLE") from None
+    if job["state"] not in _STAGE_STATES[stage] or (
+            job["mode"]!="LIVE" and
+            not (stage=="analysis" and job["mode"]=="INPUT_ONLY")):
+        raise LiveGateError("WORKER_JOB_STAGE_OR_PROVENANCE_CHANGED")
+    if stage=="analysis":
+        expected=job["input_sha"]
+    elif stage=="copy_revision":
+        # The revision payload is separately revalidated in dispatch branch.
+        expected=item["context_sha"]
+    elif stage=="image_prompt":
+        flow.state._approved(job)
+        expected=job["approval_sha"]
+    else:
+        flow.state._approved(job)
+        attempt=flow.state.current_image_attempt(actor,jid)
+        from .contracts import digest
+        expected=(digest({"approval_sha":job["approval_sha"],
+            "attempt_id":attempt["attempt_id"]})
+            if attempt and attempt["attempt_version"]>1 else job["approval_sha"])
+    if item["context_sha"]!=expected:
+        raise LiveGateError("WORKER_JOB_CONTEXT_CHANGED")
+    return job
+
+
+def reconcile_worker_ledgers(queue:LiveQueue,flow:LivePipeline)->bool:
+    """Never restart provider work with an unresolved cross-DB attempt.
+
+    Under the host singleflight lock, reconcile each SQLite independently:
+    no cross-file atomic commit is falsely assumed. Repeat is idempotent.
+    Any ambiguous queue OR ledger row blocks all new paid claims pending
+    human reconciliation. RESERVED is included (crash after reservation).
+    """
+    flow.cost.reconcile_crashed_dispatches()
+    queue.reconcile_restart()
+    with queue.db() as db:
+        bad_q=db.execute("""SELECT COUNT(*) FROM queued_ops
+            WHERE mode='LIVE' AND state='BILLING_UNKNOWN'""").fetchone()[0]
+    with flow.cost.connect() as db:
+        bad_cost=db.execute("""SELECT COUNT(*) FROM attempts
+            WHERE status IN ('RESERVED','DISPATCHED','BILLING_UNKNOWN')
+               OR billing_unknown!=0""").fetchone()[0]
+    return bool(bad_q or bad_cost)
+
 def _run_locked(root:Path,flow:LivePipeline)->str:
     queue=LiveQueue(root/"live"/"queue.sqlite")
-    # Any previous RUNNING attempt has ambiguous provider billing; hold it.
-    queue.reconcile_restart()
+    # The host singleflight lock MUST protect this cross-ledger scan.
+    if reconcile_worker_ledgers(queue,flow):
+        return "LIVE_WORKER_BILLING_HOLD"
     item=queue.claim("LIVE")
     if not item:return "NO_LIVE_TASK"
     actor,jid=item["actor"],item["job_id"]
     try:
+        authorize_worker_item(flow,item)
+        # Re-evaluate immediately before each actual paid dispatch via
+        # LivePipeline._guarded (no trusted browser Actor strings).
+        flow._worker_claim=item
         if item["stage"]=="analysis":
             result=flow.text(actor,jid,offline=False,
                 text_model=os.environ.get("IT_TEM_TEXT_MODEL","gpt-6-luna"),
@@ -165,6 +257,9 @@ def _run_locked(root:Path,flow:LivePipeline)->str:
         queue.interrupt(item["id"],code)
         # No hidden retry, no provider traceback/secret in HTTP output.
         return "LIVE_STAGE_HELD_FOR_RECONCILIATION"
+    finally:
+        if hasattr(flow,"_worker_claim"):
+            del flow._worker_claim
 
 
 def serve_loop(root:Path,interval:float=2.0):
@@ -172,7 +267,7 @@ def serve_loop(root:Path,interval:float=2.0):
     import time
     while True:
         status=run_once(root)
-        if status=="LIVE_STAGE_HELD_FOR_RECONCILIATION":
+        if status in ("LIVE_STAGE_HELD_FOR_RECONCILIATION","LIVE_WORKER_BILLING_HOLD"):
             # A charged or ambiguous failure is a hard safety stop, unrelated
             # to monetary project threshold. Requires manual incident review.
             return status

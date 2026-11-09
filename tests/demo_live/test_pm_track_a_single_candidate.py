@@ -189,24 +189,29 @@ def test_worker_rejects_tampered_multi_image_job_before_provider(
     with pytest.raises(LiveGateError, match="PM_IMAGE_MULTICANDIDATE_SCOPE_NOT_APPROVED"):
         flow.image_input("alice", jid)
 
-    interrupted = []
-    class FakeQueue:
-        def __init__(self, _path):
-            pass
-        def reconcile_restart(self):
-            pass
-        def claim(self, _mode):
-            return {"actor": "alice", "job_id": jid, "stage": "image",
-                    "context_sha": approved["approval_sha"], "id": "task"}
-        def interrupt(self, task_id, code):
-            interrupted.append((task_id, code))
-        def complete(self, *_):
-            pytest.fail("Provider stage must not complete")
-    monkeypatch.setattr(worker, "LiveQueue", FakeQueue)
+    from demo_staging.app import DemoLedger
+    from demo_staging.live.queue import LiveQueue
+    # Model a properly owned LIVE job in isolated SQLite, then tamper its
+    # persisted candidate scope. No credential or network is available.
+    DemoLedger(tmp_path/"demo.sqlite3").claim("alice",jid)
+    flow.live_enabled=True
+    flow.pm_authorized=True
+    flow.approved_actors=frozenset({"alice"})
+    for flag in ("IT_TEM_LIVE_ENABLED","IT_TEM_LIVE_EXECUTION_APPROVED",
+                 "IT_TEM_PROVIDER_READINESS_CONFIRMED"):
+        monkeypatch.setenv(flag,"YES")
+    monkeypatch.setenv("IT_TEM_LIVE_COST_POLICY","MONITOR_ONLY")
+    monkeypatch.setenv("IT_TEM_LIVE_APPROVED_ACTORS","alice")
+    with flow.state.db() as c:
+        c.execute("update live_jobs set mode='LIVE' where job_id=?",(jid,))
+    queue=LiveQueue(tmp_path/"live"/"queue.sqlite")
+    task,_=queue.enqueue(actor="alice",job_id=jid,stage="image",
+        context_sha=approved["approval_sha"])
     monkeypatch.setattr(worker, "live_image_adapter",
                         lambda *_: pytest.fail("No image adapter/provider call permitted"))
     assert worker._run_locked(tmp_path, flow) == "LIVE_STAGE_HELD_FOR_RECONCILIATION"
-    assert interrupted == [("task", "PM_IMAGE_MULTICANDIDATE_SCOPE_NOT_APPROVED")]
+    assert queue.read(task["id"])["state"]=="BILLING_UNKNOWN"
+    assert queue.read(task["id"])["error_code"]=="PM_IMAGE_MULTICANDIDATE_SCOPE_NOT_APPROVED"
     with flow.cost.connect() as c:
         assert c.execute("select count(*) from attempts").fetchone()[0] == 0
 

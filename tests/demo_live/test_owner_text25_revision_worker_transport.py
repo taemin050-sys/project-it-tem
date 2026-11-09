@@ -75,22 +75,20 @@ def test_live_copy_revision_queue_http_and_fake_worker_routing(tmp_path,monkeypa
         assert data==expected
         # A test-only fake flow validates queue worker plumbing. No real
         # provider call or billing ledger reservation occurs here.
-        class FakeFlow:
-            def __init__(self):
-                self.calls=[]
-            def revision_context(self,actor,job_id,text,gen,sha,*,text_model):
-                assert actor=="alice" and job_id==jid
-                assert text==instruction and sha==expected["expected_review_sha"]
-                return app.state.live_pipeline.revision_context(
-                    actor,job_id,text,gen,sha,text_model=text_model)
-            def revise_copy(self,actor,job_id,text,gen,sha,*,offline,text_model):
-                assert offline is False and job_id==jid and text==instruction
-                self.calls.append((job_id,text))
-                return {"review_sha":"f"*64}
-        fake=FakeFlow()
-        assert _run_locked(tmp_path/"runtime",fake)=="LIVE_STAGE_COMMITTED"
-        assert fake.calls==[(jid,instruction)]
-        assert _run_locked(tmp_path/"runtime",fake)=="NO_LIVE_TASK"
+        # Use the REAL auth/state/cost/queue boundary. Only the final model
+        # revision operation is replaced with a zero-network synthetic output.
+        flow=app.state.live_pipeline
+        calls=[]
+        def revised(actor,job_id,text,gen,sha,*,offline,text_model):
+            assert (actor,job_id,text,gen,sha,offline)==(
+                "alice",jid,instruction,expected["expected_generation"],
+                expected["expected_review_sha"],False)
+            calls.append((job_id,text))
+            return {"review_sha":"f"*64}
+        monkeypatch.setattr(flow,"revise_copy",revised)
+        assert _run_locked(tmp_path/"runtime",flow)=="LIVE_STAGE_COMMITTED"
+        assert calls==[(jid,instruction)]
+        assert _run_locked(tmp_path/"runtime",flow)=="NO_LIVE_TASK"
         assert app.state.live_queue.read(taskid)["state"]=="SUCCEEDED"
         assert app.state.live_queue.read(taskid)["result_sha"]=="f"*64
         # Synthetic worker did not update the actual Job (intentionally);

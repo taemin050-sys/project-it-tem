@@ -136,6 +136,14 @@ class LivePipeline:
                                  template_profile=template_profile)
 
     def _guarded(self,actor,job_id,stage,payload,action,*,image=False):
+        # Worker dispatch reauthorizes at the actual provider boundary.
+        # Direct isolated unit usage is not an activated worker.
+        claim=getattr(self,"_worker_claim",None)
+        if claim is not None:
+            from .worker import authorize_worker_item
+            if claim["actor"]!=actor or claim["job_id"]!=job_id:
+                raise LiveGateError("WORKER_CLAIM_PRINCIPAL_MISMATCH")
+            authorize_worker_item(self,claim)
         # No key/client/import/provider even attempted before this transaction.
         cost=self.image_reservation if image else self.text_reservation
         record=self.cost.reserve(
@@ -143,10 +151,16 @@ class LivePipeline:
             payload=payload,estimated_usd=cost,pm_authorized=self.pm_authorized)
         if not record["new"]:
             raise LiveNotAuthorized("ATTEMPT_EXISTS_NO_AUTOMATIC_RETRY")
+        if claim is not None:
+            from .worker import authorize_worker_item
+            authorize_worker_item(self,claim)
         self.cost.dispatch_intent(record["id"])
         from .provider_receipts import collect_receipts
         try:
             with collect_receipts() as captured:
+                if claim is not None:
+                    from .worker import authorize_worker_item
+                    authorize_worker_item(self,claim)
                 result=action()
         except BaseException:
             self.cost.mark_billing_unknown(record["id"])
