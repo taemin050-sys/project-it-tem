@@ -33,7 +33,8 @@ def test_final_live_ad_shared_only_by_owner_and_reviewable_by_another_actor(
             ProductAnalysisResult.model_validate(a),ResearchResult.model_validate(r),
             AdCopyOutput.model_validate(c),mode="LIVE")
         store.approve_copy("alice",jid,stage["generation"],stage["review_sha"])
-        store.store_prompt("alice",jid,ImagePromptOutput.model_validate(p))
+        store.store_prompt("alice",jid,ImagePromptOutput.model_validate(p),
+            expected_context=store.prompt_context("alice",jid))
         candidate_sha="a"*64
         store.store_image_candidate("alice",jid,candidate_sha)
         store.approve_image("alice",jid,candidate_sha)

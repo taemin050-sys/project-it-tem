@@ -535,8 +535,13 @@ def register_live_api(app:FastAPI, ledger, runtime_root:Path, cookie_name:str):
         j=flow.state.get(actor,job_id)
         if j["state"]!="COPY_APPROVED" or not j["approval_sha"]:
             raise HTTPException(status_code=409,detail="COPY_NOT_APPROVED")
+        try:
+            if j["mode"]!="LIVE":
+                raise LiveGateError("PROMPT_LIVE_JOB_PROVENANCE_REQUIRED")
+            context_sha=digest(flow.state.prompt_context(actor,job_id))
+        except LiveGateError as e:raise safe_error(e) from None
         task,new=queue.enqueue(actor=actor,job_id=job_id,stage="image_prompt",
-                               context_sha=j["approval_sha"],mode="LIVE")
+                               context_sha=context_sha,mode="LIVE")
         return JSONResponse({"task_id":task["id"],"state":task["state"],"new":new},
                             status_code=202)
 

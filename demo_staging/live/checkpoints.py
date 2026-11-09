@@ -56,10 +56,18 @@ class LiveCheckpoints:
     def load(self,actor,job_id,stage,context_sha,mode,model:type[BaseModel]):
         self._check(stage,mode,context_sha)
         with self.db() as db:
-            if stage=="copy_revision":
+            if stage in ("copy_revision","image_prompt"):
                 row=db.execute("""SELECT * FROM text_revision_checkpoints
                     WHERE job_id=? AND stage=? AND context_sha=?""",
                     (job_id,stage,context_sha)).fetchone()
+                if row is None and stage=="image_prompt":
+                    # Read old single-slot checkpoint only if exact context.
+                    # A newer approved generation must not be blocked by a
+                    # prior prompt's immutable historical checkpoint.
+                    old=db.execute("""SELECT * FROM text_checkpoints
+                        WHERE job_id=? AND stage='image_prompt'""",(job_id,)).fetchone()
+                    if old is not None and old["context_sha"]==context_sha:
+                        row=old
             else:
                 row=db.execute("SELECT * FROM text_checkpoints WHERE job_id=? AND stage=?",
                                (job_id,stage)).fetchone()
@@ -88,15 +96,21 @@ class LiveCheckpoints:
             raise LiveGateError("CHECKPOINT_RESULT_INVALID") from None
         with self.db() as db:
             db.execute("BEGIN IMMEDIATE")
-            table=("text_revision_checkpoints" if stage=="copy_revision"
+            table=("text_revision_checkpoints" if stage in ("copy_revision","image_prompt")
                    else "text_checkpoints")
-            if stage=="copy_revision":
+            if stage in ("copy_revision","image_prompt"):
                 existing=db.execute("""SELECT * FROM text_revision_checkpoints
                     WHERE job_id=? AND stage=? AND context_sha=?""",
                     (job_id,stage,context_sha)).fetchone()
             else:
                 existing=db.execute("SELECT * FROM text_checkpoints WHERE job_id=? AND stage=?",
                                     (job_id,stage)).fetchone()
+            if existing is None and stage=="image_prompt":
+                legacy=db.execute("""SELECT * FROM text_checkpoints
+                    WHERE job_id=? AND stage='image_prompt' AND context_sha=?""",
+                    (job_id,context_sha)).fetchone()
+                if legacy is not None:
+                    existing=legacy
             if existing:
                 if (existing["actor"]!=actor or existing["context_sha"]!=context_sha
                     or existing["mode"]!=mode or existing["payload_sha"]!=sha

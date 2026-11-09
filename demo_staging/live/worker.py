@@ -148,7 +148,8 @@ def authorize_worker_item(flow:LivePipeline,item:dict) -> dict:
         expected=item["context_sha"]
     elif stage=="image_prompt":
         flow.state._approved(job)
-        expected=job["approval_sha"]
+        from .contracts import digest
+        expected=digest(flow.state.prompt_context(actor,jid))
     else:
         flow.state._approved(job)
         attempt=flow.state.current_image_attempt(actor,jid)
@@ -171,14 +172,27 @@ def reconcile_worker_ledgers(queue:LiveQueue,flow:LivePipeline)->bool:
     """
     flow.cost.reconcile_crashed_dispatches()
     queue.reconcile_restart()
-    with queue.db() as db:
-        bad_q=db.execute("""SELECT COUNT(*) FROM queued_ops
-            WHERE mode='LIVE' AND state='BILLING_UNKNOWN'""").fetchone()[0]
-    with flow.cost.connect() as db:
-        bad_cost=db.execute("""SELECT COUNT(*) FROM attempts
-            WHERE status IN ('RESERVED','DISPATCHED','BILLING_UNKNOWN')
-               OR billing_unknown!=0""").fetchone()[0]
-    return bool(bad_q or bad_cost)
+    try:
+        with queue.db() as db:
+            bad_q=db.execute("""SELECT COUNT(*) FROM queued_ops
+                WHERE mode='LIVE' AND state='BILLING_UNKNOWN'""").fetchone()[0]
+        with flow.cost.connect() as db:
+            bad_cost=db.execute("""SELECT COUNT(*) FROM attempts
+                WHERE status IN ('RESERVED','DISPATCHED','BILLING_UNKNOWN')
+                   OR billing_unknown!=0""").fetchone()[0]
+        # Third, independent Owner Image attempt ledger. A submitting,
+        # failed or unknown provider attempt cannot be ignored merely
+        # because the aggregate cost ledger has no outstanding row.
+        image_file=flow.root/"owner_image"/"image_attempts.sqlite"
+        bad_image=0
+        if image_file.exists():
+            with sqlite3.connect(f"file:{image_file}?mode=ro",uri=True) as db:
+                bad_image=db.execute("""SELECT COUNT(*) FROM provider_attempts
+                    WHERE state IN ('submitting','unknown','failed')""").fetchone()[0]
+        return bool(bad_q or bad_cost or bad_image)
+    except (sqlite3.Error,OSError):
+        # A missing/corrupt schema is NOT permission to submit again.
+        return True
 
 def _run_locked(root:Path,flow:LivePipeline)->str:
     queue=LiveQueue(root/"live"/"queue.sqlite")

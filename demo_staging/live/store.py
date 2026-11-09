@@ -6,6 +6,8 @@ the existing Owner image ledger / an independent aggregate attempt ledger.
 from __future__ import annotations
 
 import json
+import os
+import hashlib
 import sqlite3
 from pathlib import Path
 from uuid import uuid4
@@ -85,6 +87,21 @@ class LiveStore:
                 context_sha TEXT NOT NULL, state TEXT NOT NULL,
                 attempt_id TEXT NOT NULL,
                 UNIQUE(job_id,stage,context_sha)
+            );
+            -- Append-only CAS evidence, one row per immutable approved context.
+            -- Never reuse a prior Prompt across approval/policy revisions.
+            CREATE TABLE IF NOT EXISTS live_prompt_context_bindings (
+                job_id TEXT NOT NULL, context_sha TEXT NOT NULL,
+                actor TEXT NOT NULL, mode TEXT NOT NULL,
+                prompt_sha TEXT NOT NULL, context_json TEXT NOT NULL,
+                created_utc TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                PRIMARY KEY(job_id,context_sha)
+            );
+            CREATE TABLE IF NOT EXISTS live_copy_policy_bindings (
+                job_id TEXT NOT NULL, approval_sha TEXT NOT NULL,
+                policy_epoch TEXT NOT NULL,
+                recorded_utc TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                PRIMARY KEY(job_id,approval_sha)
             );
             """)
 
@@ -423,6 +440,10 @@ class LiveStore:
                       (int(acknowledge_evidence is True),job_id))
             bound=self._read(c,job_id,actor)
             binding=self.approval_binding(bound)
+            policy_epoch=self._review_policy_epoch_in_tx(c,bound)
+            c.execute("""INSERT OR IGNORE INTO live_copy_policy_bindings
+                (job_id,approval_sha,policy_epoch) VALUES (?,?,?)""",
+                (job_id,binding,policy_epoch))
             c.execute("""UPDATE live_jobs SET state='COPY_APPROVED',approval_sha=?,
                 approved_generation=? WHERE job_id=?""",
                 (binding,expected_generation,job_id))
@@ -452,19 +473,127 @@ class LiveStore:
                 and json.loads(job["compliance_json"])["passed"]):
             raise LiveGateError("APPROVAL_CONTEXT_NOT_CURRENT")
 
-    def store_prompt(self,actor,job_id,prompt):
+    def _review_policy_epoch_in_tx(self,c,job):
+        """Pin the actual rule and checker bytes at human Copy approval."""
+        from src.text_generation.compliance.rule_checker import RULES_PATH
+        revision=os.environ.get("IT_TEM_REVIEW_POLICY_EPOCH","BP13_REVIEW_V1")
+        if (not revision or len(revision)>128 or
+                any(ord(ch)<33 or ord(ch)>126 for ch in revision)):
+            raise LiveGateError("PROMPT_POLICY_EPOCH_INVALID")
+        try:
+            files=(RULES_PATH,RULES_PATH.with_name("rule_checker.py"),
+                   RULES_PATH.with_name("report_builder.py"))
+            source={path.name:hashlib.sha256(path.read_bytes()).hexdigest()
+                    for path in files}
+            template=c.execute("SELECT * FROM live_job_templates WHERE job_id=?",
+                               (job["job_id"],)).fetchone()
+            return digest({
+                "review_policy":revision,"rule_sources":source,
+                "template":({field:template[field] for field in
+                    ("profile_id","profile_version","safe_zone_sha","layout_sha",
+                     "bound_font_sha","bound_context_sha")} if template else None),
+            })
+        except OSError:
+            raise LiveGateError("PROMPT_POLICY_SOURCE_UNAVAILABLE") from None
+
+    def _prompt_context_in_tx(self,c,job):
+        """Canonical approval/version/provenance snapshot while DB lock held."""
+        if job["state"] not in ("COPY_APPROVED","PROMPT_READY","IMAGE_REVIEW_REQUIRED",
+                                "IMAGE_APPROVED","IMAGE_REJECTED"):
+            raise LiveGateError("PROMPT_REQUIRES_COPY_APPROVAL")
+        self._approved(job)
+        if job["mode"] not in ("LIVE","OFFLINE_FIXTURE"):
+            raise LiveGateError("PROMPT_PROVENANCE_INVALID")
+        from src.image_generation.contracts import content_hash
+        try:
+            cp=json.loads(job["copy_json"])
+            report=json.loads(job["compliance_json"])
+            analysis=json.loads(job["analysis_json"])
+            research=json.loads(job["research_json"])
+            if (content_hash(cp)!=job["copy_sha"] or
+                    digest({"input_sha":job["input_sha"],"analysis":analysis,
+                            "copy":cp,"report":report,
+                            "generation":job["generation"]})!=job["review_sha"]):
+                raise LiveGateError("PROMPT_REVIEW_SNAPSHOT_CHANGED")
+            policy_epoch=self._review_policy_epoch_in_tx(c,job)
+            binding=c.execute("""SELECT policy_epoch FROM live_copy_policy_bindings
+                WHERE job_id=? AND approval_sha=?""",
+                (job["job_id"],job["approval_sha"])).fetchone()
+            if binding is None and job["mode"]=="LIVE":
+                raise LiveGateError("PROMPT_APPROVAL_POLICY_BINDING_MISSING")
+            if binding is not None and binding["policy_epoch"]!=policy_epoch:
+                raise LiveGateError("PROMPT_APPROVAL_POLICY_EPOCH_CHANGED")
+            return {
+                "job_id":job["job_id"],"mode":job["mode"],"input_sha":job["input_sha"],
+                "generation":job["generation"],"copy_sha":job["copy_sha"],
+                "review_sha":job["review_sha"],"approval_sha":job["approval_sha"],
+                "policy_epoch":policy_epoch,"analysis_sha":digest(analysis),
+                "research_sha":digest(research),"compliance_sha":digest(report),
+                "plan_sha":digest(cp["plan"]),
+                "approved_generation":job["approved_generation"],
+            }
+        except LiveGateError:
+            raise
+        except (TypeError,KeyError,ValueError):
+            raise LiveGateError("PROMPT_CONTEXT_UNVERIFIABLE") from None
+
+    def prompt_context(self,actor,job_id):
+        with self.db() as c:
+            job=self._read(c,job_id,actor)
+            return self._prompt_context_in_tx(c,job)
+
+    def _verify_prompt_binding_in_tx(self,c,job):
+        """Fail closed on stale approval, changed policy or unknown LIVE Prompt."""
+        if job["prompt_json"] is None:
+            raise LiveGateError("PROMPT_BINDING_MISSING")
+        current=self._prompt_context_in_tx(c,job)
+        ctx_sha=digest(current)
+        row=c.execute("""SELECT * FROM live_prompt_context_bindings
+                         WHERE job_id=? AND context_sha=?""",
+                      (job["job_id"],ctx_sha)).fetchone()
+        if row is None:
+            any_bound=c.execute("""SELECT 1 FROM live_prompt_context_bindings
+                WHERE job_id=? LIMIT 1""",(job["job_id"],)).fetchone()
+            if job["mode"]=="OFFLINE_FIXTURE" and any_bound is None:
+                # Old isolated QA fixtures remain usable, never as LIVE.
+                return
+            raise LiveGateError("PROMPT_BINDING_NOT_FOUND_OR_POLICY_CHANGED")
+        if (row["actor"]!=job["actor"] or row["mode"]!=job["mode"] or
+                row["context_json"]!=json.dumps(current,sort_keys=True,
+                    ensure_ascii=False,separators=(",",":")) or
+                row["prompt_sha"]!=digest(json.loads(job["prompt_json"]))):
+            raise LiveGateError("PROMPT_BINDING_INTEGRITY_FAILED")
+
+    def store_prompt(self,actor,job_id,prompt,*,expected_context=None):
+        """Commit exactly one prompt against original approval within SQLite CAS.
+
+        All production pipeline calls MUST pass expected_context. Existing
+        offline-only direct store fixtures may omit it, but LIVE never can.
+        """
         with self.db() as c:
             c.execute("BEGIN IMMEDIATE")
             job=self._read(c,job_id,actor)
             if job["state"]!="COPY_APPROVED":
                 raise LiveGateError("PROMPT_REQUIRES_COPY_APPROVAL")
-            self._approved(job)
+            current=self._prompt_context_in_tx(c,job)
+            if expected_context is None:
+                if job["mode"]!="OFFLINE_FIXTURE":
+                    raise LiveGateError("PROMPT_EXPECTED_CONTEXT_REQUIRED")
+            elif (type(expected_context) is not dict or expected_context!=current):
+                raise LiveGateError("PROMPT_APPROVAL_CONTEXT_CAS_FAILED")
             cp=json.loads(job["copy_json"])
             parsed=live_prompt(prompt,cp)
             c.execute("UPDATE live_jobs SET state='PROMPT_READY',prompt_json=? WHERE job_id=?",
                      (json.dumps(parsed,ensure_ascii=False),job_id))
+            canonical=json.dumps(current,sort_keys=True,ensure_ascii=False,
+                                 separators=(",",":"))
+            c.execute("""INSERT INTO live_prompt_context_bindings
+                (job_id,context_sha,actor,mode,prompt_sha,context_json)
+                VALUES (?,?,?,?,?,?)""",(job_id,digest(current),actor,
+                    job["mode"],digest(parsed),canonical))
             updated=self._read(c,job_id,actor)
-            self._event(c,updated,"image_prompt_committed",updated["state"],digest(parsed))
+            self._event(c,updated,"image_prompt_committed",updated["state"],
+                        digest({"prompt":parsed,"approval_context":current}))
             c.commit()
             return updated
 
@@ -504,6 +633,7 @@ class LiveStore:
             if job["state"]!="IMAGE_REJECTED" or job["image_sha"]!=expected_sha:
                 raise LiveGateError("IMAGE_RETRY_STALE_REJECTION")
             self._approved(job)
+            self._verify_prompt_binding_in_tx(c,job)
             if previous is None:
                 # Old Jobs made before the new audit table are not rewritten.
                 c.execute("""INSERT INTO live_image_attempts
@@ -542,6 +672,7 @@ class LiveStore:
             if job["state"]!="PROMPT_READY":
                 raise LiveGateError("IMAGE_REQUIRES_PROMPT")
             self._approved(job)
+            self._verify_prompt_binding_in_tx(c,job)
             profile_row=c.execute("SELECT * FROM live_job_templates WHERE job_id=?",
                                   (job_id,)).fetchone()
             policy=verify_policy(profile_row)
@@ -593,6 +724,7 @@ class LiveStore:
             if job["state"]!="PROMPT_READY":
                 raise LiveGateError("IMAGE_STATE_CONFLICT")
             self._approved(job)
+            self._verify_prompt_binding_in_tx(c,job)
             prior=c.execute("""SELECT * FROM live_image_attempts WHERE job_id=?
                 ORDER BY attempt_version DESC LIMIT 1""",(job_id,)).fetchone()
             if prior is None:

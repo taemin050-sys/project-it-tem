@@ -178,3 +178,56 @@ def test_host_singleflight_prevents_second_worker_reconciliation(tmp_path,monkey
         with pytest.raises(LiveNotAuthorized,match="LIVE_WORKER_ALREADY_RUNNING"):
             with exclusive_live_worker(tmp_path/"runtime"):
                 pass
+
+
+def test_owner_image_attempt_submitting_blocks_all_new_paid_worker_claims(
+    tmp_path,monkeypatch,
+):
+    from uuid import uuid4
+    from src.image_generation.provider_attempts import ProviderAttemptStore
+    app,jid,flow,queue=prepare(tmp_path,monkeypatch)
+    provider_root=flow.root/"owner_image"
+    attempts=ProviderAttemptStore(provider_root/"image_attempts.sqlite")
+    # No provider transport: begin() writes one durable 'submitting' slot.
+    attempt_id=attempts.begin(uuid4(),uuid4(),"e"*64,
+                              budget_limit_usd="0",reservation_usd="0",
+                              monitoring_only=True)
+    assert attempt_id
+    assert reconcile_worker_ledgers(queue,flow) is True
+    assert _run_locked(tmp_path/"runtime",flow)=="LIVE_WORKER_BILLING_HOLD"
+    with flow.cost.connect() as db:
+        assert db.execute("SELECT COUNT(*) FROM attempts").fetchone()[0]==0
+    with attempts._connection() as db:
+        assert db.execute("SELECT state FROM provider_attempts").fetchone()[0]=="submitting"
+
+
+def test_cross_ledger_read_error_fails_closed(tmp_path,monkeypatch):
+    app,jid,flow,queue=prepare(tmp_path,monkeypatch)
+    target=flow.root/"owner_image"
+    target.mkdir()
+    # Present corrupt/unrecognized Provider DB. A new paid call must not
+    # proceed based on a false claim that the ledger is simply empty.
+    (target/"image_attempts.sqlite").write_bytes(b"not-an-SQLite-DB")
+    assert reconcile_worker_ledgers(queue,flow) is True
+    assert _run_locked(tmp_path/"runtime",flow)=="LIVE_WORKER_BILLING_HOLD"
+
+
+def test_queued_prompt_rejects_new_policy_epoch_before_provider(
+    tmp_path,monkeypatch,
+):
+    from demo_staging.live.contracts import digest
+    from tests.demo_live.test_live_contracts import safe_copy
+    app,jid,flow,queue=prepare(tmp_path,monkeypatch)
+    analysis,research,copy,_=safe_copy()
+    staged=flow.state.store_text("alice",jid,analysis,research,copy,mode="LIVE")
+    approved=flow.state.approve_copy("alice",jid,staged["generation"],staged["review_sha"])
+    frozen=digest(flow.state.prompt_context("alice",jid))
+    task,_=queue.enqueue(actor="alice",job_id=jid,stage="image_prompt",context_sha=frozen)
+    monkeypatch.setenv("IT_TEM_REVIEW_POLICY_EPOCH","different-policy")
+    called=[]
+    monkeypatch.setattr(flow,"prompt",lambda *_args,**_kwargs:called.append(True))
+    assert _run_locked(tmp_path/"runtime",flow)=="LIVE_STAGE_HELD_FOR_RECONCILIATION"
+    assert called==[]
+    assert queue.read(task["id"])["error_code"]=="PROMPT_APPROVAL_POLICY_EPOCH_CHANGED"
+    with flow.cost.connect() as db:
+        assert db.execute("SELECT COUNT(*) FROM attempts").fetchone()[0]==0

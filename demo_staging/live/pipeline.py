@@ -366,25 +366,77 @@ class LivePipeline:
             actor,job_id,revised,instruction,
             expected_generation,expected_review_sha,owner_feedback=feedback)
 
+    def _assert_live_prompt_sources(self,actor,job_id,job,*,text_model,vision_model):
+        """Verify immutable LIVE Owner Text checkpoints, never fixture-derived.
+
+        A manually edited mode='LIVE' cannot promote OFFLINE_FIXTURE
+        Analysis/Research/Copy into a paid Prompt stage.
+        """
+        if job["mode"]!="LIVE":
+            raise LiveGateError("PROMPT_LIVE_SOURCE_PROVENANCE_INVALID")
+        snapshot=json.loads(job["input_json"])
+        a=json.loads(job["analysis_json"])
+        r=json.loads(job["research_json"])
+        cp=json.loads(job["copy_json"])
+        photo_hashes=[item["sha256"] for item in snapshot["ordered_asset_hashes"]]
+        analysis_ctx={"input_sha":job["input_sha"],"assets":photo_hashes,
+                      "model":vision_model}
+        try:
+            verified_a=self.checkpoints.load(actor,job_id,"vision",digest(analysis_ctx),
+                                             "LIVE",ProductAnalysisResult)
+            if verified_a is None or verified_a.model_dump(mode="json")!=a:
+                raise LiveGateError("PROMPT_LIVE_SOURCE_ANALYSIS_UNVERIFIED")
+            research_ctx={"input_sha":job["input_sha"],"analysis_sha":digest(a),
+                          "model":text_model}
+            verified_r=self.checkpoints.load(actor,job_id,"research",digest(research_ctx),
+                                             "LIVE",ResearchResult)
+            if verified_r is None or verified_r.model_dump(mode="json")!=r:
+                raise LiveGateError("PROMPT_LIVE_SOURCE_RESEARCH_UNVERIFIED")
+            copy_ctx={"input_sha":job["input_sha"],"analysis_sha":digest(a),
+                      "research_sha":digest(r),"model":text_model}
+            verified_cp=self.checkpoints.load(actor,job_id,"copy",digest(copy_ctx),
+                                              "LIVE",AdCopyOutput)
+            if verified_cp is None or verified_cp.model_dump(mode="json")!=cp:
+                raise LiveGateError("PROMPT_LIVE_SOURCE_COPY_UNVERIFIED")
+        except LiveGateError as exc:
+            raise LiveGateError("PROMPT_LIVE_SOURCE_PROVENANCE_INVALID") from None
+
     def prompt(self,actor,job_id,provider:TextProvider|None=None,*,offline=False,
                text_model="gpt-6-luna"):
         job=self.state.get(actor,job_id)
         if job["state"]!="COPY_APPROVED":
             raise LiveGateError("PROMPT_REQUIRES_APPROVED_COPY")
         self.state._approved(job)
+        if (job["mode"]=="OFFLINE_FIXTURE")!=bool(offline) or job["mode"] not in (
+                "LIVE","OFFLINE_FIXTURE"):
+            raise LiveGateError("PROMPT_JOB_PROVENANCE_MISMATCH")
+        # Pin approval, original analysis/research/ad plan and effective
+        # policy epoch at the SAME time before any provider is constructed.
+        expected=self.state.prompt_context(actor,job_id)
+        # The preflight snapshot may have changed between get() and CAS read.
+        # Never feed an old Plan/Analysis into a newly approved Prompt.
+        if (expected["mode"]!=job["mode"] or
+                expected["copy_sha"]!=job["copy_sha"] or
+                expected["review_sha"]!=job["review_sha"] or
+                expected["approval_sha"]!=job["approval_sha"] or
+                expected["generation"]!=job["generation"] or
+                expected["analysis_sha"]!=digest(json.loads(job["analysis_json"])) or
+                expected["research_sha"]!=digest(json.loads(job["research_json"]))):
+            raise LiveGateError("PROMPT_START_CONTEXT_CAS_FAILED")
         if offline:
             if provider is None:raise LiveGateError("OFFLINE_FAKE_REQUIRED")
         else:
-            if not (self.live_enabled and self.pm_authorized):
+            if not (self.live_enabled and self.pm_authorized and actor in self.approved_actors):
                 raise LiveNotAuthorized("LIVE_NOT_APPROVED")
             if provider is not None:
                 raise LiveGateError("INJECTED_PROVIDER_FORBIDDEN_IN_LIVE")
+            self._assert_live_prompt_sources(actor,job_id,job,text_model=text_model,
+                vision_model=os.environ.get("IT_TEM_VISION_MODEL","gpt-6-luna"))
             provider=OfficialTextProvider(text_model,text_model)
         cp=json.loads(job["copy_json"])
         a=ProductAnalysisResult.model_validate(json.loads(job["analysis_json"]),strict=True)
         mode="OFFLINE_FIXTURE" if offline else "LIVE"
-        ctx={"copy_sha":job["copy_sha"],"generation":job["generation"],
-             "approval_sha":job["approval_sha"],"model":text_model}
+        ctx={**expected,"model":text_model}
         fingerprint=digest(ctx)
         out=self.checkpoints.load(actor,job_id,"image_prompt",fingerprint,mode,
                                   ImagePromptOutput)
@@ -392,11 +444,20 @@ class LivePipeline:
             def do_prompt():
                 return provider.generate_prompt(
                     AdPlan.model_validate(cp["plan"],strict=True),a.analysis)
-            proposed=do_prompt() if offline else self._guarded(actor,job_id,
+            # A paid attempt/usage receipt is durably written within _guarded.
+            # If approval/policy changes during I/O, CAS refuses stale result,
+            # and NO second paid retry is automatic.
+            out=do_prompt() if offline else self._guarded(actor,job_id,
                 "image_prompt",ctx,do_prompt)
-            out=self.checkpoints.commit(actor,job_id,"image_prompt",fingerprint,
-                                        mode,proposed,ImagePromptOutput)
-        return self.state.store_prompt(actor,job_id,out)
+            # Commit Job first. A crash between Job CAS and checkpoint cannot
+            # replay the provider because Job is already PROMPT_READY.
+            result=self.state.store_prompt(actor,job_id,out,
+                                           expected_context=expected)
+            self.checkpoints.commit(actor,job_id,"image_prompt",fingerprint,
+                                    mode,out,ImagePromptOutput)
+            return result
+        return self.state.store_prompt(actor,job_id,out,
+                                       expected_context=expected)
 
     def begin_image_retry(self,actor,job_id,expected_sha,request_key):
         """Explicit rejection recovery. No Text/VLM/Research/Prompt rerun."""
