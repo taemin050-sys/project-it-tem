@@ -26,6 +26,7 @@ from pydantic import ConfigDict, Field, JsonValue, model_validator
 from .ad_resize import FINAL_SIZE, resize_ad_png
 from .contracts import Contract, CopyRevision, content_hash
 from .errors import GatewayError
+from .typography import FONT_PRESETS, FontPreset, HeadlineFont
 
 VERSION = "korean-composition-v1"
 Digest = Annotated[str, Field(pattern=r"^[0-9a-f]{64}$")]
@@ -163,7 +164,8 @@ def _copy_fields(body: CompositionInput) -> tuple[dict[str, str], str, list[str]
         raise _reject("COMPOSITION_COPY_INVALID") from None
 
 
-def _font_data(path: str | Path, index: int, texts: list[str]) -> tuple[bytes, str]:
+def _font_data(path: str | Path, index: int, texts: list[str], *,
+               weight: int | None = None) -> tuple[bytes, str, list[float] | None]:
     try:
         if type(index) is not int or not 0 <= index <= 32:
             raise ValueError
@@ -171,12 +173,22 @@ def _font_data(path: str | Path, index: int, texts: list[str]) -> tuple[bytes, s
         if not 0 < font_path.stat().st_size <= 64*1024*1024:
             raise ValueError
         data = font_path.read_bytes()
+        variation_axes = None
         with TTFont(BytesIO(data), fontNumber=index, lazy=True) as font:
             cmap = font.getBestCmap() or {}
+            if weight is not None:
+                axes = font["fvar"].axes if "fvar" in font else []
+                weight_axis = next((axis for axis in axes if axis.axisTag == "wght"), None)
+                if (type(weight) is not int or weight_axis is None
+                        or not weight_axis.minValue <= weight <= weight_axis.maxValue):
+                    raise ValueError
+                variation_axes = [
+                    weight if axis.axisTag == "wght" else axis.defaultValue for axis in axes
+                ]
         required = {ord(c) for text in texts for c in text if c != "\n"}
         if not required <= cmap.keys() or any(cmap[c] == ".notdef" for c in required):
             raise _reject("COMPOSITION_GLYPH_MISSING")
-        return data, sha256(data).hexdigest()
+        return data, sha256(data).hexdigest(), variation_axes
     except (OSError, ValueError, TypeError, TTLibError):
         raise _reject("COMPOSITION_FONT_UNAVAILABLE") from None
 
@@ -204,13 +216,16 @@ def _lines(text: str, font: ImageFont.FreeTypeFont, width: int) -> list[str] | N
 
 
 def _fit(text: str, region: CompositionTextRegion, data: bytes, index: int,
-         canvas_size: tuple[int, int] = FINAL_SIZE):
+         canvas_size: tuple[int, int] = FINAL_SIZE, *,
+         variation_axes: list[float] | None = None):
     l,t,r,b = region.pixels(canvas_size)
     width, height = r-l-2*region.padding, b-t-2*region.padding
     low, high, best = region.min_font_size, region.max_font_size, None
     while low <= high:
         size = (low+high)//2
         font = ImageFont.truetype(BytesIO(data), size, index=index)
+        if variation_axes is not None:
+            font.set_variation_by_axes(variation_axes)
         lines = _lines(text, font, width)
         boxes = [font.getbbox(line) for line in lines] if lines else []
         pitch = max(math.ceil(sum(font.getmetrics())*1.1),
@@ -233,18 +248,51 @@ def compose_ad_png(body: CompositionInput, *, font_path: str | Path,
     font_path is trusted server configuration, never an HTTP user-supplied path.
     No fallback font, truncation, model retry or file write is performed.
     """
+    return _compose_ad_png(body, font_path=font_path, font_index=font_index)
+
+
+def compose_ad_font_variants(body: CompositionInput, *, font_path: str | Path,
+                             font_index: int = 0) -> dict[FontPreset, ComposedAd]:
+    """Render three local PNGs with the supplied A layout and copy snapshot.
+
+    Only the headline face varies. Subline and CTA use the trusted font_path.
+    Return all three results or raise the same validation error as single composition.
+    """
+    return {
+        preset: _compose_ad_png(body, font_path=font_path, font_index=font_index,
+                                headline_font=face)
+        for preset, face in FONT_PRESETS.items()
+    }
+
+
+def _compose_ad_png(body: CompositionInput, *, font_path: str | Path,
+                    font_index: int, headline_font: HeadlineFont | None = None) -> ComposedAd:
     started = time.monotonic()
     body = CompositionInput.model_validate(body.model_dump(warnings=False))
     ad, caption, tags = _copy_fields(body)
     rendered_copy = {name: text for name, text in ad.items()
                      if text and not (name == "cta" and body.layout.cta_placement == "platform")}
-    data, font_hash = _font_data(font_path, font_index, list(rendered_copy.values()))
+    data, font_hash, _ = _font_data(
+        font_path, font_index,
+        [text for name, text in rendered_copy.items()
+         if name != "headline" or headline_font is None],
+    )
+    headline_face = (
+        _font_data(headline_font.path, 0, [rendered_copy["headline"]],
+                   weight=headline_font.variation_weight)
+        if headline_font is not None else None
+    )
     canvas_size = body.layout.canvas_size
     baseline = resize_ad_png(body.image_bytes, final_size=canvas_size)
     prepared = {}
     try:
         for name, text in rendered_copy.items():
-            prepared[name] = _fit(text, body.layout.text_regions[name], data, font_index, canvas_size)
+            if name == "headline" and headline_face is not None:
+                headline_data, _, variation_axes = headline_face
+                prepared[name] = _fit(text, body.layout.text_regions[name], headline_data, 0,
+                                      canvas_size, variation_axes=variation_axes)
+            else:
+                prepared[name] = _fit(text, body.layout.text_regions[name], data, font_index, canvas_size)
     except (OSError, ValueError):
         raise _reject("COMPOSITION_FONT_UNAVAILABLE") from None
     placements = {}
@@ -288,8 +336,16 @@ def compose_ad_png(body: CompositionInput, *, font_path: str | Path,
     caption_text = caption + ("\n\n" if caption and tags else "") + " ".join(tags)
     fingerprint = body.model_dump(exclude={"image_bytes"})
     fingerprint.update(renderer=VERSION,font_sha256=font_hash,font_index=font_index)
+    headline_receipt = {}
+    if headline_font is not None and headline_face is not None:
+        headline_receipt = {
+            "headline_font_sha256": headline_face[1],
+            "headline_font_weight": headline_font.variation_weight,
+        }
+    fingerprint.update(headline_receipt)
     receipt = {"renderer":VERSION,"pillow_version":pillow_version,
                "font_sha256":font_hash,"font_index":font_index,
+               **headline_receipt,
                "input_sha256":content_hash(fingerprint),"baseline_sha256":baseline.sha256,
                "resize_method":baseline.method,"placements":placements,
                "protected_region_check":bool(body.layout.protected_regions),

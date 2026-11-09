@@ -13,7 +13,7 @@ import pytest
 
 from src.image_generation import CompositionInput, compose_ad_png, make_a_template
 from src.image_generation.ad_resize import resize_ad_png
-from src.image_generation.composition import CompositionRect
+from src.image_generation.composition import CompositionRect, compose_ad_font_variants
 from src.image_generation.contracts import content_hash
 from src.image_generation.errors import GatewayError
 from . import helpers
@@ -95,6 +95,41 @@ def test_local_a_composition_preserves_product_region_copy_and_caption():
         left, _, right, _ = placement["region"]
         for x1, _, x2, _ in placement["ink_boxes"]:
             assert abs((x1+x2)/2-(left+right)/2) <= 1
+
+
+def test_a_font_variants_change_only_headline_pixels():
+    _, layout = make_a_template(protected_regions=[protected()])
+    request = compose_body(layout)
+    original = compose_ad_png(request, font_path=helpers.FONT)
+    variants = compose_ad_font_variants(request, font_path=helpers.FONT)
+
+    assert list(variants) == ["gothic", "round", "myeongjo"]
+    assert len({result.sha256 for result in variants.values()}) == 3
+    assert len({result.receipt["input_sha256"] for result in variants.values()}) == 3
+    assert len({result.receipt["headline_font_sha256"] for result in variants.values()}) == 3
+    assert variants["gothic"].receipt["headline_font_weight"] == 500
+    assert "headline_font_sha256" not in original.receipt
+
+    left, top, right, bottom = layout.text_regions["headline"].pixels()
+    with Image.open(BytesIO(original.image_bytes)) as before:
+        for result in variants.values():
+            assert result.caption_bytes == original.caption_bytes
+            assert result.source_image_sha256 == request.image_sha256
+            assert result.copy_hash == request.copy_hash
+            assert result.copy_revision == request.copy_revision
+            assert result.receipt["provider_calls"] == 0
+            assert result.receipt["provider_cost_usd"] == "0"
+            assert result.receipt["protected_region_check"]
+            placements = result.receipt["placements"]
+            assert placements["headline"]["region"] == [left, top, right, bottom]
+            for field in ("subline", "cta"):
+                assert placements[field] == original.receipt["placements"][field]
+            with Image.open(BytesIO(result.image_bytes)) as after:
+                assert after.format == "PNG" and after.size == (1080, 1350)
+                changed = ImageChops.difference(before, after).getbbox(alpha_only=False)
+                assert changed is not None
+                assert left <= changed[0] < changed[2] <= right
+                assert top <= changed[1] < changed[3] <= bottom
 
 
 def test_missing_protection_still_requires_manual_review():
