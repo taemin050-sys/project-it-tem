@@ -36,6 +36,15 @@ EVIDENCE = (
     "docs/integration/evidence/A3_20261109/A34_C_INDEPENDENT_NEGATIVES_REPLAY.log",
     "docs/integration/evidence/A3_20261109/A34_REACT_TEST.log",
 )
+A3R_EVIDENCE = (
+    "docs/integration/evidence/A3R_20261109/A3R_BEFORE_C_A3_ADVERSARIAL.log",
+    "docs/integration/evidence/A3R_20261109/A3R_AFTER_C_A3_ADVERSARIAL.log",
+    "docs/integration/evidence/A3R_20261109/A3R_FULL_PYTHON.log",
+    "docs/integration/evidence/A3R_20261109/A3R_C_A2_7_NEGATIVES.log",
+    "docs/integration/evidence/A3R_20261109/A3R_REACT.log",
+    "docs/integration/evidence/A3R_20261109/A3R_LINT.log",
+    "docs/integration/evidence/A3R_20261109/A3R_BUILD.log",
+)
 PROTECTED = frozenset((
     "ittem-bp18-product-completion-20261111",
     "ittem-bp17-final-qa-20261107",
@@ -120,27 +129,196 @@ def _verified_tracked_files(paths: tuple[str, ...]) -> tuple[dict, bool]:
     return values, good
 
 
+
+def _git_bytes(*args: str) -> bytes:
+    return subprocess.check_output(
+        ("git", "-C", str(ROOT), *args),
+        stderr=subprocess.DEVNULL,
+    )
+
+
+def _index_flag_snapshot() -> tuple[dict[bytes, bytes], bool]:
+    """Git -v exposes h (assume-unchanged) and S (skip-worktree).
+
+    Do not trust status or the index to prove HEAD bytes. All index entries
+    must be ordinary H, and must match the exact HEAD tree names.
+    """
+    flags = {}
+    for entry in _git_bytes("ls-files", "-v", "-z").split(b"\0"):
+        if not entry:
+            continue
+        if len(entry) < 3 or entry[1:2] != b" ":
+            return {}, False
+        tag, path = entry[:1], entry[2:]
+        if path in flags:
+            return {}, False
+        flags[path] = tag
+    return flags, all(tag == b"H" for tag in flags.values())
+
+
+def _attest_tracked_head() -> dict:
+    """Verify every tracked file's actual bytes against Git HEAD, never index.
+
+    Anchored dirfd/O_NOFOLLOW prevents symlink intermediate/leaf escapes.
+    A Git blob digest is SHA1("blob <size>\\0" + file bytes) in this SHA1 repo.
+    No checkout, index mutation, Git refresh, or artifact write is performed.
+    """
+    status = {
+        "gate": "HOLD", "checked_files": 0, "head_files": 0,
+        "content_sha256": None, "reason": "NOT_VERIFIED",
+        "index_flags_gate": "HOLD",
+    }
+    try:
+        if git("rev-parse", "--show-object-format") != "sha1":
+            status["reason"] = "UNSUPPORTED_GIT_OBJECT_FORMAT"
+            return status
+        head_before = git("rev-parse", "HEAD")
+        tree_before = git("rev-parse", "HEAD^{tree}")
+        flags_before, ordinary_before = _index_flag_snapshot()
+        raw = _git_bytes("ls-tree", "-rz", "--full-tree", "HEAD")
+        entries = []
+        for item in raw.split(b"\0"):
+            if not item:
+                continue
+            descriptor, name = item.split(b"\t", 1)
+            mode, kind, oid = descriptor.split(b" ")
+            if (kind != b"blob" or mode not in (b"100644", b"100755") or
+                    not re.fullmatch(rb"[0-9a-f]{40}", oid) or
+                    not name or name.startswith(b"/") or
+                    b"//" in name or any(c in (b"", b".", b"..")
+                                         for c in name.split(b"/"))):
+                status["reason"] = "UNSUPPORTED_HEAD_TREE_ENTRY"
+                return status
+            entries.append((name, mode, oid))
+        status["head_files"] = len(entries)
+        if not entries or len({e[0] for e in entries}) != len(entries):
+            status["reason"] = "INVALID_HEAD_TREE"
+            return status
+        expected_names = {name for name, _, _ in entries}
+        if (not ordinary_before or set(flags_before) != expected_names):
+            status["reason"] = "GIT_INDEX_SPECIAL_FLAG_OR_TREE_MISMATCH"
+            return status
+        aggregate = hashlib.sha256()
+        rootfd = os.open(ROOT, _DIR_FLAGS)
+        try:
+            for name, mode, expected_oid in entries:
+                components = tuple(os.fsdecode(item) for item in name.split(b"/"))
+                with _relative_directory(rootfd, components[:-1]) as parentfd:
+                    filefd = _open_regular(parentfd, components[-1])
+                    try:
+                        st = os.fstat(filefd)
+                        expected_executable = mode == b"100755"
+                        if bool(st.st_mode & 0o111) != expected_executable:
+                            status["reason"] = "WORKTREE_FILE_MODE_MISMATCH"
+                            return status
+                        sha1 = hashlib.sha1(
+                            b"blob " + str(st.st_size).encode("ascii") + b"\0"
+                        )
+                        while True:
+                            data = os.read(filefd, 256 * 1024)
+                            if not data:
+                                break
+                            sha1.update(data)
+                        st_after = os.fstat(filefd)
+                        if (st.st_dev, st.st_ino, st.st_size, st.st_mtime_ns,
+                                st.st_ctime_ns) != (
+                                st_after.st_dev, st_after.st_ino, st_after.st_size,
+                                st_after.st_mtime_ns, st_after.st_ctime_ns):
+                            status["reason"] = "WORKTREE_FILE_CHANGED_DURING_ATTEST"
+                            return status
+                        if sha1.hexdigest().encode("ascii") != expected_oid:
+                            status["reason"] = "WORKTREE_HEAD_BLOB_MISMATCH"
+                            return status
+                        aggregate.update(mode + b" " + expected_oid + b"\t" +
+                                         name + b"\0")
+                        status["checked_files"] += 1
+                    finally:
+                        os.close(filefd)
+        finally:
+            os.close(rootfd)
+        flags_after, ordinary_after = _index_flag_snapshot()
+        if (not ordinary_after or flags_after != flags_before or
+                head_before != git("rev-parse", "HEAD") or
+                tree_before != git("rev-parse", "HEAD^{tree}")):
+            status["reason"] = "SOURCE_REF_OR_INDEX_CHANGED_DURING_ATTEST"
+            return status
+        status.update(
+            gate="PASS", reason=None,
+            content_sha256=aggregate.hexdigest(),
+            index_flags_gate="PASS",
+        )
+    except (OSError, ValueError, subprocess.CalledProcessError,
+            UnicodeError, KeyError, IndexError):
+        status["reason"] = "SOURCE_ATTESTATION_UNREADABLE_OR_UNSAFE"
+    return status
+
+
+def _archive_digest() -> str | None:
+    """Reference checksum for a future immutable git-archive HEAD artifact.
+
+    Calculating the expected digest does NOT prove an artifact was
+    built, deployed, or that any running executable matches it.
+    """
+    try:
+        tar = _git_bytes("archive", "--format=tar", "HEAD")
+        return digest_bytes(tar)
+    except (OSError, subprocess.CalledProcessError):
+        return None
+
+
 def source_manifest() -> dict:
     """Read-only, commit-bound; clean tree is necessary but not sufficient."""
     branch = git("branch", "--show-current")
     head = git("rev-parse", "HEAD")
     tree = git("rev-parse", "HEAD^{tree}")
     dirty = bool(git("status", "--porcelain"))
+    tracked = _attest_tracked_head()
     locks, locks_ok = _verified_tracked_files(LOCKS)
     evidence, evidence_ok = _verified_tracked_files(EVIDENCE)
-    valid = (branch == BRANCH and not dirty and locks_ok and evidence_ok
+    a3r_evidence, a3r_evidence_ok = _verified_tracked_files(A3R_EVIDENCE)
+    archive_sha = _archive_digest() if tracked["gate"] == "PASS" else None
+    valid = (branch == BRANCH and not dirty and tracked["gate"] == "PASS"
+             and tracked["checked_files"] == tracked["head_files"]
+             and locks_ok and evidence_ok and a3r_evidence_ok
+             and archive_sha is not None
              and bool(_GIT_SHA.fullmatch(head)) and bool(_GIT_SHA.fullmatch(tree))
+             and git("rev-parse", "HEAD") == head
              and git("rev-parse", "HEAD^{tree}") == tree)
     return {
-        "contract": "IT_TEM_P03_A3R_A_ONLY_GUARDED_MANIFEST_V2",
+        "contract": "IT_TEM_P03_A3R1_ALL_TRACKED_HEAD_ATTESTATION_V3",
         "track": "A_OWNER_SOURCE_FIRST", "branch": branch,
         "commit": head, "tree": tree,
-        "worktree_clean": not dirty,
+        "worktree_clean": bool(not dirty and tracked["gate"] == "PASS"),
+        "git_status_clean": not dirty,
+        "tracked_source_attestation": tracked,
+        "build_provenance": {
+            "contract": "IMMUTABLE_ARCHIVE_TO_BUILD_SHA_V1",
+            "source_commit": head,
+            "source_tree": tree,
+            "verified_head_files": tracked["checked_files"],
+            "verified_head_tree_content_sha256": tracked["content_sha256"],
+            "expected_git_archive_sha256": archive_sha,
+            "built_artifact_sha256": None,
+            "running_build_sha256": None,
+            "build_runtime_match_gate": "NOT_AUDITED",
+            "build_rule": "MUST_BUILD_FROM_VERIFIED_GIT_ARCHIVE_NOT_LIVE_WORKTREE",
+        },
         "source_integrity_gate": "PASS" if valid else "HOLD",
         "source_gate": "PASS" if valid else "HOLD",
         "lock_integrity_gate": "PASS" if locks_ok else "HOLD",
-        "evidence_integrity_gate": "PASS" if evidence_ok else "HOLD",
+        "evidence_integrity_gate": (
+            "PASS" if evidence_ok and a3r_evidence_ok else "HOLD"
+        ),
+        "a3_evidence_integrity_gate": "PASS" if evidence_ok else "HOLD",
+        "a3r_evidence_integrity_gate": "PASS" if a3r_evidence_ok else "HOLD",
         "locks_sha256": locks, "test_evidence_sha256": evidence,
+        "a3r_test_evidence_sha256": a3r_evidence,
+        "evidence_scope": {
+            "A3": "6 legacy A3 proof logs pinned to Git HEAD",
+            "A3R": "7 A3R developer logs pinned to Git HEAD",
+            "A3R1": "new attest/replay logs in separate audit packet; not yet part of this fixed baseline",
+            "C_independent": "external audit-only evidence; excluded from deploy-source tree",
+        },
         "python": sys.version.split()[0],
         "serving_schema_contract": {
             "approval_policy_table": "live_copy_policy_bindings",

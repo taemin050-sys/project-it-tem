@@ -125,7 +125,7 @@ def test_protected_b_live_qa_roots_are_rejected(tmp_path):
 
 def test_manifest_source_sha_and_owner_policy_no_paid_activation():
     result=source_manifest()
-    assert result["contract"]=="IT_TEM_P03_A3R_A_ONLY_GUARDED_MANIFEST_V2"
+    assert result["contract"]=="IT_TEM_P03_A3R1_ALL_TRACKED_HEAD_ATTESTATION_V3"
     assert result["commit"]==git("rev-parse","HEAD")
     assert result["tree"]==git("rev-parse","HEAD^{tree}")
     assert result["image_contract"]["candidates_per_request"]==1
@@ -343,3 +343,180 @@ def test_exact_fixture_root_symlink_to_fake_protected_b_rejected(tmp_path):
     a.symlink_to(fake_b,target_is_directory=True)
     with pytest.raises(ValueError,match="NOT_A_TRACK_RUNTIME_ROOT"):
         inspect_a_runtime(a,fixture_mode=True)
+
+
+# A3R.1 SOURCE_ATTESTATION_FALSE_PASS negative regression suite.
+# Git archive -> fresh Git repository. Never manipulate real Track A/B index.
+
+@pytest.fixture()
+def _isolated_head_archive(tmp_path, monkeypatch):
+    import io
+    import subprocess
+    import tarfile
+    import scripts.a3_track_a_guarded_readiness as module
+
+    archive = subprocess.check_output(
+        ("git", "-C", str(module.ROOT), "archive", "--format=tar", "HEAD")
+    )
+    dest = tmp_path / "isolated-archive"
+    dest.mkdir()
+    with tarfile.open(fileobj=io.BytesIO(archive), mode="r:") as tf:
+        tf.extractall(dest, filter="data")
+    def run(*args):
+        return subprocess.check_output(
+            ("git", "-C", str(dest), *args),
+            stderr=subprocess.PIPE, text=True,
+        ).strip()
+    run("init", "-q", "-b", module.BRANCH)
+    run("add", "-A")
+    run("-c", "user.name=Isolated Test",
+        "-c", "user.email=isolated@example.invalid",
+        "-c", "core.hooksPath=/dev/null",
+        "commit", "-q", "-m", "isolated-archive-candidate")
+    monkeypatch.setattr(module, "ROOT", dest)
+    assert run("status","--porcelain")==""
+    return dest, run, module
+
+
+def test_a3r1_clean_all_370_head_blobs_and_archive_hash_pass(
+    _isolated_head_archive,
+):
+    root, git_run, module = _isolated_head_archive
+    manifest = module.source_manifest()
+    proof = manifest["tracked_source_attestation"]
+    assert proof["gate"]=="PASS", proof
+    assert proof["index_flags_gate"]=="PASS"
+    assert proof["checked_files"]==proof["head_files"]>=370
+    assert manifest["source_integrity_gate"]=="PASS"
+    assert manifest["source_gate"]=="PASS"
+    assert manifest["git_status_clean"] is True
+    assert manifest["worktree_clean"] is True
+    assert manifest["lock_integrity_gate"]=="PASS"
+    assert manifest["a3_evidence_integrity_gate"]=="PASS"
+    assert manifest["a3r_evidence_integrity_gate"]=="PASS"
+    assert len(manifest["locks_sha256"])==5
+    assert len(manifest["test_evidence_sha256"])==6
+    assert len(manifest["a3r_test_evidence_sha256"])==7
+    build=manifest["build_provenance"]
+    assert build["source_commit"]==git_run("rev-parse","HEAD")
+    assert build["source_tree"]==git_run("rev-parse","HEAD^{tree}")
+    assert len(build["expected_git_archive_sha256"])==64
+    assert build["verified_head_files"]==proof["checked_files"]
+    assert build["built_artifact_sha256"] is None
+    assert build["running_build_sha256"] is None
+    assert build["build_runtime_match_gate"]=="NOT_AUDITED"
+    assert manifest["qa_deployment_readiness_gate"]=="HOLD"
+    assert manifest["paid_worker_authorization_gate"]=="HOLD"
+
+
+@pytest.mark.parametrize(("flag","undo"), (
+    ("--assume-unchanged","--no-assume-unchanged"),
+    ("--skip-worktree","--no-skip-worktree"),
+))
+def test_a3r1_hidden_serving_worker_change_fails_closed(
+    _isolated_head_archive, flag, undo,
+):
+    root, run, module = _isolated_head_archive
+    worker=root/"demo_staging"/"live"/"worker.py"
+    original=worker.read_bytes()
+    try:
+        run("update-index",flag,"demo_staging/live/worker.py")
+        worker.write_bytes(original+b"\n# ISOLATED_A3R1_HIDDEN_WORKER_MUTATION\n")
+        # Demonstrates the precise C-A3R bypass: Git status is false-clean.
+        assert run("status","--porcelain")==""
+        result=module.source_manifest()
+        assert result["git_status_clean"] is True
+        assert result["worktree_clean"] is False
+        assert result["source_integrity_gate"]=="HOLD"
+        assert result["tracked_source_attestation"]["gate"]=="HOLD"
+        assert result["tracked_source_attestation"]["index_flags_gate"]=="HOLD"
+        assert result["paid_worker_authorization_gate"]=="HOLD"
+    finally:
+        worker.write_bytes(original)
+        run("update-index",undo,"demo_staging/live/worker.py")
+    assert run("status","--porcelain")==""
+
+
+@pytest.mark.parametrize("source", (
+    "demo_staging/live/http_api.py",
+    "src/text_generation/compliance/rule_checker.py",
+    "src/image_generation/provider_attempts.py",
+    "app/src/main.tsx",
+))
+def test_a3r1_attests_full_serving_text_image_and_frontend(
+    _isolated_head_archive, source,
+):
+    root, run, module = _isolated_head_archive
+    target=root/source
+    assert target.is_file(), "Required Owner or Serving source missing in HEAD"
+    old=target.read_bytes()
+    target.write_bytes(old+b"\nISOLATED_A3R1_TAMPER")
+    try:
+        assert module.source_manifest()["source_integrity_gate"]=="HOLD"
+    finally:
+        target.write_bytes(old)
+
+
+def test_a3r1_deleted_source_and_symbolic_link_not_pass(
+    _isolated_head_archive,
+):
+    root, run, module = _isolated_head_archive
+    rel="demo_staging/live/worker.py"
+    f=root/rel
+    original=f.read_bytes()
+    f.unlink()
+    try:
+        assert module.source_manifest()["source_integrity_gate"]=="HOLD"
+        f.symlink_to(root/"README.md")
+        assert module.source_manifest()["source_integrity_gate"]=="HOLD"
+    finally:
+        f.unlink()
+        f.write_bytes(original)
+    assert run("status","--porcelain")==""
+
+
+def test_a3r1_special_index_flag_alone_is_not_a_clean_source(
+    _isolated_head_archive,
+):
+    root, run, module=_isolated_head_archive
+    rel="demo_staging/live/worker.py"
+    run("update-index","--assume-unchanged",rel)
+    try:
+        manifest=module.source_manifest()
+        assert manifest["git_status_clean"] is True
+        assert manifest["source_integrity_gate"]=="HOLD"
+    finally:
+        run("update-index","--no-assume-unchanged",rel)
+
+
+def test_a3r1_missing_A3R_evidence_is_hold(_isolated_head_archive):
+    root, run, module=_isolated_head_archive
+    f=root/module.A3R_EVIDENCE[0]
+    data=f.read_bytes()
+    f.unlink()
+    try:
+        m=module.source_manifest()
+        assert m["a3r_evidence_integrity_gate"]=="HOLD"
+        assert m["source_integrity_gate"]=="HOLD"
+    finally:
+        f.write_bytes(data)
+
+
+def test_a3r1_ignored_git_status_can_not_mask_attestation(
+    _isolated_head_archive,
+    monkeypatch,
+):
+    root, run, module=_isolated_head_archive
+    worker=root/"demo_staging"/"live"/"worker.py"
+    orig=worker.read_bytes()
+    worker.write_bytes(orig+b"\n# MUTATION\n")
+    monkeypatch.setattr(module,"git",
+                        lambda *a: ("" if a==("status","--porcelain")
+                                    else run(*a)))
+    try:
+        m=module.source_manifest()
+        assert m["git_status_clean"] is True
+        assert m["source_integrity_gate"]=="HOLD"
+        assert m["tracked_source_attestation"]["gate"]=="HOLD"
+    finally:
+        worker.write_bytes(orig)
