@@ -1,10 +1,10 @@
 import { useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { restorePrevious, review, reviseJob } from '../api/jobs'
-import { advance, resetJob, useBlob, useBlobUrl, useJob, useLiveSnapshot, useLiveProgress } from '../api/useJob'
+import { advance, resetJob, useBlobQuery, useBlobUrl, useJob, useLiveSnapshot, useLiveProgress } from '../api/useJob'
 import {approveImageAndCompose,rejectImage,resumeImageFromApproved,retryCompose,regenerateRejectedImage} from '../api/liveFlow'
 import {getLiveSnapshot} from '../api/liveJobs'
-import {sameImageCandidate} from '../api/liveMapping'
+import {candidateArtifactPath,isImageReviewHydrated,sameImageCandidate} from '../api/liveMapping'
 import JobBadges from '../components/JobBadges'
 import RunStatus from '../components/RunStatus'
 import StepPage from '../components/StepPage'
@@ -29,15 +29,19 @@ export default function DraftPage() {
   const mock=useProjectStore(s=>s.mock)
   const {data:live}=useLiveSnapshot()
   const {data:task}=useLiveProgress()
-  const imageUrl = useBlobUrl(job && imagePath(job))
-  const imageBlob = useBlob(job && imagePath(job))
+  const reviewing = job?.status === 'IMAGE_REVIEW_REQUIRED'
+  const jobImagePath = job && imagePath(job)
+  const liveImagePath = live && candidateArtifactPath(live)
+  const previewPath = !mock && reviewing && liveImagePath !== jobImagePath ? undefined : jobImagePath
+  const imageFile = useBlobQuery(previewPath)
+  const imageUrl = useBlobUrl(previewPath)
   // 크기는 불러온 이미지 URL과 같이 저장해, 수정 요청·되돌리기로 이미지가 바뀌면 이전 크기를 쓰지 않는다
   const [loaded, setLoaded] = useState<{ url: string; width: number; height: number }>()
   const size = loaded?.url === imageUrl ? loaded : undefined
   const [revising, setRevising] = useState(false)
   const [instruction, setInstruction] = useState('')
 
-  const reviewing = job?.status === 'IMAGE_REVIEW_REQUIRED'
+  const reviewReady = reviewing && Boolean(size) && (mock || isImageReviewHydrated(job, live))
   const rejected = job?.status === 'IMAGE_REJECTED'
   const approved = job?.status === 'IMAGE_APPROVED' || job?.status === 'COMPLETED'
   const composeFailed = !mock && live?.state==='IMAGE_APPROVED' && !run.busy
@@ -52,23 +56,24 @@ export default function DraftPage() {
 
   // 합성 전 생성 이미지만 따로 저장 (svg는 mock 이미지)
   function saveImage() {
-    const ext = imageBlob?.type.includes('svg') ? 'svg' : 'png'
+    const ext = imageFile.data?.type.includes('svg') ? 'svg' : 'png'
     download(imageUrl!, size ? `image_${size.width}x${size.height}.${ext}` : `image.${ext}`)
   }
 
-  function onApprove() {
+  function onImageDecision(approve: boolean) {
+    if (!reviewReady || !jobId || run.busy) return
     if(!mock){
-      if(!jobId||!live)return
+      if(!live)return
       void getLiveSnapshot(jobId).then(current=>{
         if(!sameImageCandidate(live,current))
           throw Error('이미지 검토 버전이 변경됐습니다. 최신 이미지를 다시 확인해 주세요.')
-        return approveImageAndCompose(current,()=>navigate('/create/export'))
+        return approve ? approveImageAndCompose(current,()=>navigate('/create/export')) : rejectImage(current)
       }).catch(e=>useProjectStore.getState().setRun({
-        error:e instanceof Error?e.message:'이미지 승인 확인 실패'
+        error:e instanceof Error?e.message:'이미지 검토 상태를 확인하지 못했습니다.'
       }))
     }else{
       navigate('/create/export')
-      void advance(() => review(jobId!, 'image', true))
+      void advance(() => review(jobId, 'image', true))
     }
   }
 
@@ -99,12 +104,12 @@ export default function DraftPage() {
                     {/* 이미지 수정·되돌리기는 Live API가 아직 없다 (서빙 11/06 답변): mock 전용임을 표시 */}
                     수정 요청 <span className="badge badge-warning">mock</span>
                   </button>
-                : <button className="button secondary" disabled={!reviewing || run.busy} onClick={() =>
-                    jobId && void getLiveSnapshot(jobId).then(rejectImage).catch(e=>
-                      useProjectStore.getState().setRun({error:String(e)}))}>
+                : <button className="button secondary" disabled={!reviewReady || run.busy}
+                    onClick={() => onImageDecision(false)}>
                     이미지 거절
                   </button>}
-              <button className="button" disabled={!reviewing || !imageUrl || run.busy || (!mock && !live)} onClick={onApprove}>이 이미지로 광고 완성하기</button>
+              <button className="button" disabled={!reviewReady || run.busy}
+                onClick={() => onImageDecision(true)}>이 이미지로 광고 완성하기</button>
             </div>
           )}
       actionsNote={<>
@@ -149,10 +154,16 @@ export default function DraftPage() {
         <div className="draft-layout">
           <figure className="draft-stage">
             {imageUrl
-              ? <img className="result-image" src={imageUrl} alt="생성 이미지 (카피 합성 전)"
+              ? <img key={imageUrl} className="result-image" src={imageUrl} alt="생성 이미지 (카피 합성 전)"
                   style={size && { aspectRatio: `${size.width} / ${size.height}` }}
                   onLoad={(e) => setLoaded({ url: imageUrl, width: e.currentTarget.naturalWidth, height: e.currentTarget.naturalHeight })} />
-              : <p className="muted" role="status">이미지를 불러오는 중…</p>}
+              : imageFile.isError
+                ? <div role="alert">
+                    <p>검토할 이미지를 불러오지 못했습니다.</p>
+                    <button type="button" className="button secondary small" disabled={imageFile.isFetching}
+                      onClick={() => void imageFile.refetch()}>이미지 다시 불러오기</button>
+                  </div>
+                : <p className="muted" role="status">이미지를 불러오는 중…</p>}
             {imageUrl && (
               <figcaption className="button-row">
                 <button type="button" className="button secondary small" onClick={saveImage}>이미지만 저장</button>

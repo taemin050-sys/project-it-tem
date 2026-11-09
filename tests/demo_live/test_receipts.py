@@ -29,7 +29,8 @@ def test_receipt_capture_exact_metadata_not_payload():
 
 def test_pipeline_provider_usage_receipt_held_with_no_dollar_fabrication(tmp_path):
     p=LivePipeline(tmp_path/"l",JobStore(tmp_path/"jobs"),live_enabled=True,
-        pm_authorized=True,budget_limit_usd=1,text_reservation_usd=.3,request_limit=3)
+        pm_authorized=True,budget_limit_usd=1,text_reservation_usd=.3,request_limit=3,
+        approved_actors=frozenset({"alice"}))
     def fake():
         record_owner_response(fake_response())
         return {"confirmed":"schema-only"}
@@ -47,7 +48,8 @@ def test_pipeline_provider_usage_receipt_held_with_no_dollar_fabrication(tmp_pat
 
 def test_missing_usage_blocks_followup_never_retries(tmp_path):
     p=LivePipeline(tmp_path/"l",JobStore(tmp_path/"jobs"),live_enabled=True,
-        pm_authorized=True,budget_limit_usd=1,text_reservation_usd=.3,request_limit=2)
+        pm_authorized=True,budget_limit_usd=1,text_reservation_usd=.3,request_limit=2,
+        approved_actors=frozenset({"alice"}))
     def no_usage():
         record_owner_response({"status":"completed","id":"resp_foo","model":"gpt-6-luna"})
         return object()

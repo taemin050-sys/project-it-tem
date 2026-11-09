@@ -56,13 +56,16 @@ export default function ExportPage() {
   const finalUrl = useBlobUrl(final?.download_url)
   const captionFile = useQuery({
     queryKey: ['text', captionPath],
-    queryFn: async () => (await getBlob(captionPath!)).text(),
+    queryFn: async () => {
+      const blob = await getBlob(captionPath!)
+      return { blob, text: await blob.text() }
+    },
     enabled: captionPath !== undefined,
     staleTime: Infinity,
     retry: false,
     refetchOnWindowFocus: false,
   })
-  const caption = captionFile.data
+  const caption = captionFile.data?.text
   const [size, setSize] = useState<{ width: number; height: number }>()
   const [copied, setCopied] = useState<'idle' | 'done' | 'error'>('idle')
 
@@ -84,7 +87,8 @@ export default function ExportPage() {
   }
 
   function saveCaption() {
-    const url = URL.createObjectURL(new Blob([caption!], { type: 'text/plain;charset=utf-8' }))
+    if (!captionFile.data) return
+    const url = URL.createObjectURL(captionFile.data.blob)
     download(url, 'caption.txt')
     // 바로 해제하면 일부 브라우저에서 다운로드가 시작되기 전에 끊긴다
     setTimeout(() => URL.revokeObjectURL(url), 1000)

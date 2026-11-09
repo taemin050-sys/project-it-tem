@@ -1,4 +1,5 @@
 """BP18 UX P1: signed Tailnet-only identity, no invitation-cookie fallback."""
+import fcntl
 import hashlib
 import json
 from pathlib import Path
@@ -6,6 +7,7 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 from demo_staging.app import make_demo_app
+from demo_staging.live import http_api
 from demo_staging.tailnet_assertion import build_assertion
 from scripts.tailnet_sso_gateway import SERVICES,load_users
 
@@ -51,6 +53,38 @@ def test_sso_only_signed_identity_autologin_and_no_login_prompt(env):
         assert c.post("/demo/api/session",json={"invite_code":code},
                       headers={"Origin":"https://my-tailnet.example.ts.net:10500"}).status_code in (401,403)
         assert c.get("/demo/api/session",headers={"Tailscale-User-Login":"someone@example.com"}).status_code==401
+
+
+def test_b_paid_queue_requires_signed_actor_and_live_worker(env, monkeypatch):
+    tmp, dist, registry, key, _ = env
+    root = tmp / "b-runtime"
+    host = http_api.B_TAILNET_HOST
+    monkeypatch.setattr(http_api, "B_RUNTIME_ROOT", root)
+    for name in ("IT_TEM_LIVE_WEB_QUEUE_ENABLED", "IT_TEM_LIVE_ENABLED",
+                 "IT_TEM_LIVE_EXECUTION_APPROVED", "IT_TEM_PROVIDER_READINESS_CONFIRMED"):
+        monkeypatch.setenv(name, "YES")
+    monkeypatch.setenv("IT_TEM_LIVE_COST_POLICY", "MONITOR_ONLY")
+    monkeypatch.setenv("IT_TEM_LIVE_APPROVED_ACTORS", "a_test_pm")
+    monkeypatch.setenv("IT_TEM_TAILNET_EXPECTED_HOST", host)
+    monkeypatch.setenv("IT_TEM_TAILNET_SSO_ONLY", "NO")
+    assert not http_api.web_queue_policy(signed_b=True)["enabled"]
+    monkeypatch.setenv("IT_TEM_TAILNET_SSO_ONLY", "YES")
+    monkeypatch.setenv("OPENAI_API_KEY", "fixture-key-must-not-be-in-web")
+    assert not http_api.web_queue_policy(signed_b=True)["enabled"]
+    monkeypatch.delenv("OPENAI_API_KEY")
+    app = make_demo_app(root, registry, dist, secure_cookie=True)
+    path = "/demo/api/live/capabilities"
+    with TestClient(app, base_url=f"https://{host}") as client:
+        def capabilities(actor):
+            return client.get(path, headers=sign(key, actor, target=path, host=host)).json()
+
+        assert client.get(path).status_code == 401
+        assert capabilities("a_test_pm")["reason"] == "LIVE_WORKER_UNAVAILABLE"
+        with (root / "live/worker.lock").open("xb") as lock:
+            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            assert capabilities("a_test_pm")["live_enabled"]
+            assert not capabilities("a_test_fe")["live_enabled"]
+        assert not capabilities("a_test_pm")["live_enabled"]
 
 
 def test_cookie_valid_in_legacy_mode_but_ignored_in_sso_mode(env,monkeypatch):

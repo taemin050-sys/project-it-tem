@@ -347,7 +347,7 @@ class LiveStore:
         with self.db() as c:
             c.execute("BEGIN IMMEDIATE")
             job=self._read(c,job_id,actor)
-            if job["state"]!="INPUT_STORED":
+            if job["state"]!="INPUT_STORED" or job["mode"]!="INPUT_ONLY":
                 raise LiveGateError("LIVE_TEXT_STATE_CONFLICT")
             context=json.loads(job["input_json"])
             report=strict_review(candidate,context["product"],a)
@@ -656,12 +656,14 @@ class LiveStore:
                 and json.loads(job["compliance_json"])["passed"]):
             raise LiveGateError("APPROVAL_CONTEXT_NOT_CURRENT")
 
-    def store_prompt(self,actor,job_id,prompt):
+    def store_prompt(self,actor,job_id,prompt,*,expected_approval_sha=None):
         with self.db() as c:
             c.execute("BEGIN IMMEDIATE")
             job=self._read(c,job_id,actor)
             if job["state"]!="COPY_APPROVED":
                 raise LiveGateError("PROMPT_REQUIRES_COPY_APPROVAL")
+            if expected_approval_sha is not None and job["approval_sha"]!=expected_approval_sha:
+                raise LiveGateError("PROMPT_APPROVAL_STALE")
             self._approved(job,c)
             cp=json.loads(job["copy_json"])
             parsed=live_prompt(prompt,cp)
@@ -738,13 +740,15 @@ class LiveStore:
             return dict(c.execute("SELECT * FROM live_image_attempts WHERE attempt_id=?",
                                   (attempt_id,)).fetchone())
 
-    def image_request(self,actor,job_id,images,references):
+    def image_request(self,actor,job_id,images,references,*,expected_approval_sha=None):
         from src.image_generation import BackendImageInput
         from src.image_generation.contracts import content_hash
         with self.db() as c:
             job=self._read(c,job_id,actor)
             if job["state"]!="PROMPT_READY":
                 raise LiveGateError("IMAGE_REQUIRES_PROMPT")
+            if expected_approval_sha is not None and job["approval_sha"]!=expected_approval_sha:
+                raise LiveGateError("IMAGE_QUEUE_CONTEXT_STALE")
             self._approved(job,c)
             profile_row=c.execute("SELECT * FROM live_job_templates WHERE job_id=?",
                                   (job_id,)).fetchone()
@@ -789,7 +793,7 @@ class LiveStore:
             return owner
 
     def store_image_candidate(self,actor,job_id,sha,*,provider_attempt_id=None,
-                              candidate_receipt_sha=None):
+                              candidate_receipt_sha=None,expected_approval_sha=None):
         if not isinstance(sha,str) or len(sha)!=64:
             raise LiveGateError("IMAGE_HASH_INVALID")
         if candidate_receipt_sha is not None and (
@@ -801,6 +805,8 @@ class LiveStore:
             job=self._read(c,job_id,actor)
             if job["state"]!="PROMPT_READY":
                 raise LiveGateError("IMAGE_STATE_CONFLICT")
+            if expected_approval_sha is not None and job["approval_sha"]!=expected_approval_sha:
+                raise LiveGateError("IMAGE_APPROVAL_STALE")
             self._approved(job,c)
             prior=c.execute("""SELECT * FROM live_image_attempts WHERE job_id=?
                 ORDER BY attempt_version DESC LIMIT 1""",(job_id,)).fetchone()

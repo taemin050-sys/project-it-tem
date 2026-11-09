@@ -41,21 +41,31 @@ const stateMap:Record<LiveState,JobStatus>={
   PROMPT_READY:'COPY_APPROVED',IMAGE_REVIEW_REQUIRED:'IMAGE_REVIEW_REQUIRED',
   IMAGE_APPROVED:'IMAGE_APPROVED',IMAGE_REJECTED:'IMAGE_REJECTED',COMPLETED:'COMPLETED'
 }
+const artifactBase=(snapshot:Pick<LiveSnapshot,'job_id'|'mode'>)=>
+  (snapshot.mode==='OFFLINE_FIXTURE' && QA_OFFLINE_FIXTURE
+    ? '/demo/api/qa/jobs/' : '/demo/api/live/jobs/')+encodeURIComponent(snapshot.job_id)+'/artifacts/'
+
+export function candidateArtifactPath(snapshot:Pick<LiveSnapshot,'job_id'|'mode'> & {image_sha?:string|null}):string|undefined{
+  return snapshot.image_sha
+    ? artifactBase(snapshot)+'candidate?sha256='+encodeURIComponent(snapshot.image_sha)
+    : undefined
+}
+
 export function asProductJob(snapshot:LiveSnapshot,b0:Job):Job{
   if(snapshot.job_id!==b0.job_id)throw Error('LIVE_JOB_ID_MISMATCH')
   if(snapshot.mode==='OFFLINE_FIXTURE'&&!QA_OFFLINE_FIXTURE)
     throw Error('LIVE_PROVENANCE_NOT_VERIFIED')
-  const base=(snapshot.mode==='OFFLINE_FIXTURE' && QA_OFFLINE_FIXTURE
-    ? '/demo/api/qa/jobs/' : '/demo/api/live/jobs/')+encodeURIComponent(snapshot.job_id)
-  const candidate=snapshot.image_sha?{mock:snapshot.mode==='OFFLINE_FIXTURE'}:undefined
+  const base=artifactBase(snapshot)
+  const candidatePath=candidateArtifactPath(snapshot)
+  const candidate=candidatePath?{mock:snapshot.mode==='OFFLINE_FIXTURE'}:undefined
   const artifacts={...b0.artifacts,
-    ...(snapshot.image_sha?{image:{kind:'image' as const,content_type:'image/png',
-      size_bytes:0,download_url:base+'/artifacts/candidate'}}:{}),
+    ...(candidatePath?{image:{kind:'image' as const,content_type:'image/png',
+      size_bytes:0,download_url:candidatePath}}:{}),
     ...(snapshot.state==='COMPLETED'?{
       final:{kind:'final' as const,content_type:'image/png',size_bytes:0,
-        download_url:base+'/artifacts/final'},
+        download_url:base+'final'},
       caption:{kind:'caption' as const,content_type:'text/plain;charset=utf-8',size_bytes:0,
-        download_url:base+'/artifacts/caption'}}:{})
+        download_url:base+'caption'}}:{})
   }
   return {...b0,status:stateMap[snapshot.state],artifacts,
     live_revision_binding:{generation:snapshot.generation,
@@ -114,6 +124,15 @@ export const sameImageCandidate=(seen:LiveSnapshot,current:LiveSnapshot)=>
   seen.image_sha===current.image_sha && seen.generation===current.generation &&
   seen.copy_sha===current.copy_sha && seen.review_sha===current.review_sha &&
   current.approval_current
+export function isImageReviewHydrated(job:Job|undefined,snapshot:LiveSnapshot|undefined):boolean{
+  if(!job || !snapshot || job.status!=='IMAGE_REVIEW_REQUIRED' ||
+    snapshot.state!=='IMAGE_REVIEW_REQUIRED' || job.job_id!==snapshot.job_id ||
+    !snapshot.approval_current || !snapshot.image_sha)return false
+  const binding=job.live_revision_binding
+  return job.artifacts?.image?.download_url===candidateArtifactPath(snapshot) &&
+    binding?.generation===snapshot.generation && binding.copy_sha===snapshot.copy_sha &&
+    binding.review_sha===snapshot.review_sha
+}
 export function guardImageApproval(s:LiveSnapshot){
   if(s.state!=='IMAGE_REVIEW_REQUIRED'||!s.image_sha||!s.approval_current)
     throw Error('IMAGE_SHA_OR_COPY_APPROVAL_MISMATCH')

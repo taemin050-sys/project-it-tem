@@ -135,7 +135,14 @@ class LivePipeline:
         return self.state.create(actor,job_id,payload,job["assets"],
                                  template_profile=template_profile)
 
+    def require_live_actor(self, actor):
+        if not (self.live_enabled and self.pm_authorized):
+            raise LiveNotAuthorized("LIVE_NOT_APPROVED")
+        if actor not in self.approved_actors:
+            raise LiveNotAuthorized("LIVE_ACTOR_NOT_AUTHORIZED")
+
     def _guarded(self,actor,job_id,stage,payload,action,*,image=False):
+        self.require_live_actor(actor)
         # No key/client/import/provider even attempted before this transaction.
         cost=self.image_reservation if image else self.text_reservation
         record=self.cost.reserve(
@@ -179,18 +186,19 @@ class LivePipeline:
         return result
 
     def text(self,actor,job_id,provider:TextProvider|None=None,*,offline=False,
-             text_model="gpt-6-luna",vision_model="gpt-6-luna"):
+             text_model="gpt-6-luna",vision_model="gpt-6-luna",expected_input_sha=None):
         job=self.state.get(actor,job_id)
-        if job["state"]!="INPUT_STORED":
+        if job["state"]!="INPUT_STORED" or job["mode"]!="INPUT_ONLY":
             raise LiveGateError("TEXT_STATE_CONFLICT")
+        if expected_input_sha is not None and job["input_sha"]!=expected_input_sha:
+            raise LiveGateError("TEXT_QUEUE_CONTEXT_STALE")
         snapshot=json.loads(job["input_json"])
         product=ProductInput.model_validate(snapshot["product"],strict=True)
         photos,_=self._photos(job_id,snapshot["ordered_asset_hashes"])
         if offline:
             if provider is None:raise LiveGateError("OFFLINE_FAKE_REQUIRED")
         else:
-            if not (self.live_enabled and self.pm_authorized):
-                raise LiveNotAuthorized("LIVE_NOT_APPROVED")
+            self.require_live_actor(actor)
             if provider is not None:
                 raise LiveGateError("INJECTED_PROVIDER_FORBIDDEN_IN_LIVE")
             provider=OfficialTextProvider(text_model,vision_model)
@@ -287,8 +295,7 @@ class LivePipeline:
             if provider is None:
                 raise LiveGateError("OFFLINE_FAKE_REQUIRED")
         else:
-            if not (self.live_enabled and self.pm_authorized and actor in self.approved_actors):
-                raise LiveNotAuthorized("LIVE_NOT_APPROVED")
+            self.require_live_actor(actor)
             if provider is not None:
                 raise LiveGateError("INJECTED_PROVIDER_FORBIDDEN_IN_LIVE")
             provider=OfficialTextProvider(text_model,text_model)
@@ -354,24 +361,28 @@ class LivePipeline:
             expected_generation,expected_review_sha,owner_feedback=feedback)
 
     def prompt(self,actor,job_id,provider:TextProvider|None=None,*,offline=False,
-               text_model="gpt-6-luna"):
+               text_model="gpt-6-luna",expected_approval_sha=None):
         job=self.state.get(actor,job_id)
         if job["state"]!="COPY_APPROVED":
             raise LiveGateError("PROMPT_REQUIRES_APPROVED_COPY")
+        mode="OFFLINE_FIXTURE" if offline else "LIVE"
+        if job["mode"]!=mode:
+            raise LiveGateError("PROMPT_PROVENANCE_MISMATCH")
+        approval_sha=job["approval_sha"]
+        if expected_approval_sha is not None and approval_sha!=expected_approval_sha:
+            raise LiveGateError("PROMPT_QUEUE_CONTEXT_STALE")
         self.state._approved(job)
         if offline:
             if provider is None:raise LiveGateError("OFFLINE_FAKE_REQUIRED")
         else:
-            if not (self.live_enabled and self.pm_authorized):
-                raise LiveNotAuthorized("LIVE_NOT_APPROVED")
+            self.require_live_actor(actor)
             if provider is not None:
                 raise LiveGateError("INJECTED_PROVIDER_FORBIDDEN_IN_LIVE")
             provider=OfficialTextProvider(text_model,text_model)
         cp=json.loads(job["copy_json"])
         a=ProductAnalysisResult.model_validate(json.loads(job["analysis_json"]),strict=True)
-        mode="OFFLINE_FIXTURE" if offline else "LIVE"
         ctx={"copy_sha":job["copy_sha"],"generation":job["generation"],
-             "approval_sha":job["approval_sha"],"model":text_model}
+             "approval_sha":approval_sha,"model":text_model}
         fingerprint=digest(ctx)
         out=self.checkpoints.load(actor,job_id,"image_prompt",fingerprint,mode,
                                   ImagePromptOutput)
@@ -383,7 +394,7 @@ class LivePipeline:
                 "image_prompt",ctx,do_prompt)
             out=self.checkpoints.commit(actor,job_id,"image_prompt",fingerprint,
                                         mode,proposed,ImagePromptOutput)
-        return self.state.store_prompt(actor,job_id,out)
+        return self.state.store_prompt(actor,job_id,out,expected_approval_sha=approval_sha)
 
     def begin_image_retry(self,actor,job_id,expected_sha,request_key):
         """Explicit rejection recovery. No Text/VLM/Research/Prompt rerun."""
@@ -421,17 +432,20 @@ class LivePipeline:
                 atomic_write(archived_receipt,receipt_bytes)
         return self.state.begin_image_retry(actor,job_id,expected_sha,request_key)
 
-    def image_input(self,actor,job_id):
+    def image_input(self,actor,job_id,*,expected_approval_sha=None):
         job=self.state.get(actor,job_id)
         snapshot=json.loads(job["input_json"])
         photos,refs=self._photos(job_id,snapshot["ordered_asset_hashes"])
-        return self.state.image_request(actor,job_id,photos,refs)
+        return self.state.image_request(actor,job_id,photos,refs,
+                                        expected_approval_sha=expected_approval_sha)
 
-    def accept_image_result(self,actor,job_id,output,*,offline=False):
+    def accept_image_result(self,actor,job_id,output,*,offline=False,expected_approval_sha=None):
         job=self.state.get(actor,job_id)
         if job["state"]!="PROMPT_READY":
             raise LiveGateError("IMAGE_NOT_READY")
-        if bool(output.mock)!=bool(offline):
+        if expected_approval_sha is not None and job["approval_sha"]!=expected_approval_sha:
+            raise LiveGateError("IMAGE_QUEUE_CONTEXT_STALE")
+        if job["mode"]!=("OFFLINE_FIXTURE" if offline else "LIVE") or bool(output.mock)!=bool(offline):
             raise LiveGateError("IMAGE_MODE_MISMATCH")
         if output.job_id!=job_id or output.copy_revision!=job["generation"] or output.copy_hash!=job["copy_sha"]:
             raise LiveGateError("IMAGE_BINDING_MISMATCH")
@@ -444,7 +458,7 @@ class LivePipeline:
         sha=hashlib.sha256(output.image_bytes).hexdigest()
         if sha!=output.sha256:
             raise LiveGateError("IMAGE_HASH_MISMATCH")
-        owner_request=self.image_input(actor,job_id)
+        owner_request=self.image_input(actor,job_id,expected_approval_sha=job["approval_sha"])
         if owner_request.layout_selection is not None:
             from src.image_generation.size_selection import resolve_size_choice
             _,profile=resolve_size_choice(owner_request.layout_selection.aspect_ratio)
@@ -468,7 +482,8 @@ class LivePipeline:
         if provider_id is not None and not isinstance(provider_id,str):
             raise LiveGateError("IMAGE_PROVIDER_ATTEMPT_INVALID")
         return self.state.store_image_candidate(actor,job_id,sha,
-                provider_attempt_id=provider_id,candidate_receipt_sha=receipt_sha)
+                provider_attempt_id=provider_id,candidate_receipt_sha=receipt_sha,
+                expected_approval_sha=job["approval_sha"])
 
     def image_path(self,job_id):
         if not len(job_id)==32 or not all(x in "0123456789abcdef" for x in job_id):

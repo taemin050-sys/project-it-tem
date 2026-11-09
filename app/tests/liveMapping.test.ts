@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import {asProductJob,guardCopyApproval,guardCopyReviewMutation,guardCopyRevision,sameCopyReview,sameImageCandidate,guardImageApproval,isPublishedFinal,isCopyReviewHydrated,type LiveSnapshot} from '../src/api/liveMapping.ts'
+import {asProductJob,guardCopyApproval,guardCopyReviewMutation,guardCopyRevision,sameCopyReview,sameImageCandidate,guardImageApproval,isPublishedFinal,isCopyReviewHydrated,isImageReviewHydrated,type LiveSnapshot} from '../src/api/liveMapping.ts'
 import type {Job} from '../src/types/draft.ts'
 const raw:Job={job_id:'a'.repeat(32),status:'INPUTS_VALIDATED',assets:[{
   asset_id:'A',role:'product',original_filename:'a.png',content_type:'image/png',
@@ -61,6 +61,19 @@ test('image approval requires an active copy approval and candidate SHA',()=>{
     approval_current:true,mode:'LIVE'}
   assert.doesNotThrow(()=>guardImageApproval(candidate))
   assert.throws(()=>guardImageApproval({...candidate,approval_current:false}))
+})
+test('a replacement image gets a distinct preview URL and cannot use the old view for review',()=>{
+  const first={...example,state:'IMAGE_REVIEW_REQUIRED' as const,mode:'LIVE',generation:1,
+    image_sha:'a'.repeat(64),copy_sha:'b'.repeat(64),review_sha:'c'.repeat(64),approval_current:true}
+  const second={...first,image_sha:'d'.repeat(64)}
+  const firstJob=asProductJob(first,raw)
+  const secondJob=asProductJob(second,raw)
+  assert.equal(firstJob.artifacts?.image?.download_url,
+    '/demo/api/live/jobs/'+raw.job_id+'/artifacts/candidate?sha256='+first.image_sha)
+  assert.notEqual(firstJob.artifacts?.image?.download_url,secondJob.artifacts?.image?.download_url)
+  assert.equal(isImageReviewHydrated(firstJob,second),false)
+  assert.equal(isImageReviewHydrated(secondJob,second),true)
+  assert.equal(isImageReviewHydrated(secondJob,{...second,review_sha:'f'.repeat(64)}),false)
 })
 test('real final download maps to the owner-scoped server, no offline artifacts',()=>{
   const job=asProductJob({...example,state:'COMPLETED',mode:'LIVE',

@@ -5,9 +5,11 @@ fake provider mode is exposed by HTTP. Live dispatch is default-off by policy.
 """
 from __future__ import annotations
 
+import fcntl
 import json
 import os
 import sqlite3
+import stat
 from pathlib import Path
 
 from fastapi import FastAPI,HTTPException,Request
@@ -20,6 +22,9 @@ from .queue import LiveQueue
 from .reviews import LiveShares
 from demo_staging.app import ReviewBody
 from demo_staging.live_safety import LiveNotAuthorized
+
+B_RUNTIME_ROOT = Path("/home/macstudio/ittem-bp18-product-completion-20261111/runtime")
+B_TAILNET_HOST = "macstudio-macstudio.tail17dfff.ts.net:10500"
 
 
 class InputPayload(BaseModel):
@@ -71,15 +76,22 @@ class ComposeRequest(BaseModel):
     layout:dict|None=None
 
 
-def web_queue_policy() -> dict:
-    """Queue-only PM policy. Web must never possess API credentials.
+def web_queue_policy(*, signed_b: bool = False) -> dict:
+    """Web may enqueue work only when the deployment's controls agree.
 
-    Live remains entirely OFF unless all explicit controls agree. Worker
-    independently validates the key and identical PM/cost configuration.
+    Track B's deployed web process must use signed identity without a provider key.
     """
     required=("IT_TEM_LIVE_WEB_QUEUE_ENABLED","IT_TEM_LIVE_ENABLED",
               "IT_TEM_LIVE_EXECUTION_APPROVED","IT_TEM_PROVIDER_READINESS_CONFIRMED")
     if any(os.environ.get(k)!="YES" for k in required):
+        return {"enabled":False,"actors":frozenset()}
+    if signed_b and (
+        os.environ.get("IT_TEM_TAILNET_AUTH_ENABLED") != "YES"
+        or os.environ.get("IT_TEM_TAILNET_SSO_ONLY") != "YES"
+        or os.environ.get("IT_TEM_TAILNET_EXPECTED_HOST") != B_TAILNET_HOST
+        or os.environ.get("IT_TEM_DEMO_ENABLE_LIVE_CONFIG") == "YES"
+        or os.environ.get("OPENAI_API_KEY")
+    ):
         return {"enabled":False,"actors":frozenset()}
     actors=frozenset(x.strip() for x in
         os.environ.get("IT_TEM_LIVE_APPROVED_ACTORS","").split(",") if x.strip())
@@ -90,8 +102,30 @@ def web_queue_policy() -> dict:
     return {"enabled":True,"actors":actors}
 
 
+def _worker_holds_lock(runtime_root: Path) -> bool:
+    """Read the worker's lifetime lock without creating or changing it."""
+    try:
+        fd = os.open(runtime_root / "live/worker.lock",
+                     os.O_RDONLY | os.O_NONBLOCK | os.O_NOFOLLOW)
+    except OSError:
+        return False
+    try:
+        if not stat.S_ISREG(os.fstat(fd).st_mode):
+            return False
+        fcntl.flock(fd, fcntl.LOCK_SH | fcntl.LOCK_NB)
+    except BlockingIOError:
+        return True
+    except OSError:
+        return False
+    finally:
+        os.close(fd)
+    return False
+
+
 def register_live_api(app:FastAPI, ledger, runtime_root:Path, cookie_name:str):
-    policy=web_queue_policy()
+    runtime_root = Path(runtime_root)
+    signed_b = runtime_root.resolve() == B_RUNTIME_ROOT
+    policy=web_queue_policy(signed_b=signed_b)
     flow=LivePipeline(Path(runtime_root)/"live",app.state.job_store,
         live_enabled=policy["enabled"],pm_authorized=policy["enabled"],
         approved_actors=policy["actors"],
@@ -113,6 +147,19 @@ def register_live_api(app:FastAPI, ledger, runtime_root:Path, cookie_name:str):
         if job_id and not ledger.owns(actor,job_id):
             raise HTTPException(status_code=404,detail="Job not found")
         return actor
+
+    def queue_blocker(actor):
+        if not (flow.live_enabled and flow.pm_authorized and actor in flow.approved_actors):
+            return "LIVE_PROVIDER_NOT_APPROVED"
+        if signed_b and not _worker_holds_lock(runtime_root):
+            return "LIVE_WORKER_UNAVAILABLE"
+        return None
+
+    def require_queue(actor):
+        blocker = queue_blocker(actor)
+        if blocker:
+            raise HTTPException(status_code=503 if blocker == "LIVE_WORKER_UNAVAILABLE" else 423,
+                                detail=blocker)
 
     def safe_error(error):
         if isinstance(error,LiveNotAuthorized):
@@ -361,11 +408,11 @@ def register_live_api(app:FastAPI, ledger, runtime_root:Path, cookie_name:str):
     @app.get(prefix+"/capabilities")
     def capabilities(request:Request):
         actor=authorized(request)
-        allowed=bool(flow.live_enabled and flow.pm_authorized
-                     and actor in flow.approved_actors)
-        return {"live_enabled":allowed,
-                "mode":"LIVE_QUEUE_READY" if allowed else "LIVE_BLOCKED",
-                "reason":None if allowed else "COST_AND_CONTRACT_PM_GATE",
+        blocker = queue_blocker(actor)
+        return {"live_enabled":blocker is None,
+                "mode":"LIVE_QUEUE_READY" if blocker is None else "LIVE_BLOCKED",
+                "reason":"COST_AND_CONTRACT_PM_GATE" if not signed_b and
+                         blocker == "LIVE_PROVIDER_NOT_APPROVED" else blocker,
                 "provisional_wire":True,"mock_fallback":False}
 
     @app.post(prefix+"/jobs/{job_id}/input")
@@ -397,11 +444,9 @@ def register_live_api(app:FastAPI, ledger, runtime_root:Path, cookie_name:str):
     @app.post(prefix+"/jobs/{job_id}/queue-text")
     def queue_text(job_id:str,request:Request):
         actor=authorized(request,job_id)
-        if not (flow.live_enabled and flow.pm_authorized and
-                actor in flow.approved_actors):
-            raise HTTPException(status_code=423,detail="LIVE_PROVIDER_NOT_APPROVED")
+        require_queue(actor)
         j=flow.state.get(actor,job_id)
-        if j["state"]!="INPUT_STORED":
+        if j["state"]!="INPUT_STORED" or j["mode"]!="INPUT_ONLY":
             raise HTTPException(status_code=409,detail="LIVE_TEXT_STATE_CONFLICT")
         task,new=queue.enqueue(actor=actor,job_id=job_id,stage="analysis",
                                context_sha=j["input_sha"],mode="LIVE")
@@ -472,9 +517,7 @@ def register_live_api(app:FastAPI, ledger, runtime_root:Path, cookie_name:str):
     @app.post(prefix+"/jobs/{job_id}/revise-copy")
     def queue_owner_text_revision(job_id:str,body:CopyRevisionRequest,request:Request):
         actor=authorized(request,job_id)
-        if not (flow.live_enabled and flow.pm_authorized and
-                actor in flow.approved_actors):
-            raise HTTPException(status_code=423,detail="LIVE_PROVIDER_NOT_APPROVED")
+        require_queue(actor)
         try:
             job=flow.state.get(actor,job_id)
             if job["mode"]!="LIVE":
@@ -532,11 +575,9 @@ def register_live_api(app:FastAPI, ledger, runtime_root:Path, cookie_name:str):
     @app.post(prefix+"/jobs/{job_id}/queue-prompt")
     def queue_prompt(job_id:str,request:Request):
         actor=authorized(request,job_id)
-        if not (flow.live_enabled and flow.pm_authorized and
-                actor in flow.approved_actors):
-            raise HTTPException(status_code=423,detail="LIVE_PROVIDER_NOT_APPROVED")
+        require_queue(actor)
         j=flow.state.get(actor,job_id)
-        if j["state"]!="COPY_APPROVED" or not j["approval_sha"]:
+        if j["state"]!="COPY_APPROVED" or j["mode"]!="LIVE" or not j["approval_sha"]:
             raise HTTPException(status_code=409,detail="COPY_NOT_APPROVED")
         task,new=queue.enqueue(actor=actor,job_id=job_id,stage="image_prompt",
                                context_sha=j["approval_sha"],mode="LIVE")
@@ -546,11 +587,9 @@ def register_live_api(app:FastAPI, ledger, runtime_root:Path, cookie_name:str):
     @app.post(prefix+"/jobs/{job_id}/queue-image")
     def queue_image(job_id:str,request:Request):
         actor=authorized(request,job_id)
-        if not (flow.live_enabled and flow.pm_authorized and
-                actor in flow.approved_actors):
-            raise HTTPException(status_code=423,detail="LIVE_PROVIDER_NOT_APPROVED")
+        require_queue(actor)
         j=flow.state.get(actor,job_id)
-        if j["state"]!="PROMPT_READY" or not j["prompt_json"]:
+        if j["state"]!="PROMPT_READY" or j["mode"]!="LIVE" or not j["prompt_json"]:
             raise HTTPException(status_code=409,detail="IMAGE_NOT_READY")
         attempt=flow.state.current_image_attempt(actor,job_id)
         ctx=(digest({"approval_sha":j["approval_sha"],"attempt_id":attempt["attempt_id"]})
@@ -563,9 +602,10 @@ def register_live_api(app:FastAPI, ledger, runtime_root:Path, cookie_name:str):
     @app.post(prefix+"/jobs/{job_id}/regenerate-image")
     def regenerate_image(job_id:str,body:ImageRegenerateRequest,request:Request):
         actor=authorized(request,job_id)
-        if not (flow.live_enabled and flow.pm_authorized and actor in flow.approved_actors):
-            raise HTTPException(423,"LIVE_PROVIDER_NOT_APPROVED")
+        require_queue(actor)
         try:
+            if flow.state.get(actor,job_id)["mode"] != "LIVE":
+                raise LiveGateError("IMAGE_RETRY_STATE_CONFLICT")
             queue.assert_image_retry_safe(actor,job_id)
             attempt=flow.begin_image_retry(actor,job_id,body.expected_image_sha,
                                            body.request_key)
@@ -785,17 +825,26 @@ def register_live_api(app:FastAPI, ledger, runtime_root:Path, cookie_name:str):
                 "final_sha":item["final_sha"]}
 
     @app.get(prefix+"/jobs/{job_id}/artifacts/candidate")
-    def candidate(job_id:str,request:Request):
+    def candidate(job_id:str,request:Request,sha256:str|None=None):
         actor=authorized(request,job_id)
         j=flow.state.get(actor,job_id)
         if j["state"] not in ("IMAGE_REVIEW_REQUIRED","IMAGE_APPROVED") or j["mode"]!="LIVE":
             raise HTTPException(status_code=409,detail="IMAGE_NOT_READY")
-        target=flow.image_path(job_id)
+        expected=j["image_sha"]
+        if sha256 is not None and sha256!=expected:
+            raise HTTPException(status_code=409,detail="IMAGE_CANDIDATE_CHANGED")
         import hashlib
-        if not target.is_file() or hashlib.sha256(target.read_bytes()).hexdigest()!=j["image_sha"]:
+        from fastapi.responses import Response
+        try:
+            payload=flow.image_path(job_id).read_bytes()
+        except OSError:
+            raise HTTPException(status_code=503,detail="Image integrity unavailable") from None
+        if hashlib.sha256(payload).hexdigest()!=expected:
             raise HTTPException(status_code=503,detail="Image integrity unavailable")
-        return FileResponse(target,media_type="image/png",
-                            headers={"Cache-Control":"private,no-store"})
+        # Return the exact bytes verified above, even if a new candidate
+        # replaces the file before the response is sent.
+        return Response(payload,media_type="image/png",
+                        headers={"Cache-Control":"private,no-store"})
 
     @app.get(prefix+"/jobs/{job_id}/artifacts/{kind}")
     def download(job_id:str,kind:str,request:Request):
