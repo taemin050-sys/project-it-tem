@@ -1,9 +1,10 @@
 import { useState } from 'react'
+import { useQuery } from '@tanstack/react-query'
 import { Link, useNavigate } from 'react-router-dom'
 import { restorePrevious, review, reviseJob } from '../api/jobs'
 import { advance, resetJob, useBlob, useBlobUrl, useJob, useLiveSnapshot, useLiveProgress } from '../api/useJob'
 import {approveImageAndCompose,rejectImage,resumeImageFromApproved,retryCompose} from '../api/liveFlow'
-import {getLiveSnapshot} from '../api/liveJobs'
+import {getLivePerformance,getLiveSnapshot} from '../api/liveJobs'
 import JobBadges from '../components/JobBadges'
 import RunStatus from '../components/RunStatus'
 import StepPage from '../components/StepPage'
@@ -28,6 +29,20 @@ export default function DraftPage() {
   const mock=useProjectStore(s=>s.mock)
   const {data:live}=useLiveSnapshot()
   const {data:task}=useLiveProgress()
+  const candidateSha = !mock && live?.mode === 'LIVE' && live.job_id === jobId &&
+    job?.job_id === jobId && job?.image_candidate?.mock === false ? live.image_sha : null
+  const { data: performance, isLoading: costLoading } = useQuery({
+    queryKey: ['live-performance', jobId, candidateSha],
+    queryFn: () => getLivePerformance(jobId!),
+    enabled: !!candidateSha,
+    retry: false,
+  })
+  const imageAttempts = performance?.job_id === jobId
+    ? performance.provider_attempts.filter(attempt => attempt.stage === 'image' &&
+      (attempt.state === 'SUCCEEDED_USAGE_UNPRICED' || attempt.state === 'SUCCEEDED'))
+    : []
+  // The performance response identifies the job, but does not link an attempt to the candidate SHA.
+  const imageEstimate = imageAttempts.length === 1 ? imageAttempts[0].estimated_cost_usd : null
   const imageUrl = useBlobUrl(job && imagePath(job))
   const imageBlob = useBlob(job && imagePath(job))
   // 크기는 불러온 이미지 URL과 같이 저장해, 수정 요청·되돌리기로 이미지가 바뀌면 이전 크기를 쓰지 않는다
@@ -145,6 +160,9 @@ export default function DraftPage() {
               <figcaption className="button-row">
                 <button type="button" className="button secondary small" onClick={saveImage}>이미지만 저장</button>
                 {size && <span className="muted">{size.width}×{size.height}px · 카피 합성 전</span>}
+                {candidateSha && <span className="muted">사용량 기준 이미지 추정 비용 · {
+                  costLoading ? '조회 중…' : imageEstimate == null ? '확인 필요' : 'US$ ' + imageEstimate
+                }</span>}
               </figcaption>
             )}
           </figure>

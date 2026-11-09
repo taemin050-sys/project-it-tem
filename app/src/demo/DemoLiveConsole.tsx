@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import LiveEvaluationBoard from './LiveEvaluationBoard'
 import { AD_LAYOUT as layout } from '../config'
+import type { LivePerformance } from '../api/liveMapping'
 
 type Stage = 'INPUT_STORED' | 'COPY_REVIEW_REQUIRED' | 'COPY_APPROVED' | 'COPY_REJECTED' |
              'PROMPT_READY' | 'IMAGE_REVIEW_REQUIRED' | 'IMAGE_APPROVED' | 'IMAGE_REJECTED' | 'COMPLETED'
@@ -16,10 +17,6 @@ type LiveSnapshot = {
   image_prompt?:{concept:string;prompt:string;mood:string[]};
 }
 type Task = {task_id:string;state:string;error_code?:string|null}
-type Performance={timings:Array<{stage:string;state:string;server_elapsed_s:number|null}>;
-  provider_attempts:Array<{stage:string;state:string;model:string|null;
-    usage:Record<string,number>|null;billing_unknown:boolean}>;
-  project_spend_status:string;application_cost_policy:string}
 type State = {live_enabled:boolean;mode:string;reason:string}
 const api='/demo/api/live'
 
@@ -41,7 +38,7 @@ export default function DemoLiveConsole({evaluatorId}:{evaluatorId:string}){
   const [savedCounts,setSavedCounts]=useState({products:0,references:0})
   const savedJobKey='ittem.live.job.'+evaluatorId
   const [task,setTask]=useState<Task|null>(null)
-  const [perf,setPerf]=useState<Performance|null>(null)
+  const [perf,setPerf]=useState<LivePerformance|null>(null)
   const [error,setError]=useState('')
   const [shared,setShared]=useState(false)
   const [busy,setBusy]=useState(false)
@@ -63,7 +60,7 @@ export default function DemoLiveConsole({evaluatorId}:{evaluatorId:string}){
     const x=await request<LiveSnapshot>(api+'/jobs/'+id)
     setSnap(x)
     if(x.mode==='LIVE'){
-      void request<Performance>(api+'/jobs/'+id+'/performance').then(setPerf).catch(()=>{})
+      void request<LivePerformance>(api+'/jobs/'+id+'/performance').then(setPerf).catch(()=>{})
     }
     // Polling must never erase text the evaluator is currently editing.
     if(x.copy && x.copy_sha !== lastCopyHash.current){
@@ -295,11 +292,14 @@ export default function DemoLiveConsole({evaluatorId}:{evaluatorId:string}){
       {perf&&<details>
         <summary>실제 AI 단계별 처리시간·사용량</summary>
         <p>비용 정책: {perf.application_cost_policy} · 프로젝트 전체 사용액: {perf.project_spend_status}</p>
-        <table><thead><tr><th>단계</th><th>상태</th><th>처리시간</th><th>모델·Usage</th></tr></thead>
+        <table><thead><tr><th>단계</th><th>상태</th><th>처리시간</th><th>모델·Usage</th><th>사용량 기준 추정 비용</th></tr></thead>
         <tbody>{perf.provider_attempts.map((a,i)=><tr key={i}>
           <td>{a.stage}</td><td>{a.state}</td>
           <td>{perf.timings.find(t=>t.stage===a.stage)?.server_elapsed_s ?? '확인 필요'}초</td>
           <td>{a.model||'확인 필요'} · {a.usage?JSON.stringify(a.usage):'Usage 확인 필요'}</td>
+          <td title={a.estimate_rate_version ?? undefined}>{a.stage === 'image'
+            ? (a.estimated_cost_usd == null ? '확인 필요' : 'US$ ' + a.estimated_cost_usd)
+            : '—'}</td>
         </tr>)}</tbody></table>
         <p>서비스 내부 기록은 OpenAI 프로젝트 전체 청구액이 아닙니다. 청구금액 미확인 상태에서는 잔액을 추정하지 않습니다.</p>
       </details>}

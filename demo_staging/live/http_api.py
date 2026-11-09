@@ -263,6 +263,7 @@ def register_live_api(app:FastAPI, ledger, runtime_root:Path, cookie_name:str):
         actor=authorized(request,job_id)
         flow.state.get(actor,job_id)
         from datetime import datetime,timezone
+        from src.image_generation.cost_estimate import estimate_image_cost
         timings=[]
         with queue.db() as db:
             records=db.execute("""SELECT stage,state,created_at,started_at,ended_at
@@ -285,12 +286,21 @@ def register_live_api(app:FastAPI, ledger, runtime_root:Path, cookie_name:str):
         with flow.cost.connect() as db:
             for r in db.execute("""SELECT stage,status,receipt,billing_unknown,created_at
                 FROM attempts WHERE job_id=? AND actor=? ORDER BY created_at""",(job_id,actor)):
-                x=json.loads(r["receipt"]) if r["receipt"] else {}
-                attempts.append({"stage":r["stage"],"state":r["status"],
+                try:
+                    x=json.loads(r["receipt"]) if r["receipt"] else {}
+                except json.JSONDecodeError:
+                    x={}
+                if not isinstance(x,dict):
+                    x={}
+                attempt={"stage":r["stage"],"state":r["status"],
                     "model":x.get("model"),"usage":x.get("usage"),
                     "billing_unknown":bool(r["billing_unknown"]),
                     "started_at":r["created_at"],
-                    "actual_cost_usd":None})
+                    "actual_cost_usd":None}
+                if r["stage"]=="image":
+                    estimate,rate_version=estimate_image_cost(attempt["model"],attempt["usage"])
+                    attempt.update(estimated_cost_usd=estimate,estimate_rate_version=rate_version)
+                attempts.append(attempt)
         return {"mode":"LIVE","job_id":job_id,"timings":timings,
           "provider_attempts":attempts,"project_spend_usd":None,
           "project_spend_status":"사용액 확인 필요",

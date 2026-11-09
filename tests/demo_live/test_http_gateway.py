@@ -85,3 +85,67 @@ def test_live_endpoint_no_unprotected_mutation_or_paid_approvals(tmp_path):
         assert c.post("/demo/api/live/jobs/"+jid+"/input",json={"product":{}},
                  headers={"Origin":"http://testserver"}).status_code in {404,422}
         assert c.get("/demo/api/live/tasks/"+"f"*32).status_code==404
+
+
+def test_live_performance_prices_saved_image_usage_only(tmp_path):
+    from demo_staging.live_safety import AttemptLedger
+
+    app, codes = setup(tmp_path)
+    origin = {"Origin": "http://testserver"}
+    with TestClient(app) as owner, TestClient(app) as other:
+        login(owner, codes["alice"])
+        login(other, codes["bob"])
+        created = owner.post("/api/v1/jobs", files=[
+            ("product_images", ("one.png", photo((120, 130, 140)), "image/png")),
+            ("product_images", ("two.png", photo((150, 160, 170)), "image/png")),
+        ], headers=origin)
+        assert created.status_code == 201, created.text
+        job_id = created.json()["job_id"]
+        url = f"/demo/api/live/jobs/{job_id}"
+        assert owner.post(f"{url}/input", json=sample_input(), headers=origin).status_code == 200
+
+        ledger = AttemptLedger(app.state.live_pipeline.cost.filename,
+                               live_enabled=True, monitoring_only=True)
+        model = "gpt-image-2.5-sunburst-2026-09-08"
+        usage = {"input_tokens": 6491, "input_text_tokens": 683,
+                 "input_image_tokens": 5808, "output_tokens": 418, "total_tokens": 6909}
+        cases = [
+            ("image", model, usage, "0.062419"),
+            ("image", model, {**usage, "input_image_tokens": None}, None),
+            ("image", model, {**usage, "input_image_tokens": 5807}, None),
+            ("image", model, {**usage, "output_tokens": True}, None),
+            ("image", "unknown-image-model", usage, None),
+            ("image", "gpt-image-2-2026-04-21", dict.fromkeys(usage, 0), "0.000000"),
+            ("copy", "gpt-6-luna", usage, None),
+        ]
+        attempt_ids = []
+        for index, (stage, model_id, counts, _) in enumerate(cases):
+            record = ledger.reserve(actor="alice", role="live_operator", job_id=job_id,
+                                    stage=stage, payload={"index": index},
+                                    estimated_usd=0, pm_authorized=True)
+            attempt_id = record["id"]
+            attempt_ids.append(attempt_id)
+            ledger.dispatch_intent(attempt_id)
+            ledger.confirm_usage_unpriced(attempt_id, {
+                "provider_response_id": f"req_test_{index}", "model": model_id,
+                "usage": counts, "billing_status": "UNPRICED_RESERVATION_HELD",
+            })
+
+        assert other.get(f"{url}/performance").status_code == 404
+        result = owner.get(f"{url}/performance")
+        assert result.status_code == 200, result.text
+        attempts = result.json()["provider_attempts"]
+        assert len(attempts) == len(cases)
+        for attempt, (stage, model_id, counts, expected) in zip(attempts, cases):
+            assert attempt["stage"] == stage
+            assert attempt["model"] == model_id
+            assert attempt["usage"] == counts
+            assert attempt["actual_cost_usd"] is None
+            if stage == "image":
+                assert attempt["estimated_cost_usd"] == expected
+                assert attempt["estimate_rate_version"] == (
+                    "openai-images-standard-uncached-2026-11-09-v1" if expected is not None else None
+                )
+            else:
+                assert "estimated_cost_usd" not in attempt
+        assert all(ledger.inspect(attempt_id)["cost_microusd"] is None for attempt_id in attempt_ids)

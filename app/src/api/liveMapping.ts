@@ -18,9 +18,10 @@ export type LiveSnapshot={
 export type LiveTask={task_id:string;job_id:string;stage:string;state:
   'QUEUED'|'RUNNING'|'SUCCEEDED'|'BILLING_UNKNOWN';error_code?:string|null}
 export type LivePerformance={
-  mode:'LIVE';timings:Array<{stage:string;state:string;server_elapsed_s:number|null}>;
+  mode:'LIVE';job_id:string;timings:Array<{stage:string;state:string;server_elapsed_s:number|null}>;
   provider_attempts:Array<{stage:string;state:string;model:string|null;
-    usage:Record<string,number>|null;billing_unknown:boolean}>;
+    usage:Record<string,number>|null;billing_unknown:boolean;
+    estimated_cost_usd?:string|null;estimate_rate_version?:string|null}>;
   project_spend_status:string;application_cost_policy:string
 }
 const stateMap:Record<LiveState,JobStatus>={
