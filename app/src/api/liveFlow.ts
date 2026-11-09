@@ -7,7 +7,7 @@ import {guardCopyApproval,guardImageApproval,sameCopyReview,sameImageCandidate,t
 import {AD_LAYOUT} from '../config'
 import {ApiError} from './client'
 // The generic HTTP messages (e.g. 422 = photo input) are wrong for a compose failure; the image is kept.
-const compose=(id:string)=>composeLive(id,AD_LAYOUT).catch(e=>{
+const compose=(id:string)=>composeLive(id,AD_LAYOUT,true).catch(e=>{
   throw Error('광고 합성에 실패했습니다. 승인한 이미지는 그대로 있으니 원인을 확인한 뒤 합성만 다시 시도하세요.'+
     (e instanceof ApiError&&e.status>0?` (오류 ${e.status})`:''))
 })

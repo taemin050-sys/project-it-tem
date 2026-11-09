@@ -56,8 +56,8 @@ export const rejectLiveImage=(s:LiveSnapshot)=>{
   guardImageApproval(s)
   return request<LiveSnapshot>(url(s.job_id)+'/reject-image',json({image_sha:s.image_sha}))
 }
-export const composeLive=(id:string,layout:unknown)=>request<LiveSnapshot>(
-  url(id)+'/compose',json({layout}))
+export const composeLive=(id:string,layout:unknown,fontVariants=false)=>request<LiveSnapshot>(
+  url(id)+'/compose',json(fontVariants?{layout,font_variants:true}:{layout}))
 export const shareLive=(id:string)=>request<{shared:boolean}>(url(id)+'/share',{method:'POST'})
 export const listPublishedLive=()=>request<{mode:string;jobs:Array<{
   job_id:string;final_sha:string;shared_at:string}>}>(prefix+'/shared')

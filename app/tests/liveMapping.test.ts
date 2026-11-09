@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import {asProductJob,guardCopyApproval,guardCopyRevision,guardImageApproval,isPublishedFinal,sameCopyReview,sameImageCandidate,type LiveSnapshot} from '../src/api/liveMapping.ts'
+import {asProductJob,guardCopyApproval,guardCopyRevision,guardImageApproval,isPublishedFinal,liveFontVariants,sameCopyReview,sameImageCandidate,type LiveSnapshot} from '../src/api/liveMapping.ts'
 import type {Job} from '../src/types/draft.ts'
 const raw:Job={job_id:'a'.repeat(32),status:'INPUTS_VALIDATED',assets:[{
   asset_id:'A',role:'product',original_filename:'a.png',content_type:'image/png',
@@ -78,4 +78,24 @@ test('published status is bound to completed immutable file sha, not job id alon
  assert.equal(isPublishedFinal({...s,final_sha:'f'.repeat(64)},entries),false)
  assert.equal(isPublishedFinal({...s,state:'IMAGE_APPROVED'},entries),false)
  assert.equal(isPublishedFinal(s,[{job_id:'other',final_sha:'a'.repeat(64)}]),false)
+})
+
+test('font export accepts a complete owner-scoped set bound to the canonical final', () => {
+  const base = '/demo/api/live/jobs/' + raw.job_id + '/artifacts/'
+  const finalSha = 'a'.repeat(64)
+  const snapshot: LiveSnapshot = {
+    ...example, state: 'COMPLETED', mode: 'LIVE', final_sha: finalSha,
+    font_variants: [
+      { preset: 'round', sha256: 'b'.repeat(64), download_url: base + 'font-round' },
+      { preset: 'myeongjo', sha256: 'c'.repeat(64), download_url: base + 'font-myeongjo' },
+      { preset: 'gothic', sha256: finalSha, download_url: base + 'final' },
+    ],
+  }
+  assert.deepEqual(liveFontVariants(snapshot, raw.job_id).map(variant => variant.preset), ['gothic', 'round', 'myeongjo'])
+  assert.deepEqual(liveFontVariants({ ...snapshot, font_variants: undefined }, raw.job_id), [])
+  assert.deepEqual(liveFontVariants(snapshot, 'other-job'), [])
+  assert.deepEqual(liveFontVariants({ ...snapshot, final_sha: 'f'.repeat(64) }, raw.job_id), [])
+  const wrongOwner = snapshot.font_variants!.map(variant => variant.preset === 'round'
+    ? { ...variant, download_url: '/demo/api/live/jobs/other-job/artifacts/font-round' } : variant)
+  assert.deepEqual(liveFontVariants({ ...snapshot, font_variants: wrongOwner }, raw.job_id), [])
 })

@@ -4,6 +4,12 @@ import type { AdCopyOutput, ComplianceReport, CopyField, ProductAnalysis, Resear
 
 export type LiveState='INPUT_STORED'|'COPY_REVIEW_REQUIRED'|'COPY_APPROVED'|'COPY_REJECTED'|
   'PROMPT_READY'|'IMAGE_REVIEW_REQUIRED'|'IMAGE_APPROVED'|'IMAGE_REJECTED'|'COMPLETED'
+const FONT_VARIANT_ARTIFACTS = { gothic: 'final', round: 'font-round', myeongjo: 'font-myeongjo' } as const
+export type LiveFontVariant = {
+  preset: keyof typeof FONT_VARIANT_ARTIFACTS
+  sha256: string
+  download_url: string
+}
 export type LiveSnapshot={
   job_id:string;state:LiveState;mode:string;generation:number;
   input_sha:string;copy_sha:string|null;review_sha:string|null;
@@ -12,8 +18,25 @@ export type LiveSnapshot={
   research_display?:ResearchResult;copy?:AdCopyOutput;compliance?:ComplianceReport;
   image_prompt?:unknown
   output_size?:{width:number;height:number}
+  font_variants?: LiveFontVariant[]
   revision_feedback?:{changed_fields:CopyField[];note:string}|null
   previous_copy_available?:boolean
+}
+
+export function liveFontVariants(snapshot: LiveSnapshot | undefined, jobId: string): LiveFontVariant[] {
+  const variants = snapshot?.font_variants
+  if (!snapshot || snapshot.job_id !== jobId || snapshot.state !== 'COMPLETED' ||
+      snapshot.mode !== 'LIVE' || !Array.isArray(variants) || variants.length !== 3) return []
+
+  const base = '/demo/api/live/jobs/' + encodeURIComponent(jobId) + '/artifacts/'
+  const verified: LiveFontVariant[] = []
+  for (const [preset, artifact] of Object.entries(FONT_VARIANT_ARTIFACTS)) {
+    const variant = variants.find(item => item?.preset === preset)
+    if (!variant || variant.download_url !== base + artifact || !/^[a-f0-9]{64}$/.test(variant.sha256) ||
+        (preset === 'gothic' && variant.sha256 !== snapshot.final_sha)) return []
+    verified.push(variant)
+  }
+  return verified
 }
 export type LiveTask={task_id:string;job_id:string;stage:string;state:
   'QUEUED'|'RUNNING'|'SUCCEEDED'|'BILLING_UNKNOWN';error_code?:string|null}

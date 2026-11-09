@@ -47,6 +47,7 @@ class ImageApproval(BaseModel):
 class ComposeRequest(BaseModel):
     model_config=ConfigDict(extra="forbid",strict=True)
     layout:dict
+    font_variants:bool=False
 
 
 def web_queue_policy() -> dict:
@@ -118,6 +119,13 @@ def register_live_api(app:FastAPI, ledger, runtime_root:Path, cookie_name:str):
                            ("prompt_json","image_prompt")):
             if job[stored] is not None:
                 out[key]=json.loads(job[stored])
+        if job["state"]=="COMPLETED" and job["font_variants_json"]:
+            artifacts=f'{prefix}/jobs/{job["job_id"]}/artifacts/'
+            out["font_variants"]=[
+                {"preset":preset,"sha256":sha,
+                 "download_url":artifacts+("final" if preset=="gothic" else f"font-{preset}")}
+                for preset,sha in json.loads(job["font_variants_json"]).items()
+            ]
         return out
 
     @app.get(prefix+"/capabilities")
@@ -255,7 +263,8 @@ def register_live_api(app:FastAPI, ledger, runtime_root:Path, cookie_name:str):
             # Font path is server-configured only, never from untrusted input.
             font=Path(os.environ.get("IT_TEM_LIVE_KOREAN_FONT",
                      "/usr/share/fonts/truetype/nanum/NanumGothic.ttf"))
-            return visible(flow.compose(actor,job_id,layout=body.layout,font_path=font))
+            return visible(flow.compose(actor,job_id,layout=body.layout,font_path=font,
+                                        font_variants=body.font_variants))
         except (LiveGateError,ValueError) as e:raise safe_error(e) from None
 
     @app.get(prefix+"/jobs/{job_id}/performance")
@@ -392,15 +401,22 @@ def register_live_api(app:FastAPI, ledger, runtime_root:Path, cookie_name:str):
         j=flow.state.get(actor,job_id)
         if j["state"]!="COMPLETED" or j["mode"]!="LIVE":
             raise HTTPException(status_code=409,detail="LIVE_OUTPUT_NOT_COMPLETED")
-        if kind not in ("final","caption"):
+        if kind in ("final","caption"):
+            filename="final.png" if kind=="final" else "caption.txt"
+            expected_sha=j["final_sha"] if kind=="final" else j["caption_sha"]
+        elif kind in ("font-round","font-myeongjo"):
+            expected_sha=json.loads(j["font_variants_json"] or "{}").get(kind.removeprefix("font-"))
+            if expected_sha is None:
+                raise HTTPException(status_code=404,detail="Artifact not found")
+            filename=f"{kind}.png"
+        else:
             raise HTTPException(status_code=404,detail="Artifact not found")
-        target=flow.root/"outputs"/job_id/("final.png" if kind=="final" else "caption.txt")
+        target=flow.root/"outputs"/job_id/filename
         import hashlib
         if not target.is_file():
             raise HTTPException(status_code=503,detail="Artifact unavailable")
-        if hashlib.sha256(target.read_bytes()).hexdigest()!=(
-             j["final_sha"] if kind=="final" else j["caption_sha"]):
+        if hashlib.sha256(target.read_bytes()).hexdigest()!=expected_sha:
             raise HTTPException(status_code=503,detail="Artifact integrity error")
-        return FileResponse(target,media_type="image/png" if kind=="final" else
-                            "text/plain; charset=utf-8",filename=target.name,
+        return FileResponse(target,media_type="text/plain; charset=utf-8" if kind=="caption" else
+                            "image/png",filename=target.name,
                             headers={"Cache-Control":"private,no-store"})

@@ -262,7 +262,7 @@ class LivePipeline:
             raise LiveGateError("JOB_ID_INVALID")
         return self.root/"outputs"/job_id/"image.png"
 
-    def compose(self,actor,job_id,*,layout,font_path):
+    def compose(self,actor,job_id,*,layout,font_path,font_variants=False):
         from src.image_generation import compose_ad_png,CompositionInput
         job=self.state.get(actor,job_id)
         if job["state"]!="IMAGE_APPROVED":
@@ -278,13 +278,34 @@ class LivePipeline:
             job_id=job_id,image_bytes=raw,image_sha256=image_sha,
             copy_revision=job["generation"],copy_hash=job["copy_sha"],
             copy_output=cp,layout=layout)
-        result=compose_ad_png(input_obj,font_path=Path(font_path))
-        if (result.copy_hash!=job["copy_sha"] or result.copy_revision!=job["generation"]
-            or result.source_image_sha256!=image_sha
-            or hashlib.sha256(result.image_bytes).hexdigest()!=result.sha256
-            or (result.width,result.height)!=(1080,1350)):
-            raise LiveGateError("COMPOSED_RESULT_BINDING_FAILED")
+        variants={}
+        if font_variants:
+            from src.image_generation.typography import FONT_PRESETS
+            for preset,face in FONT_PRESETS.items():
+                variants[preset]=compose_ad_png(input_obj,font_path=Path(font_path),
+                    headline_font_path=face.path,headline_font_weight=face.variation_weight)
+            result=variants["gothic"]
+        else:
+            result=compose_ad_png(input_obj,font_path=Path(font_path))
+        for output in variants.values() if variants else (result,):
+            if (output.copy_hash!=job["copy_sha"] or output.copy_revision!=job["generation"]
+                or output.source_image_sha256!=image_sha
+                or hashlib.sha256(output.image_bytes).hexdigest()!=output.sha256
+                or output.caption_bytes!=result.caption_bytes
+                or (output.width,output.height)!=(1080,1350)):
+                raise LiveGateError("COMPOSED_RESULT_BINDING_FAILED")
         directory=self.root/"outputs"/job_id
-        atomic_write(directory/"final.png",result.image_bytes)
-        atomic_write(directory/"caption.txt",result.caption_bytes)
-        return self.state.composed(actor,job_id,result.sha256,hashlib.sha256(result.caption_bytes).hexdigest())
+
+        def publish_outputs():
+            try:
+                atomic_write(directory/"final.png",result.image_bytes)
+                atomic_write(directory/"caption.txt",result.caption_bytes)
+                for preset,output in variants.items():
+                    if preset!="gothic":
+                        atomic_write(directory/f"font-{preset}.png",output.image_bytes)
+            except OSError:
+                raise LiveGateError("COMPOSED_OUTPUT_WRITE_FAILED") from None
+
+        return self.state.composed(actor,job_id,result.sha256,hashlib.sha256(result.caption_bytes).hexdigest(),
+            expected_image_approval_sha=job["image_approval_sha"],publish_outputs=publish_outputs,
+            font_variants={preset:output.sha256 for preset,output in variants.items()})

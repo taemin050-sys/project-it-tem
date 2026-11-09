@@ -1,22 +1,72 @@
 import { useQuery } from '@tanstack/react-query'
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { getBlob } from '../api/jobs'
 import { startNewAdLink, useBlobUrl, useJob, useLiveSnapshot } from '../api/useJob'
 import {retryCompose} from '../api/liveFlow'
 import {shareLive,listPublishedLive} from '../api/liveJobs'
-import {isPublishedFinal} from '../api/liveMapping'
+import {isPublishedFinal,liveFontVariants,type LiveFontVariant} from '../api/liveMapping'
 import {queryClient} from '../api/queryClient'
 import JobBadges from '../components/JobBadges'
 import RunStatus from '../components/RunStatus'
 import StepPage from '../components/StepPage'
 import { CANVAS } from '../config'
 import { download } from '../lib/download'
+import { useObjectUrls } from '../lib/useObjectUrls'
 import { useProjectStore } from '../store/projectStore'
 import type { Job } from '../types/draft'
 
 // 승인한 카피가 서버 본문 파일에 그대로 들어갔는지 (v0.5는 caption, 레거시는 문구 1개)
 const approvedText = (job: Job) => job.copy_output?.caption ?? job.copy_candidate?.text
+
+const FONT_LABELS: Record<LiveFontVariant['preset'], string> = {
+  gothic: '고딕 · 기본 최종본',
+  round: '둥근체',
+  myeongjo: '명조',
+}
+
+function FontVariantPreview({ variant, finalUrl, target }: {
+  variant: LiveFontVariant
+  finalUrl: string
+  target: { width: number; height: number }
+}) {
+  const isPrimary = variant.preset === 'gothic'
+  const { data: blob, isError } = useQuery({
+    queryKey: ['font-variant', variant.download_url, variant.sha256],
+    queryFn: () => getBlob(variant.download_url),
+    enabled: !isPrimary,
+    staleTime: Infinity,
+    retry: false,
+  })
+  const blobs = useMemo(() => blob ? [blob] : [], [blob])
+  const [variantUrl] = useObjectUrls(blobs)
+  const url = isPrimary ? finalUrl : variantUrl
+  const label = FONT_LABELS[variant.preset]
+  const [size, setSize] = useState<{ width: number; height: number }>()
+  const [imageFailed, setImageFailed] = useState(false)
+  const sizeOk = size?.width === target.width && size?.height === target.height
+  return <figure className="export-preview">
+    {url && !imageFailed
+      ? <img className="result-image" src={url} alt={`${label} 광고 이미지`}
+          style={{ aspectRatio: `${target.width} / ${target.height}` }}
+          onLoad={e => setSize({ width: e.currentTarget.naturalWidth, height: e.currentTarget.naturalHeight })}
+          onError={() => setImageFailed(true)} />
+      : <p className={isError || imageFailed ? 'field-error' : 'muted'} role="status">
+          {isError || imageFailed ? '이미지를 불러오지 못했습니다.' : '이미지를 불러오는 중…'}
+        </p>}
+    <figcaption>
+      <div className="export-font-label">{label}</div>
+      {size && <p className={sizeOk ? 'muted' : 'field-error'}>
+        {size.width}×{size.height}px{!sizeOk && ` (기대값 ${target.width}×${target.height})`}
+      </p>}
+      <button className="button secondary small" type="button" disabled={!url || imageFailed}
+        aria-label={`${label} PNG 저장`}
+        onClick={() => download(url!, `ad_${target.width}x${target.height}_${variant.preset}.png`)}>
+        PNG 저장
+      </button>
+    </figcaption>
+  </figure>
+}
 
 // 최종 결과: 서버가 합성한 광고 PNG(artifacts/final) + 게시글 본문·해시태그(artifacts/caption)
 export default function ExportPage() {
@@ -63,6 +113,7 @@ export default function ExportPage() {
   const [copied, setCopied] = useState<'idle' | 'done' | 'error'>('idle')
 
   const ready = job?.status === 'COMPLETED' && finalUrl !== undefined && caption !== undefined
+  const fontVariants = !mock && job?.status === 'COMPLETED' ? liveFontVariants(live.data, job.job_id) : []
   // 서버가 알려준 최종 크기(mock은 고른 비율, Live는 스냅샷 output_size) 기준으로 확인한다
   const target = job?.final_output ?? CANVAS
   const sizeOk = size?.width === target.width && size?.height === target.height
@@ -132,8 +183,17 @@ export default function ExportPage() {
         {shareError && <p role="alert" className="field-error">{shareError}</p>}
         {alreadyShared && <Link className="button small" to="/team/evaluations">팀 평가 화면</Link>}
       </section>}
+      {ready && fontVariants.length > 0 && (
+        <section className="panel export-font-variants" aria-labelledby="font-variants-title">
+          <h2 className="panel-title" id="font-variants-title">A 배치 글꼴 3종</h2>
+          <div className="export-font-grid">
+            {fontVariants.map(variant =>
+              <FontVariantPreview key={`${variant.preset}:${variant.sha256}`} variant={variant} finalUrl={finalUrl} target={target} />)}
+          </div>
+        </section>
+      )}
       {ready && (
-        <div className="export-layout">
+        <div className={fontVariants.length > 0 ? 'stack' : 'export-layout'}>
           <div className="stack">
             <section className="panel" aria-labelledby="post-title">
               <h2 id="post-title" className="panel-title">게시글 본문·해시태그</h2>
@@ -159,7 +219,7 @@ export default function ExportPage() {
             )}
           </div>
 
-          <aside>
+          {fontVariants.length === 0 && <aside>
             <figure className="export-preview">
               <img
                 className="result-image"
@@ -174,7 +234,7 @@ export default function ExportPage() {
                   : <span className="field-error">크기가 {size.width}×{size.height}px입니다 (기대값 {target.width}×{target.height})</span>}
               </figcaption>
             </figure>
-          </aside>
+          </aside>}
         </div>
       )}
     </StepPage>

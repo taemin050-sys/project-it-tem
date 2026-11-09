@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
+from collections.abc import Callable
 from pathlib import Path
 
 from .contracts import LiveGateError, digest, validate_input, strict_review, live_prompt, owner_text_snapshots
@@ -38,6 +39,9 @@ class LiveStore:
                 generation INTEGER NOT NULL, event TEXT NOT NULL,
                 status TEXT NOT NULL, payload_sha TEXT, recorded_utc TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
             );
+            CREATE TABLE IF NOT EXISTS live_font_variants (
+                job_id TEXT PRIMARY KEY, final_sha TEXT NOT NULL, variants_json TEXT NOT NULL
+            );
             CREATE TABLE IF NOT EXISTS live_queue (
                 job_id TEXT NOT NULL, stage TEXT NOT NULL,
                 context_sha TEXT NOT NULL, state TEXT NOT NULL,
@@ -53,7 +57,10 @@ class LiveStore:
         return c
 
     def _read(self,c,job_id,actor):
-        r=c.execute("SELECT * FROM live_jobs WHERE job_id=? AND actor=?",(job_id,actor)).fetchone()
+        r=c.execute("""SELECT j.*,v.variants_json AS font_variants_json
+            FROM live_jobs j LEFT JOIN live_font_variants v
+            ON v.job_id=j.job_id AND v.final_sha=j.final_sha
+            WHERE j.job_id=? AND j.actor=?""",(job_id,actor)).fetchone()
         if not r:
             raise LiveGateError("LIVE_JOB_NOT_FOUND")
         return dict(r)
@@ -281,7 +288,8 @@ class LiveStore:
             c.commit()
             return updated
 
-    def composed(self,actor,job_id,output_sha,caption_sha):
+    def composed(self,actor,job_id,output_sha,caption_sha,*,expected_image_approval_sha=None,
+                 font_variants=None,publish_outputs: Callable[[], None] | None = None):
         with self.db() as c:
             c.execute("BEGIN IMMEDIATE")
             job=self._read(c,job_id,actor)
@@ -291,10 +299,19 @@ class LiveStore:
             expected=digest({"image_sha":job["image_sha"],
                 "approval_sha":job["approval_sha"],"generation":job["generation"],
                        "evidence_acknowledged":bool(job["evidence_acknowledged"])})
-            if expected!=job["image_approval_sha"]:
+            if (expected!=job["image_approval_sha"] or
+                    (expected_image_approval_sha is not None and expected_image_approval_sha!=expected)):
                 raise LiveGateError("IMAGE_APPROVAL_STALE")
+            # Publish only after rechecking the approval under the writer lock.
+            # Incomplete writes remain private while the job is IMAGE_APPROVED.
+            if publish_outputs is not None:
+                publish_outputs()
             c.execute("""UPDATE live_jobs SET state='COMPLETED',final_sha=?,caption_sha=?
                 WHERE job_id=?""",(output_sha,caption_sha,job_id))
+            c.execute("DELETE FROM live_font_variants WHERE job_id=?",(job_id,))
+            if font_variants:
+                c.execute("INSERT INTO live_font_variants VALUES (?,?,?)",
+                          (job_id,output_sha,json.dumps(font_variants)))
             updated=self._read(c,job_id,actor)
             self._event(c,updated,"composed",updated["state"],output_sha)
             c.commit()

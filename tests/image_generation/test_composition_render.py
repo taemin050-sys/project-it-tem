@@ -70,6 +70,44 @@ def test_repeat_same_input_is_deterministic():
     assert a.receipt['input_sha256']==b.receipt['input_sha256']
 
 
+def test_headline_font_does_not_change_other_copy_or_protected_pixels(tmp_path):
+    from fontTools.ttLib import TTFont
+
+    request = body()
+    face = tmp_path / "headline.ttf"
+    codepoints = {ord(char) for char in request.copy_output["ad_copy"]["headline"]}
+    with TTFont(FONT) as font:
+        # Use a face with coverage only for the title and a visibly different advance.
+        for glyph in {font.getBestCmap()[codepoint] for codepoint in codepoints}:
+            advance, bearing = font["hmtx"].metrics[glyph]
+            font["hmtx"].metrics[glyph] = advance + 100, bearing
+        for table in font["cmap"].tables:
+            table.cmap = {code: glyph for code, glyph in table.cmap.items() if code in codepoints}
+        font.save(face)
+
+    original = compose_ad_png(request, font_path=FONT)
+    result = compose_ad_png(request, font_path=FONT, headline_font_path=face)
+    assert result.caption_bytes == original.caption_bytes
+    assert result.source_image_sha256 == original.source_image_sha256
+    assert result.receipt["input_sha256"] != original.receipt["input_sha256"]
+    assert "headline_font_sha256" not in original.receipt
+    assert result.receipt["headline_font_sha256"] == sha256(face.read_bytes()).hexdigest()
+    assert result.receipt["headline_font_weight"] is None
+    left, top, right, bottom = original.receipt["placements"]["headline"]["region"]
+    assert result.receipt["placements"]["headline"]["region"] == [left, top, right, bottom]
+    changed = ImageChops.difference(decode(original.image_bytes), decode(result.image_bytes)).getbbox()
+    assert changed is not None
+    assert left <= changed[0] < changed[2] <= right
+    assert top <= changed[1] < changed[3] <= bottom
+
+
+def test_headline_weight_requires_a_variable_face():
+    with pytest.raises(GatewayError) as exc:
+        compose_ad_png(body(), font_path=FONT, headline_font_path=FONT,
+                       headline_font_weight=500)
+    assert exc.value.code == "COMPOSITION_FONT_UNAVAILABLE"
+
+
 def test_long_copy_is_rejected_not_truncated():
     c=copy_output();c['ad_copy']['headline']='아'*600
     p=body(copy_output=c,copy_hash=content_hash(c))
