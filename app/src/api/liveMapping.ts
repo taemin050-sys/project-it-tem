@@ -24,6 +24,7 @@ export type LiveSnapshot={
     'OWNER_IMAGE_SIZE_3_4'|'OWNER_IMAGE_SIZE_4_5'|'OWNER_IMAGE_SIZE_9_16'
   image_size?:'3:4'|'4:5'|'9:16'
   generation_mode?:'composed'|'freeform'
+  dual_requested?:boolean
   image_attempt_version?:number
   output_size?:{width:number;height:number}
   product_protection_status?:'MANUAL_REVIEW_REQUIRED'|'NOT_REVIEWED'

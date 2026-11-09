@@ -1,4 +1,5 @@
 import { request } from './client'
+import { dualPath } from './dualArtifacts'
 import type { Job } from '../types/draft'
 import type { ProductInput,AdCopyOutput } from '../types/textSchema'
 import type { Ratio } from '../config'
@@ -45,9 +46,10 @@ export async function getProductLiveJob(id:string):Promise<Job>{
   return asProductJob(snapshot,original)
 }
 // Owner #26: bind selected ratio at Live input, never submit it again on image queue.
-export function createLiveInput(b0:Job,product:ProductInput,imageSize:Ratio, generationMode:GenerationMode='composed'){
-  return request<LiveSnapshot>(url(b0.job_id)+'/input',
-    json({customer_request_id:'product-live-'+b0.job_id,product,image_size:imageSize, generation_mode:generationMode}))
+export function createLiveInput(b0:Job,product:ProductInput,imageSize:Ratio, generationMode:GenerationMode='composed',dual=false){
+  const input=(dual ? dualPath(b0.job_id) : url(b0.job_id))+'/input'
+  return request<LiveSnapshot>(input,
+    json({customer_request_id:'product-live-'+b0.job_id,product,image_size:imageSize, generation_mode:dual?'composed':generationMode}))
 }
 export const queueLive=(id:string,stage:'text'|'prompt'|'image')=>
   request<{task_id:string;state:string;new:boolean}>(url(id)+'/queue-'+stage,
@@ -86,12 +88,13 @@ export function restoreLiveCopy(s:LiveSnapshot){
   return request<LiveSnapshot>(root+encodeURIComponent(s.job_id)+'/restore-copy',
     json({expected_generation:s.generation,expected_review_sha:s.review_sha}))
 }
-export const approveLiveCopy=(s:LiveSnapshot,acknowledgeEvidence:boolean)=>{
+export function copyApprovalPayload(s:LiveSnapshot,acknowledgeEvidence:boolean){
   guardCopyApproval(s)
-  return request<LiveSnapshot>(url(s.job_id)+'/approve-copy',
-    json({expected_generation:s.generation,expected_review_sha:s.review_sha,
-      acknowledge_evidence:acknowledgeEvidence}))
+  return {expected_generation:s.generation,expected_review_sha:s.review_sha,
+    acknowledge_evidence:acknowledgeEvidence}
 }
+export const approveLiveCopy=(s:LiveSnapshot,acknowledgeEvidence:boolean)=>
+  request<LiveSnapshot>(url(s.job_id)+'/approve-copy',json(copyApprovalPayload(s,acknowledgeEvidence)))
 export const rejectLiveCopy=(id:string)=>request<LiveSnapshot>(url(id)+'/reject-copy',{method:'POST'})
 export const approveLiveImage=(s:LiveSnapshot)=>{
   guardImageApproval(s)

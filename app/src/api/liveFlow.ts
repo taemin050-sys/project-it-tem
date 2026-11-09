@@ -4,8 +4,9 @@ import {useProjectStore} from '../store/projectStore'
 import {approveLiveCopy,rejectLiveCopy,queueLive,waitLiveTask,approveLiveImage,
     rejectLiveImage,composeLive,getLiveSnapshot,qaPromptImage,qaCompose,
   reviseLiveCopy,restoreLiveCopy,regenerateLiveImage,qaRegenerateImage,queueLiveCopyReview} from './liveJobs'
-import { AD_LAYOUT, QA_OFFLINE_FIXTURE } from '../config'
+import { AD_LAYOUT, DUAL_QA, QA_OFFLINE_FIXTURE } from '../config'
 import {guardCopyApproval,guardImageApproval,type LiveSnapshot} from './liveMapping'
+import {dualQueryKey,startDualJob} from './dualJobs'
 // Legacy-only composition layout. Managed A Jobs NEVER receive this value.
 // The server records each Job's layout version/hash and composes from it.
 export const LEGACY_LAYOUT={text_regions:{
@@ -61,6 +62,13 @@ async function queuePromptAndImage(id:string){
 export async function approveCopyAndCreateImage(s:LiveSnapshot,ack:boolean,onApproved:()=>void=()=>{}){
   guardCopyApproval(s)
   await run(s.job_id,'ai/image',async()=>{
+    if(s.dual_requested){
+      if(!DUAL_QA || s.mode!=='OFFLINE_FIXTURE')throw Error('이 두 시안 작업은 지정된 QA 환경에서만 진행할 수 있습니다.')
+      const result=await startDualJob(s,ack)
+      queryClient.setQueryData(dualQueryKey(s.job_id),result)
+      onApproved()
+      return
+    }
     await approveLiveCopy(s,ack)
     // Owner #26: navigate only after actual approval POST success.
     onApproved()

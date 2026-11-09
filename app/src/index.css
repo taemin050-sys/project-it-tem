@@ -456,6 +456,16 @@ mark.risk-warning { background: var(--warning-bg); box-shadow: inset 0 -2px 0 va
 .button-row { display: flex; flex-wrap: wrap; gap: 8px; }
 .step-actions .button-row { justify-content: flex-end; }
 
+.dual-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: clamp(16px, 3vw, 28px); align-items: start; margin-block: 20px; }
+.dual-variant .panel-title { margin-bottom: 4px; }
+.dual-preview { min-width: 0; }
+.dual-preview figcaption { margin-top: 10px; font-size: 13px; color: var(--text-2); }
+.dual-copy { margin: 0; }
+.dual-copy dd { margin: 0 0 8px; white-space: pre-wrap; }
+.dual-provenance dd { margin: 0 0 8px; overflow-wrap: anywhere; }
+.dual-variant .post-text { overflow-wrap: anywhere; }
+@media (max-width: 799px) { .dual-grid { grid-template-columns: minmax(0, 1fr); } }
+
 /* ---------- 렌더러 ---------- */
 /* 광고 결과물은 사이트 톤과 별개로 Pretendard 유지, 원본 크기 DOM을 transform으로만 축소 */
 .ad-preview { overflow: hidden; flex-shrink: 0; }

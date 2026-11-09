@@ -261,7 +261,9 @@ export default function CopyPage() {
           : (
             <div className="button-row">
               <button className="button secondary" disabled={!reviewing || busy || !liveReady || policyBlocked} onClick={openRevision}>수정 요청</button>
-              <button className="button" disabled={!canApprove || !evidenceAck || overs.length > 0 || busy || policyBlocked} onClick={onApprove}>이 카피로 이미지 만들기</button>
+              <button className="button" disabled={!canApprove || !evidenceAck || overs.length > 0 || busy || policyBlocked} onClick={onApprove}>
+                {live?.dual_requested ? '이 카피로 두 시안 만들기' : '이 카피로 이미지 만들기'}
+              </button>
             </div>
           )}
       actionsNote={<>

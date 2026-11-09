@@ -10,7 +10,7 @@ import MockFallback from '../components/MockFallback'
 import OptionGroup from '../components/OptionGroup'
 import PhotoDrop from '../components/PhotoDrop'
 import StepPage from '../components/StepPage'
-import { PRODUCT_PHOTOS, RATIOS, REFERENCE_PHOTOS, SHRINK, type Ratio } from '../config'
+import { DUAL_QA, PRODUCT_PHOTOS, RATIOS, REFERENCE_PHOTOS, SHRINK, type Ratio } from '../config'
 import { shrinkImage } from '../lib/shrinkImage'
 import { validateProduct, type ProductErrors } from '../lib/validateProduct'
 import { useProjectStore } from '../store/projectStore'
@@ -49,27 +49,28 @@ export default function ProductPage() {
   const [uploadError, setUploadError] = useState<{ message: string; offline: boolean }>()
   const [textEstimate,setTextEstimate]=useState<{photoCount:number;estimate:TextCostEstimate}>()
   const [combinedEstimate,setCombinedEstimate]=useState<{key:string;estimate:CombinedCostEstimate}>()
+  const dual=DUAL_QA && !mock
   useEffect(()=>{
     let active=true
-    if(!mock && images.length>=2 && images.length<=5){
+    if(!mock && !dual && images.length>=2 && images.length<=5){
       void getTextCostEstimate(images.length).then(value=>{
         if(active)setTextEstimate({photoCount:images.length,estimate:value})
       }).catch(()=>{})
     }
     return ()=>{active=false}
-  },[images.length,mock])
+  },[dual,images.length,mock])
   const currentEstimate=(!mock && images.length===textEstimate?.photoCount)
     ? textEstimate.estimate:undefined
   const estimateKey=images.length+':'+ratio+':'+generationMode
   useEffect(()=>{
     let active=true
-    if(!mock && images.length>=2 && images.length<=5){
+    if(!mock && !dual && images.length>=2 && images.length<=5){
       void getTotalCostEstimate(images.length,ratio,generationMode).then(value=>{
         if(active)setCombinedEstimate({key:estimateKey,estimate:value})
       }).catch(()=>{if(active)setCombinedEstimate(undefined)})
     }
     return ()=>{active=false}
-  },[estimateKey,images.length,mock,ratio,generationMode])
+  },[dual,estimateKey,images.length,mock,ratio,generationMode])
   const currentCombined=!mock && combinedEstimate?.key===estimateKey
     ? combinedEstimate.estimate:undefined
 
@@ -134,7 +135,7 @@ export default function ProductPage() {
       }
       actionsNote={
         <>
-          {!mock && <p className="field-hint" role="status">
+          {!mock && !dual && <p className="field-hint" role="status">
             {currentEstimate
               ? <>텍스트 AI 예상 비용: <strong>{currentEstimate.display}</strong>
                   {' '}({images.length}장 기준)</>
@@ -301,14 +302,24 @@ export default function ProductPage() {
         </section>
 
         <section className="panel" aria-label="이미지 생성 방식">
-          <OptionGroup legend="이미지 생성 방식 · 이미지 1장" name="generation-mode"
-            value={generationMode} onChange={setGenerationMode}
-            disabled={Boolean(jobId) && hasUnfinishedJob()}
-            options={[
-              {value:'composed' as const,label:'합성형',desc:'AI로 제품·배경을 생성하고 서버가 승인 문구를 한글 폰트로 합성'},
-              {value:'freeform' as const,label:'자유형',desc:'AI가 승인 문구와 제품을 이미지에 직접 그림 · 정확도 수동 검수 필요'},
-            ]} />
-          <p className="field-hint">생성 방식은 서버 Job에 고정됩니다. 자유형의 한글·제품 형태·라벨 정확도는 보장되지 않습니다.</p>
+          {dual ? <>
+            <h2 className="panel-title">이미지 생성 방식 · 두 시안</h2>
+            <p>승인된 카피와 아래 비율로 합성형과 자유형을 함께 준비합니다.</p>
+            <ul className="plain-list">
+              <li><strong>합성형</strong> · 제품 이미지에 승인 문구를 서버에서 합성합니다.</li>
+              <li><strong>자유형</strong> · 모델이 문구까지 이미지에 그리는 방식입니다. 한글과 라벨은 직접 검토합니다.</li>
+            </ul>
+            <p className="field-hint">QA용 브랜드명은 ‘라움’입니다. 두 방식 모두 시험 데이터로 준비합니다.</p>
+          </> : <>
+            <OptionGroup legend="이미지 생성 방식 · 이미지 1장" name="generation-mode"
+              value={generationMode} onChange={setGenerationMode}
+              disabled={Boolean(jobId) && hasUnfinishedJob()}
+              options={[
+                {value:'composed' as const,label:'합성형',desc:'AI로 제품·배경을 생성하고 서버가 승인 문구를 한글 폰트로 합성'},
+                {value:'freeform' as const,label:'자유형',desc:'AI가 승인 문구와 제품을 이미지에 직접 그림 · 정확도 수동 검수 필요'},
+              ]} />
+            <p className="field-hint">생성 방식은 서버 Job에 고정됩니다. 자유형의 한글·제품 형태·라벨 정확도는 보장되지 않습니다.</p>
+          </>}
         </section>
         <section className="panel" aria-label="이미지 비율">
           <OptionGroup

@@ -8,7 +8,7 @@ import { ApiError, isUnreachable } from './client'
 import { getBlob, getJob, runStep } from './jobs'
 import { queryClient } from './queryClient'
 import {getProductLiveJob,createLiveInput,queueLive,getLiveSnapshot,getLiveTask,latestLiveTask,qaText} from './liveJobs'
-import {QA_OFFLINE_FIXTURE} from '../config'
+import {DUAL_QA,QA_OFFLINE_FIXTURE} from '../config'
 import type {ProductInput} from '../types/textSchema'
 
 const jobKey = (jobId: string | null) => ['job', jobId]
@@ -148,7 +148,7 @@ export async function advance(first: () => Promise<Job>, step: Step | null = nul
       const input:ProductInput={...product,brand_name:product.brand_name?.trim()||null,
         product_image_count:imageCount,reference_image_count:refCount}
       const selectedSize=useProjectStore.getState().ratio
-      const current=await createLiveInput(job,input,selectedSize, useProjectStore.getState().generationMode)
+      const current=await createLiveInput(job,input,selectedSize,useProjectStore.getState().generationMode,DUAL_QA)
       if(current.state==='INPUT_STORED'){
         setRun({step:'ai/analyze'})
         if(QA_OFFLINE_FIXTURE){
@@ -202,8 +202,12 @@ export async function recoverLiveInput(){
     if(product_image_count===undefined||reference_image_count===undefined)
       throw Error('기존 사진 기록이 없습니다.')
     const selectedSize=useProjectStore.getState().ratio
-    const current=await createLiveInput(original,
-      {...productPayload(),product_image_count,reference_image_count},selectedSize, useProjectStore.getState().generationMode)
+    const existing=DUAL_QA ? await getLiveSnapshot(jobId).catch(error=>{
+      if(error instanceof ApiError && error.status===404)return undefined
+      throw error
+    }) : undefined
+    const current=existing ?? await createLiveInput(original,
+      {...productPayload(),product_image_count,reference_image_count},selectedSize,useProjectStore.getState().generationMode,DUAL_QA)
     if(current.state==='INPUT_STORED'){
       const s=await getLiveSnapshot(jobId)
       if(s.state==='INPUT_STORED'){

@@ -132,12 +132,14 @@ class LivePipeline:
             raise LiveGateError("INPUT_PHOTO_COUNTS_INVALID")
         return product,refs
 
-    def prepare(self,actor,job_id,payload,*,template_profile="LEGACY"):
+    def prepare(self,actor,job_id,payload,*,template_profile="LEGACY",dual=False):
+        if dual and (self.live_enabled or self.pm_authorized):
+            raise LiveGateError("DUAL_REQUIRES_OFFLINE_FIXTURE")
         job=self.jobs.get_job(job_id)
         if job["status"]!="INPUTS_VALIDATED":
             raise LiveGateError("B0_JOB_NOT_INPUT_READY")
         return self.state.create(actor,job_id,payload,job["assets"],
-                                 template_profile=template_profile)
+                                 template_profile=template_profile,dual=dual)
 
     def require_live_actor(self, actor):
         if not (self.live_enabled and self.pm_authorized):
@@ -203,6 +205,8 @@ class LivePipeline:
     def text(self,actor,job_id,provider:TextProvider|None=None,*,offline=False,
              text_model="gpt-6-luna",vision_model="gpt-6-luna",expected_input_sha=None):
         job=self.state.get(actor,job_id)
+        if not offline and self.state.dual_membership(actor,job_id):
+            raise LiveGateError("DUAL_REQUIRES_OFFLINE_FIXTURE")
         if job["state"]!="INPUT_STORED" or job["mode"]!="INPUT_ONLY":
             raise LiveGateError("TEXT_STATE_CONFLICT")
         if expected_input_sha is not None and job["input_sha"]!=expected_input_sha:
@@ -498,7 +502,8 @@ class LivePipeline:
     def image_input(self,actor,job_id,*,expected_approval_sha=None):
         job=self.state.get(actor,job_id)
         snapshot=json.loads(job["input_json"])
-        photos,refs=self._photos(job_id,snapshot["ordered_asset_hashes"])
+        asset_job_id=self.state.dual_membership(actor,job_id) or job_id
+        photos,refs=self._photos(asset_job_id,snapshot["ordered_asset_hashes"])
         return self.state.image_request(actor,job_id,photos,refs,
                                         expected_approval_sha=expected_approval_sha)
 
@@ -586,6 +591,7 @@ class LivePipeline:
         from src.image_generation import compose_ad_png,CompositionInput
         from .template_contract import canonical
         before=self.state.get(actor,job_id)
+        dual=self.state.dual_membership(actor,job_id) is not None
         selected_mode=json.loads(before["input_json"]).get("generation_mode","composed")
         if selected_mode=="freeform" and layout is not None:
             raise LiveGateError("FREEFORM_MUST_NOT_COMPOSE_TEXT")
@@ -608,7 +614,7 @@ class LivePipeline:
             job=self.state._read(c,job_id,actor)
             if job["state"]!="IMAGE_APPROVED":
                 raise LiveGateError("FINAL_REQUIRES_IMAGE_APPROVAL")
-            self.state._approved(job)
+            self.state._approved(job,c)
             snapshot=self.state.template(actor,job_id)
             if (not snapshot or snapshot["layout_sha"]!=plan["layout_sha"] or
                 snapshot["bound_context_sha"]!=plan["context_sha"] or
@@ -683,6 +689,13 @@ class LivePipeline:
                 receipt.get("provider_calls")!=0):
                 raise LiveGateError("COMPOSED_RESULT_BINDING_FAILED")
             caption_sha=hashlib.sha256(result.caption_bytes).hexdigest()
+            if dual:
+                receipt={**receipt,"provenance":"OFFLINE_FIXTURE"}
+                if selected_mode=="freeform":
+                    fixture_rendering=binding["owner_receipt"].get("rendering")
+                    if fixture_rendering!="QA_SYNTHETIC_KOREAN_FIXTURE":
+                        raise LiveGateError("DUAL_FREEFORM_FIXTURE_PROVENANCE_REQUIRED")
+                    receipt["fixture_rendering"]=fixture_rendering
             receipt_bytes=canonical(receipt).encode("utf-8")
             # All three are safely prepared; DB COMPLETED is only committed
             # AFTER files are fsync'ed and atomically moved into place.

@@ -4,30 +4,35 @@ import { restorePrevious, review, reviseJob } from '../api/jobs'
 import { advance, resetJob, useBlobQuery, useBlobUrl, useJob, useLiveSnapshot, useLiveProgress } from '../api/useJob'
 import {approveImageAndCompose,rejectImage,resumeImageFromApproved,retryCompose,regenerateRejectedImage} from '../api/liveFlow'
 import {getLiveSnapshot} from '../api/liveJobs'
-import {candidateArtifactPath,isImageReviewHydrated,sameImageCandidate} from '../api/liveMapping'
+import {candidateArtifactPath,isImageReviewHydrated,sameImageCandidate,type LiveSnapshot} from '../api/liveMapping'
+import AssetThumb from '../components/AssetThumb'
+import DualModePage, { DualModeLoading } from '../components/DualModePage'
 import JobBadges from '../components/JobBadges'
 import RunStatus from '../components/RunStatus'
 import StepPage from '../components/StepPage'
+import { DUAL_QA } from '../config'
 import { download } from '../lib/download'
 import { imagePath } from '../lib/pipeline'
 import { useProjectStore } from '../store/projectStore'
-import type { Asset } from '../types/draft'
 
 const BACK = { to: '/create/copy', label: '기획·카피 검토' }
 
-// 서버에 올라간 원본을 보여준다 (새로고침 뒤에도 같은 사진)
-function AssetThumb({ jobId, asset, index }: { jobId: string; asset: Asset; index: number }) {
-  const url = useBlobUrl(`/api/v1/jobs/${jobId}/assets/${asset.asset_id}`)
-  return <li>{url ? <img src={url} alt={`제품 사진 ${index + 1}`} /> : <span className="muted">불러오는 중…</span>}</li>
+export default function DraftPage() {
+  const mock = useProjectStore(s=>s.mock)
+  const jobId = useProjectStore(s=>s.jobId)
+  const snapshot = useLiveSnapshot()
+  if (snapshot.data?.dual_requested) return <DualModePage snapshot={snapshot.data} stage="draft" />
+  if (DUAL_QA && !mock && jobId && !snapshot.data)
+    return <DualModeLoading failed={snapshot.isError} retry={() => void snapshot.refetch()} />
+  return <SingleDraftPage live={snapshot.data} />
 }
 
-export default function DraftPage() {
+function SingleDraftPage({live}: {live: LiveSnapshot | undefined}) {
   const navigate = useNavigate()
   const jobId = useProjectStore((s) => s.jobId)
   const run = useProjectStore((s) => s.run)
   const { data: job } = useJob()
   const mock=useProjectStore(s=>s.mock)
-  const {data:live}=useLiveSnapshot()
   const {data:task}=useLiveProgress()
   const reviewing = job?.status === 'IMAGE_REVIEW_REQUIRED'
   const jobImagePath = job && imagePath(job)

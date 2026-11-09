@@ -6,14 +6,17 @@ fake provider mode is exposed by HTTP. Live dispatch is default-off by policy.
 from __future__ import annotations
 
 import fcntl
+import hashlib
 import json
+import logging
 import os
 import sqlite3
 import stat
 from pathlib import Path
+from typing import Literal
 
 from fastapi import FastAPI,HTTPException,Request
-from fastapi.responses import FileResponse,JSONResponse
+from fastapi.responses import FileResponse,JSONResponse,Response
 from pydantic import BaseModel,ConfigDict,Field
 
 from .contracts import LiveGateError,digest
@@ -64,6 +67,19 @@ class CopyApproval(BaseModel):
 class ImageApproval(BaseModel):
     model_config=ConfigDict(extra="forbid",strict=True)
     image_sha:str
+
+
+class DualImageDecision(BaseModel):
+    model_config=ConfigDict(extra="forbid",strict=True)
+    image_sha:str=Field(pattern=r"^[0-9a-f]{64}$")
+    approve:bool
+    visual_checked:bool
+
+
+class DualSelection(BaseModel):
+    model_config=ConfigDict(extra="forbid",strict=True)
+    mode:Literal["composed","freeform"]
+    final_sha:str=Field(pattern=r"^[0-9a-f]{64}$")
 
 
 class ImageRegenerateRequest(BaseModel):
@@ -203,6 +219,7 @@ def register_live_api(app:FastAPI, ledger, runtime_root:Path, cookie_name:str):
              "template_profile":profile["profile_id"] if profile else "PRE_POLICY_LEGACY",
              "image_size":json.loads(job["input_json"]).get("image_size","4:5"),
              "generation_mode":json.loads(job["input_json"]).get("generation_mode","composed"),
+             "dual_requested":flow.state.dual_membership(job["actor"],job["job_id"]) is not None,
              "output_size":({"width":profile["safe_zone"]["final_size"][0],
                              "height":profile["safe_zone"]["final_size"][1]}
                      if profile and profile["profile_id"].startswith("OWNER_IMAGE_SIZE_")
@@ -237,16 +254,67 @@ def register_live_api(app:FastAPI, ledger, runtime_root:Path, cookie_name:str):
                 and os.environ.get("IT_TEM_DEMO_SECURE_COOKIE")=="NO")
     qa_actors=frozenset(x.strip() for x in
           os.environ.get("IT_TEM_QA_ALLOWED_ACTORS","").split(",") if x.strip())
+    dual_qa_enabled=qa_enabled and os.environ.get("IT_TEM_BP18_DUAL_QA_ENABLED")=="YES"
+
+    def qa_client(request):
+        return request.client and request.client.host in ("127.0.0.1","::1")
 
     def qa_access(request,job_id):
         if not qa_enabled or not qa_actors:
             raise HTTPException(404,"QA fixture endpoint disabled")
-        if not request.client or request.client.host not in ("127.0.0.1","::1"):
+        if not qa_client(request):
             raise HTTPException(404,"QA fixture endpoint unavailable")
         actor=authorized(request,job_id)
         if actor not in qa_actors:
             raise HTTPException(404,"QA fixture actor unavailable")
         return actor
+
+    def single_image_job(actor,job_id):
+        if flow.state.dual_membership(actor,job_id) is not None:
+            raise HTTPException(409,"DUAL_REQUIRES_GROUP_ROUTE")
+
+    def korean_font():
+        return Path(os.environ.get("IT_TEM_LIVE_KOREAN_FONT",
+            "/usr/share/fonts/truetype/nanum/NanumGothic.ttf"))
+
+    def fixture_image(actor,job_id,*,dual=False):
+        from tests.demo_live.test_pipeline import FakeOwner,png
+        from src.image_generation.backend_adapter import BackendGeneratedImage
+        from src.image_generation.size_selection import resolve_size_choice
+
+        job=flow.state.get(actor,job_id)
+        if job["mode"]!="OFFLINE_FIXTURE":
+            raise LiveGateError("QA_REQUIRES_OFFLINE_FIXTURE")
+        if job["state"]=="COPY_APPROVED":
+            flow.prompt(actor,job_id,FakeOwner(),offline=True)
+        owner_request=flow.image_input(actor,job_id)
+        if owner_request.safe_zone is None and owner_request.layout_selection is None:
+            raise LiveGateError("QA_OWNER_IMAGE_LAYOUT_REQUIRED")
+        native=(resolve_size_choice(owner_request.layout_selection.aspect_ratio)[1].native
+            if owner_request.layout_selection is not None else (1152,1440))
+        attempt=flow.state.current_image_attempt(actor,job_id)
+        version=attempt["attempt_version"] if attempt else 1
+        freeform=owner_request.generation_mode=="freeform"
+        if dual:
+            from .dual_fixture import render_composed_fixture,render_freeform_fixture
+            if freeform:
+                img=render_freeform_fixture(native,owner_request.ad_copy.model_dump(),korean_font())
+            else:
+                profile=flow.state.template(actor,job_id)
+                img=render_composed_fixture(native,profile["layout"]["protected_regions"][0])
+        else:
+            img=png((215+version%8,225+version%10,235-version%10),size=native)
+        receipt={"mode":"OFFLINE_FIXTURE","provider_calls":0}
+        if freeform:
+            receipt.update({"generation_mode":"freeform","state":"succeeded",
+                            "rendering":("QA_SYNTHETIC_KOREAN_FIXTURE" if dual else
+                                         "QA_FIXTURE_NO_ACTUAL_MODEL_TEXT")})
+        candidate=BackendGeneratedImage(
+            image_bytes=img,mime_type="image/png",width=native[0],height=native[1],
+            sha256=hashlib.sha256(img).hexdigest(),job_id=job_id,
+            copy_revision=owner_request.copy_revision,
+            copy_hash=owner_request.copy_hash,mock=True,receipt=receipt)
+        return flow.accept_image_result(actor,job_id,candidate,offline=True)
 
     @app.post("/demo/api/qa/jobs/{job_id}/text")
     def qa_text(job_id:str,request:Request):
@@ -266,39 +334,15 @@ def register_live_api(app:FastAPI, ledger, runtime_root:Path, cookie_name:str):
     @app.post("/demo/api/qa/jobs/{job_id}/prompt-image")
     def qa_prompt_image(job_id:str,request:Request):
         actor=qa_access(request,job_id)
+        single_image_job(actor,job_id)
         try:
-            from tests.demo_live.test_pipeline import FakeOwner,png
-            from src.image_generation.backend_adapter import BackendGeneratedImage
-            import hashlib
-            job=flow.state.get(actor,job_id)
-            if job["state"]=="COPY_APPROVED":
-                flow.prompt(actor,job_id,FakeOwner(),offline=True)
-            owner_request=flow.image_input(actor,job_id)
-            if owner_request.safe_zone is None and owner_request.layout_selection is None:
-                raise LiveGateError("QA_OWNER_IMAGE_LAYOUT_REQUIRED")
-            from src.image_generation.size_selection import resolve_size_choice
-            native=(resolve_size_choice(owner_request.layout_selection.aspect_ratio)[1].native
-                if owner_request.layout_selection is not None else (1152,1440))
-            # Synthetic pixel image, not an OpenAI result. Immutable copy and
-            # candidate SHA still go through the real Serving binding gate.
-            attempt=flow.state.current_image_attempt(actor,job_id)
-            version=attempt["attempt_version"] if attempt else 1
-            img=png((215+version%8,225+version%10,235-version%10),size=native)
-            receipt={"mode":"OFFLINE_FIXTURE","provider_calls":0}
-            if owner_request.generation_mode=="freeform":
-                receipt.update({"generation_mode":"freeform","state":"succeeded",
-                                "rendering":"QA_FIXTURE_NO_ACTUAL_MODEL_TEXT"})
-            candidate=BackendGeneratedImage(
-                image_bytes=img,mime_type="image/png",width=native[0],height=native[1],
-                sha256=hashlib.sha256(img).hexdigest(),job_id=job_id,
-                copy_revision=owner_request.copy_revision,
-                copy_hash=owner_request.copy_hash,mock=True,receipt=receipt)
-            return visible(flow.accept_image_result(actor,job_id,candidate,offline=True))
+            return visible(fixture_image(actor,job_id))
         except (LiveGateError,ValueError) as e:raise safe_error(e) from None
 
     @app.post("/demo/api/qa/jobs/{job_id}/regenerate-image")
     def qa_regenerate_image(job_id:str,body:ImageRegenerateRequest,request:Request):
         actor=qa_access(request,job_id)
+        single_image_job(actor,job_id)
         try:
             queue.assert_image_retry_safe(actor,job_id)
             flow.begin_image_retry(actor,job_id,body.expected_image_sha,body.request_key)
@@ -309,13 +353,12 @@ def register_live_api(app:FastAPI, ledger, runtime_root:Path, cookie_name:str):
     @app.post("/demo/api/qa/jobs/{job_id}/compose")
     def qa_compose(job_id:str,body:ComposeRequest,request:Request):
         actor=qa_access(request,job_id)
+        single_image_job(actor,job_id)
         j=flow.state.get(actor,job_id)
         if j["mode"]!="OFFLINE_FIXTURE":
             raise HTTPException(409,"QA_REQUIRES_OFFLINE_FIXTURE")
         try:
-            font=Path(os.environ.get("IT_TEM_LIVE_KOREAN_FONT",
-                "/usr/share/fonts/truetype/nanum/NanumGothic.ttf"))
-            return visible(flow.compose(actor,job_id,layout=body.layout,font_path=font))
+            return visible(flow.compose(actor,job_id,layout=body.layout,font_path=korean_font()))
         except (LiveGateError,ValueError) as e:raise safe_error(e) from None
         except (OSError,sqlite3.Error):
             raise HTTPException(503,"QA_COMPOSITION_STORAGE_UNAVAILABLE") from None
@@ -323,6 +366,7 @@ def register_live_api(app:FastAPI, ledger, runtime_root:Path, cookie_name:str):
     @app.get("/demo/api/qa/jobs/{job_id}/artifacts/{kind}")
     def qa_artifact(job_id:str,kind:str,request:Request):
         actor=qa_access(request,job_id)
+        single_image_job(actor,job_id)
         j=flow.state.get(actor,job_id)
         if j["mode"]!="OFFLINE_FIXTURE":
             raise HTTPException(409,"QA_REQUIRES_OFFLINE_FIXTURE")
@@ -352,6 +396,226 @@ def register_live_api(app:FastAPI, ledger, runtime_root:Path, cookie_name:str):
         return FileResponse(target,media_type=media,filename=target.name,
             headers={"Cache-Control":"private,no-store",
                      "X-IT-TEM-Provenance":"OFFLINE_FIXTURE"})
+
+    dual_prefix="/demo/api/qa/jobs/{job_id}/dual"
+
+    def dual_access(request,job_id):
+        if not dual_qa_enabled:
+            raise HTTPException(404,"Dual QA fixture endpoint disabled")
+        return qa_access(request,job_id)
+
+    def dual_group(actor,job_id):
+        try:
+            group=flow.state.dual_group(actor,job_id)
+        except LiveGateError as error:
+            if error.code!="LIVE_JOB_NOT_FOUND":
+                raise safe_error(error) from None
+            group=None
+        if group is None:
+            raise HTTPException(404,"Dual job not found")
+        return group
+
+    def variant_job(group,mode):
+        return group["parent_job_id"] if mode=="composed" else group["child_job_id"]
+
+    def variant_snapshot(request,actor,group,mode):
+        job_id=variant_job(group,mode)
+        if job_id is None:
+            return None
+        job=flow.state.get(actor,job_id)
+        dispatch=group["dispatch"].get(job_id,{})
+        state=job["state"]
+        receipt_sha=None
+        image_review_sha=dispatch.get("visual_review_sha")
+        error_code=dispatch.get("error_code")
+        verification="NOT_REVIEWED"
+        hashes={}
+        if state=="COMPLETED":
+            try:
+                flow.validate_final_artifacts(actor,job_id)
+                if not image_review_sha:
+                    raise LiveGateError("DUAL_VISUAL_REVIEW_UNAVAILABLE")
+                receipt_sha=flow.state.read_manifest(actor,job_id)["receipt_sha"]
+            except (LiveGateError,OSError,sqlite3.Error):
+                state,error_code="FAILED","DUAL_ARTIFACT_INTEGRITY_UNAVAILABLE"
+                image_review_sha=None
+            else:
+                hashes={"final":job["final_sha"],"caption":job["caption_sha"],"receipt":receipt_sha}
+                verification="FIXTURE_REVIEWED"
+        elif state in ("IMAGE_REVIEW_REQUIRED","IMAGE_APPROVED"):
+            hashes={"candidate":job["image_sha"]}
+            verification="FIXTURE_REVIEWED" if state=="IMAGE_APPROVED" else "FIXTURE_REVIEW_REQUIRED"
+        elif state=="IMAGE_REJECTED":
+            verification="FIXTURE_REJECTED"
+        elif dispatch.get("state")=="FAILED":
+            state="FAILED"
+        artifact_urls={}
+        for kind,sha in hashes.items():
+            url=request.app.url_path_for("dual_artifact",job_id=group["parent_job_id"],
+                                         mode=mode,kind=kind)
+            artifact_urls[kind]=f"{url}?sha256={sha}"
+        profile=flow.state.template(actor,job_id)
+        width,height=profile["safe_zone"]["final_size"] if profile else (1080,1350)
+        return {"mode":mode,"state":state,"verification_state":verification,
+                "variant_job_id":job_id,"approval_sha":job["approval_sha"],"review_sha":job["review_sha"],
+                "dispatch_state":dispatch.get("state"),"image_review_sha":image_review_sha,
+                "candidate_sha":job["image_sha"],"final_sha":hashes.get("final"),
+                "caption_sha":hashes.get("caption"),"receipt_sha":receipt_sha,
+                "error_code":error_code,"output_size":{"width":width,"height":height},
+                "artifacts":artifact_urls,"cost":{"provider_attempt_count":0,"actual_usd":None}}
+
+    def dual_snapshot(request,actor,group):
+        variants={mode:variant_snapshot(request,actor,group,mode) for mode in ("composed","freeform")}
+        if group["child_job_id"] is None:
+            state="READY"
+        else:
+            states=[variant["state"] for variant in variants.values()]
+            failed=sum(state in ("FAILED","IMAGE_REJECTED") for state in states)
+            complete=states.count("COMPLETED")
+            review=any(state in ("IMAGE_REVIEW_REQUIRED","IMAGE_APPROVED") for state in states)
+            if complete==2:
+                state="COMPLETED"
+            elif failed==2:
+                state="FAILED"
+            elif complete or (failed and review):
+                state="PARTIAL"
+            elif review:
+                state="REVIEW_REQUIRED"
+            else:
+                state="GENERATING"
+        parent=flow.state.get(actor,group["parent_job_id"])
+        preferred=group["preferred_mode"]
+        selected=variants.get(preferred)
+        if (not selected or selected["state"]!="COMPLETED" or
+                selected["final_sha"]!=group.get("preferred_final_sha")):
+            preferred=None
+        return {"job_id":group["parent_job_id"],"state":state,"provenance":"OFFLINE_FIXTURE",
+                "image_size":json.loads(parent["input_json"]).get("image_size","4:5"),
+                "copy_sha":parent["copy_sha"],"copy_approval_sha":group["approval_sha"],
+                "preferred_variant":preferred,
+                "variants":variants}
+
+    @app.post(dual_prefix+"/input")
+    def dual_input(job_id:str,body:InputPayload,request:Request):
+        actor=dual_access(request,job_id)
+        if body.generation_mode not in (None,"composed") or body.image_size not in ("3:4","4:5","9:16"):
+            raise HTTPException(422,"DUAL_INPUT_MODE_OR_RATIO_INVALID")
+        payload=body.model_dump(mode="json")
+        payload["generation_mode"]="composed"
+        try:
+            return visible(flow.prepare(actor,job_id,payload,template_profile="A",dual=True))
+        except (LiveGateError,ValueError) as error:
+            raise safe_error(error) from None
+
+    @app.get(dual_prefix)
+    def dual_status(job_id:str,request:Request):
+        actor=dual_access(request,job_id)
+        return dual_snapshot(request,actor,dual_group(actor,job_id))
+
+    @app.post(dual_prefix+"/start")
+    def dual_start(job_id:str,body:CopyApproval,request:Request):
+        actor=dual_access(request,job_id)
+        dual_group(actor,job_id)
+        try:
+            group=flow.state.start_dual(actor,job_id,expected_generation=body.expected_generation,
+                expected_review_sha=body.expected_review_sha,acknowledge_evidence=body.acknowledge_evidence)
+            for mode in ("composed","freeform"):
+                variant_id=variant_job(group,mode)
+                with flow.state.dual_dispatch_lock(actor,job_id,variant_id) as acquired:
+                    if not acquired:
+                        continue
+                    error_code=None
+                    try:
+                        fixture_image(actor,variant_id,dual=True)
+                    except LiveGateError as error:
+                        error_code=error.code
+                    except Exception as error:
+                        logging.getLogger(__name__).warning("Dual fixture render failed (%s)",type(error).__name__)
+                        error_code="DUAL_FIXTURE_RENDER_FAILED"
+                    flow.state.finish_dual_dispatch(actor,job_id,variant_id,error_code=error_code)
+            return dual_snapshot(request,actor,dual_group(actor,job_id))
+        except (LiveGateError,ValueError) as error:
+            raise safe_error(error) from None
+        except (OSError,sqlite3.Error):
+            raise HTTPException(503,"DUAL_FIXTURE_STORAGE_UNAVAILABLE") from None
+
+    @app.post(dual_prefix+"/{mode}/decision")
+    def dual_decision(job_id:str,mode:Literal["composed","freeform"],body:DualImageDecision,request:Request):
+        actor=dual_access(request,job_id)
+        group=dual_group(actor,job_id)
+        variant_id=variant_job(group,mode)
+        if variant_id is None:
+            raise HTTPException(409,"DUAL_VARIANT_NOT_STARTED")
+        if body.approve and not body.visual_checked:
+            raise HTTPException(409,"DUAL_VISUAL_REVIEW_REQUIRED")
+        try:
+            current=flow.state.get(actor,variant_id)
+            if current["image_sha"]!=body.image_sha:
+                raise LiveGateError("IMAGE_APPROVAL_STALE")
+            if body.approve:
+                if current["state"]=="IMAGE_REVIEW_REQUIRED":
+                    visual_review={"product_matches":True}
+                    if mode=="freeform":
+                        visual_review.update(copy_matches=True,no_duplicate_text=True)
+                    current=flow.state.approve_image(actor,variant_id,body.image_sha,visual_review=visual_review)
+                if current["state"]=="IMAGE_APPROVED":
+                    flow.compose(actor,variant_id,font_path=korean_font())
+                elif current["state"]!="COMPLETED":
+                    raise LiveGateError("IMAGE_APPROVAL_STATE_CONFLICT")
+            elif current["state"]!="IMAGE_REJECTED":
+                flow.state.reject_image(actor,variant_id,body.image_sha)
+            return dual_snapshot(request,actor,dual_group(actor,job_id))
+        except (LiveGateError,ValueError) as error:
+            if isinstance(error,LiveGateError) and error.code in (
+                "IMAGE_APPROVAL_MISMATCH","FINAL_REQUIRES_IMAGE_APPROVAL",
+                "COMPOSITION_ALREADY_FINALIZED","IMAGE_REJECTION_STATE_CONFLICT"):
+                latest=flow.state.get(actor,variant_id)
+                expected_state="COMPLETED" if body.approve else "IMAGE_REJECTED"
+                if latest["state"]==expected_state and latest["image_sha"]==body.image_sha:
+                    return dual_snapshot(request,actor,dual_group(actor,job_id))
+            raise safe_error(error) from None
+        except (OSError,sqlite3.Error):
+            raise HTTPException(503,"DUAL_COMPOSITION_STORAGE_UNAVAILABLE") from None
+
+    @app.post(dual_prefix+"/selection")
+    def dual_selection(job_id:str,body:DualSelection,request:Request):
+        actor=dual_access(request,job_id)
+        variant_id=variant_job(dual_group(actor,job_id),body.mode)
+        if variant_id is None:
+            raise HTTPException(409,"DUAL_VARIANT_NOT_STARTED")
+        try:
+            flow.validate_final_artifacts(actor,variant_id)
+            group=flow.state.select_dual_variant(actor,job_id,body.mode,body.final_sha)
+            return dual_snapshot(request,actor,group)
+        except (LiveGateError,ValueError) as error:
+            raise safe_error(error) from None
+
+    @app.get(dual_prefix+"/{mode}/artifacts/{kind}")
+    def dual_artifact(job_id:str,mode:Literal["composed","freeform"],
+                      kind:Literal["candidate","final","caption","receipt"],sha256:str,request:Request):
+        actor=dual_access(request,job_id)
+        group=dual_group(actor,job_id)
+        variant=variant_snapshot(request,actor,group,mode)
+        if variant is None or kind not in variant["artifacts"]:
+            raise HTTPException(409,"DUAL_ARTIFACT_NOT_AVAILABLE")
+        expected=variant[f"{kind}_sha"]
+        if sha256!=expected:
+            raise HTTPException(409,"DUAL_ARTIFACT_CHANGED")
+        variant_id=variant_job(group,mode)
+        filenames={"final":("final.png","image/png"),"caption":("caption.txt","text/plain; charset=utf-8"),
+                   "receipt":("receipt.json","application/json"),"candidate":("candidate.png","image/png")}
+        filename,media_type=filenames[kind]
+        path=(flow.image_path(variant_id) if kind=="candidate" else flow.root/"outputs"/variant_id/filename)
+        try:
+            payload=path.read_bytes()
+            if hashlib.sha256(payload).hexdigest()!=expected:
+                raise ValueError
+        except (OSError,ValueError):
+            raise HTTPException(503,"DUAL_ARTIFACT_INTEGRITY_UNAVAILABLE") from None
+        headers={"Cache-Control":"private,no-store","X-IT-TEM-Provenance":"OFFLINE_FIXTURE"}
+        if kind!="candidate":
+            headers["Content-Disposition"]=f'attachment; filename="{mode}-{filename}"'
+        return Response(payload,media_type=media_type,headers=headers)
 
     @app.get(prefix+"/text-cost-estimate")
     def text_cost_estimate(request:Request,photo_count:int=5,revision_target:str|None=None):
@@ -422,11 +686,13 @@ def register_live_api(app:FastAPI, ledger, runtime_root:Path, cookie_name:str):
                 "source_sha":app.state.demo_code_sha,
                 "reason":"COST_AND_CONTRACT_PM_GATE" if not signed_b and
                          blocker == "LIVE_PROVIDER_NOT_APPROVED" else blocker,
+                "dual_qa_enabled":bool(dual_qa_enabled and qa_client(request) and actor in qa_actors),
                 "provisional_wire":True,"mock_fallback":False}
 
     @app.post(prefix+"/jobs/{job_id}/input")
     def create_input(job_id:str,body:InputPayload,request:Request):
         actor=authorized(request,job_id)
+        single_image_job(actor,job_id)
         try:
             return visible(flow.prepare(actor,job_id,body.model_dump(mode="json"),
                                         template_profile="A"))
@@ -438,11 +704,13 @@ def register_live_api(app:FastAPI, ledger, runtime_root:Path, cookie_name:str):
         actor=authorized(request,job_id)
         try:
             job=flow.state.get(actor,job_id)
-            if job["state"]=="COMPLETED":
+            if job["state"]=="COMPLETED" and flow.state.dual_membership(actor,job_id) is None:
                 # Avoid advertising a corrupted finished Job as downloadable.
                 flow.validate_final_artifacts(actor,job_id)
             return visible(job)
         except LiveGateError as e:
+            if e.code=="LIVE_JOB_NOT_FOUND":
+                raise HTTPException(404,"Job not found") from None
             if e.code.startswith(("COMPOSITION_MANIFEST_",
                                   "COMPOSITION_RECEIPT_",
                                   "FINAL_ARTIFACT_",
@@ -453,6 +721,7 @@ def register_live_api(app:FastAPI, ledger, runtime_root:Path, cookie_name:str):
     @app.post(prefix+"/jobs/{job_id}/queue-text")
     def queue_text(job_id:str,request:Request):
         actor=authorized(request,job_id)
+        single_image_job(actor,job_id)
         require_queue(actor)
         j=flow.state.get(actor,job_id)
         if j["state"]!="INPUT_STORED" or j["mode"]!="INPUT_ONLY":
@@ -586,6 +855,7 @@ def register_live_api(app:FastAPI, ledger, runtime_root:Path, cookie_name:str):
     @app.post(prefix+"/jobs/{job_id}/approve-copy")
     def approve_copy(job_id:str,body:CopyApproval,request:Request):
         actor=authorized(request,job_id)
+        single_image_job(actor,job_id)
         try:
             return visible(flow.state.approve_copy(
                 actor,job_id,body.expected_generation,body.expected_review_sha,
@@ -601,6 +871,7 @@ def register_live_api(app:FastAPI, ledger, runtime_root:Path, cookie_name:str):
     @app.post(prefix+"/jobs/{job_id}/queue-prompt")
     def queue_prompt(job_id:str,request:Request):
         actor=authorized(request,job_id)
+        single_image_job(actor,job_id)
         require_queue(actor)
         j=flow.state.get(actor,job_id)
         if j["state"]!="COPY_APPROVED" or j["mode"]!="LIVE" or not j["approval_sha"]:
@@ -613,6 +884,7 @@ def register_live_api(app:FastAPI, ledger, runtime_root:Path, cookie_name:str):
     @app.post(prefix+"/jobs/{job_id}/queue-image")
     def queue_image(job_id:str,request:Request):
         actor=authorized(request,job_id)
+        single_image_job(actor,job_id)
         require_queue(actor)
         j=flow.state.get(actor,job_id)
         if j["state"]!="PROMPT_READY" or j["mode"]!="LIVE" or not j["prompt_json"]:
@@ -628,6 +900,7 @@ def register_live_api(app:FastAPI, ledger, runtime_root:Path, cookie_name:str):
     @app.post(prefix+"/jobs/{job_id}/regenerate-image")
     def regenerate_image(job_id:str,body:ImageRegenerateRequest,request:Request):
         actor=authorized(request,job_id)
+        single_image_job(actor,job_id)
         require_queue(actor)
         try:
             if flow.state.get(actor,job_id)["mode"] != "LIVE":
@@ -658,18 +931,21 @@ def register_live_api(app:FastAPI, ledger, runtime_root:Path, cookie_name:str):
     @app.post(prefix+"/jobs/{job_id}/approve-image")
     def approve_image(job_id:str,body:ImageApproval,request:Request):
         actor=authorized(request,job_id)
+        single_image_job(actor,job_id)
         try:return visible(flow.state.approve_image(actor,job_id,body.image_sha))
         except LiveGateError as e:raise safe_error(e) from None
 
     @app.post(prefix+"/jobs/{job_id}/reject-image")
     def reject_image(job_id:str,body:ImageApproval,request:Request):
         actor=authorized(request,job_id)
+        single_image_job(actor,job_id)
         try:return visible(flow.state.reject_image(actor,job_id,body.image_sha))
         except LiveGateError as e:raise safe_error(e) from None
 
     @app.post(prefix+"/jobs/{job_id}/compose")
     def compose(job_id:str,body:ComposeRequest,request:Request):
         actor=authorized(request,job_id)
+        single_image_job(actor,job_id)
         if not flow.state.get(actor,job_id)["mode"]=="LIVE":
             raise HTTPException(status_code=423,detail="NOT_REAL_PROVIDER_OUTPUT")
         try:
@@ -853,6 +1129,7 @@ def register_live_api(app:FastAPI, ledger, runtime_root:Path, cookie_name:str):
     @app.get(prefix+"/jobs/{job_id}/artifacts/candidate")
     def candidate(job_id:str,request:Request,sha256:str|None=None):
         actor=authorized(request,job_id)
+        single_image_job(actor,job_id)
         j=flow.state.get(actor,job_id)
         if j["state"] not in ("IMAGE_REVIEW_REQUIRED","IMAGE_APPROVED") or j["mode"]!="LIVE":
             raise HTTPException(status_code=409,detail="IMAGE_NOT_READY")
@@ -875,6 +1152,7 @@ def register_live_api(app:FastAPI, ledger, runtime_root:Path, cookie_name:str):
     @app.get(prefix+"/jobs/{job_id}/artifacts/{kind}")
     def download(job_id:str,kind:str,request:Request):
         actor=authorized(request,job_id)
+        single_image_job(actor,job_id)
         j=flow.state.get(actor,job_id)
         if j["state"]!="COMPLETED" or j["mode"]!="LIVE":
             raise HTTPException(status_code=409,detail="LIVE_OUTPUT_NOT_COMPLETED")
