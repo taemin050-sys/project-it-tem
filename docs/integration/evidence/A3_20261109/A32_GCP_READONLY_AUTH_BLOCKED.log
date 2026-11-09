@@ -1,0 +1,4 @@
+GCP A3 READONLY AUTH OBSERVATION
+Source: gcloud compute instances describe team2-vm --project=sprint-ai-chunk4-02 --zone=us-east1-b --format value(networkInterfaces[0].accessConfigs[0].natIP)
+Observed: ERROR refresh auth tokens: Reauthentication failed; cannot prompt during non-interactive execution. This is an access block, NOT proof of VM status. No reauthentication or VM changes executed.
+Current GCP SHA/SSO/DB/Process: NOT_AUDITED. Last C-A2 historical observation at 2026-11-09 18:29 KST had deployed 9879eb0...
