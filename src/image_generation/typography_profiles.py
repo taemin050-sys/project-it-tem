@@ -3,7 +3,7 @@ from .composition import CompositionLayout, CompositionRect, CompositionTextRegi
 from .typography import TypographyStyle
 
 PROFILES = ("bold_type_hero", "editorial_botanical", "graphic_layout")
-PROFILE_VERSION = "bp18-ad-typography-4x5-v1"
+PROFILE_VERSION = "bp18-ad-typography-4x5-v2"
 
 
 def study_layout(direction, copy_output, *, protected_regions):
@@ -29,7 +29,7 @@ def study_layout(direction, copy_output, *, protected_regions):
 
     if direction == "bold_type_hero":
         regions = {
-            "headline": region((76, 80, 1004, 356), (128, 146), 900,
+            "headline": region((76, 80, 1004, 356), (64, 146), 900,
                                tracking=-0.025, line_breaks=breaks, lines=2),
             "subline": region((82, 374, 1004, 416), (40, 44), 500, tracking=-0.01),
             "cta": region((310, 1202, 770, 1278), (44, 48), 700,
@@ -37,8 +37,8 @@ def study_layout(direction, copy_output, *, protected_regions):
         }
     elif direction == "editorial_botanical":
         regions = {
-            "headline": region((80, 110, 1000, 240), (90, 112), 700,
-                               color="#1D3A32", align="center", tracking=-0.015),
+            "headline": region((80, 110, 1000, 240), (64, 112), 700,
+                               color="#1D3A32", align="center", tracking=-0.015, lines=2),
             "subline": region((96, 274, 984, 330), (44, 48), 500,
                               color="#1D3A32", align="center", tracking=0.01),
             "cta": region((340, 1202, 740, 1278), (40, 44), 650,
@@ -46,8 +46,8 @@ def study_layout(direction, copy_output, *, protected_regions):
         }
     else:
         regions = {
-            "headline": region((76, 102, 1004, 244), (110, 126), 900,
-                               tracking=-0.025, scale=0.92),
+            "headline": region((76, 102, 1004, 244), (64, 126), 900,
+                               tracking=-0.025, scale=0.92, lines=2),
             "subline": region((342, 278, 1004, 354), (44, 48), 650,
                               background="#DEE8C8", align="center", tracking=-0.01),
             "cta": region((650, 1202, 1004, 1278), (40, 44), 750,

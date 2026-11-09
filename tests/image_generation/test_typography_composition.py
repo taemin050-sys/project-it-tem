@@ -8,7 +8,7 @@ from PIL import Image, ImageChops, ImageDraw
 import pytest
 from pydantic import ValidationError
 
-from .helpers import FONT, body, copy_output, layout
+from .helpers import FONT, body, copy_output, layout, picture
 from src.image_generation.ad_resize import resize_ad_png
 from src.image_generation.composition import compose_ad_png
 from src.image_generation.contracts import content_hash
@@ -79,7 +79,7 @@ def test_explicit_visual_breaks_keep_approved_source_and_caption():
     original = deepcopy(request.copy_output)
     result = compose_ad_png(request, font_path=FONT)
     placed = result.receipt["placements"]["headline"]
-    assert result.receipt["renderer"] == "korean-composition-v2"
+    assert result.receipt["renderer"] == "korean-composition-v3"
     assert placed["typography"]["lines"] == ["하루의  ", "샴푸 루틴"]
     assert "".join(placed["typography"]["lines"]) == original["ad_copy"]["headline"]
     assert placed["text_sha256"] == sha256(original["ad_copy"]["headline"].encode()).hexdigest()
@@ -282,3 +282,107 @@ def test_styled_rendering_is_repeatable_within_the_same_environment():
 def test_invalid_typographic_ranges_are_rejected(style):
     with pytest.raises(ValidationError):
         TypographyStyle(**style)
+
+
+def fixture_study_request(direction, headline):
+    from src.image_generation.typography_profiles import study_layout
+
+    approved = copy_output()
+    approved["ad_copy"]["headline"] = headline
+    selected = study_layout(direction, approved, protected_regions=[])
+    # Exercise the production profile geometry with the portable static fixture
+    # font's real weight. The study runner verifies the variable display font.
+    for region in selected.text_regions.values():
+        region.typography = region.typography.model_copy(update={"weight": 400})
+    return body(copy_output=approved, copy_hash=content_hash(approved), layout=selected)
+
+
+@pytest.mark.parametrize("direction", ["bold_type_hero", "editorial_botanical", "graphic_layout"])
+@pytest.mark.parametrize("headline", [
+    "샴푸",
+    "하루의 샴푸 루틴",
+    "오늘도 차분하게 나를 돌보는 샴푸 루틴",
+    "매일 만나는 차분하고 산뜻한 세정의 시간",
+])
+def test_study_profiles_fit_short_and_ordinary_korean_copy_without_rewriting(direction, headline):
+    request = fixture_study_request(direction, headline)
+    original = deepcopy(request.copy_output)
+    result = compose_ad_png(request, font_path=FONT)
+    placed = result.receipt["placements"]["headline"]
+    assert "".join(placed["typography"]["lines"]) == headline
+    assert all(line.endswith(" ") for line in placed["typography"]["lines"][:-1])
+    assert placed["typography"]["lines"][-1] != "틴"
+    assert 64 <= placed["font_size"] <= request.layout.text_regions["headline"].max_font_size
+    assert placed["line_count"] <= 2
+    assert placed["font_size"] > result.receipt["placements"]["subline"]["font_size"]
+    assert placed["text_sha256"] == sha256(headline.encode()).hexdigest()
+    assert result.copy_hash == content_hash(original)
+    assert request.copy_output == original
+    assert result.caption_bytes.decode() == original["caption"] + "\n\n" + " ".join(original["hashtags"])
+    assert result.receipt["provider_calls"] == 0
+
+
+@pytest.mark.parametrize("direction", ["bold_type_hero", "editorial_botanical", "graphic_layout"])
+def test_study_profiles_reject_unfittable_prose_without_rewriting(direction):
+    headline = "차분한 일상을 위한 샴푸 루틴 " * 20
+    request = fixture_study_request(direction, headline)
+    with pytest.raises(GatewayError) as caught:
+        compose_ad_png(request, font_path=FONT)
+    assert caught.value.code == "COMPOSITION_TEXT_OVERFLOW"
+    assert request.copy_output["ad_copy"]["headline"] == headline
+
+
+def test_automatic_word_wrap_preserves_boundary_spaces():
+    headline = "하루의  샴푸 루틴"
+    request = styled_body({"weight": 400, "tracking_em": 0.02},
+                          headline=headline, right=0.30)
+    result = compose_ad_png(request, font_path=FONT)
+    lines = result.receipt["placements"]["headline"]["typography"]["lines"]
+    assert lines == ["하루의  ", "샴푸 루틴"]
+    assert "".join(lines) == headline
+
+
+def test_automatic_wrap_uses_clusters_for_a_single_long_word():
+    headline = "가나다라마바사아"
+    request = styled_body({"weight": 400}, headline=headline, right=0.30)
+    result = compose_ad_png(request, font_path=FONT)
+    lines = result.receipt["placements"]["headline"]["typography"]["lines"]
+    assert len(lines) == 2
+    assert "".join(lines) == headline
+
+
+@pytest.mark.parametrize("native,canvas", [
+    ((1152, 1536), (1080, 1440)),
+    ((1152, 1440), (1080, 1350)),
+    ((1152, 2048), (1080, 1920)),
+])
+@pytest.mark.parametrize("cta_placement", ["image", "platform"])
+def test_typography_three_canvas_contracts_use_ratio_correct_synthetic_inputs(native, canvas, cta_placement):
+    raw = picture(size=native)
+    approved = copy_output()
+    selected = layout()
+    selected.update(canvas_size=canvas, cta_placement=cta_placement)
+    if cta_placement == "platform":
+        selected["text_regions"].pop("cta")
+    for region in selected["text_regions"].values():
+        region["typography"] = {"weight": 400, "tracking_em": -0.02}
+    request = body(image_bytes=raw, image_sha256=sha256(raw).hexdigest(),
+                   copy_output=approved, copy_hash=content_hash(approved), layout=selected)
+    result = compose_ad_png(request, font_path=FONT)
+    assert (result.width, result.height) == canvas
+    assert decode(result.image_bytes).size == canvas
+    assert result.source_image_sha256 == sha256(raw).hexdigest()
+    assert result.copy_hash == content_hash(approved)
+    assert result.caption_bytes.decode() == approved["caption"] + "\n\n" + " ".join(approved["hashtags"])
+    assert result.receipt["provider_calls"] == 0
+    assert result.receipt["renderer"] == "korean-composition-v3"
+    assert result.receipt["cta_placement"] == cta_placement
+    assert ("cta" in result.receipt["placements"]) == (cta_placement == "image")
+    before = decode(resize_ad_png(raw, final_size=canvas).image_bytes)
+    after = decode(result.image_bytes)
+    for protected in request.layout.protected_regions:
+        rectangle = protected.pixels(canvas)
+        assert before.crop(rectangle).tobytes() == after.crop(rectangle).tobytes()
+    for field, placed in result.receipt["placements"].items():
+        assert "".join(placed["typography"]["lines"]) == approved["ad_copy"][field]
+        assert placed["text_sha256"] == sha256(approved["ad_copy"][field].encode()).hexdigest()

@@ -99,6 +99,7 @@ export default function ExportPage() {
       title="최종 결과"
       description="완성된 광고 이미지와 게시글 본문·해시태그를 확인하고 저장하세요."
       wide
+      stickyActions={false}
       back={{ to: '/create/draft', label: '이미지 검토' }}
       actions={
         <div className="button-row">

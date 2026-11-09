@@ -311,7 +311,7 @@ def compose_ad_png(body: CompositionInput, *, font_path: str | Path,
         width,height = decoded.size
     caption_text = caption + ("\n\n" if caption and tags else "") + " ".join(tags)
     fingerprint = body.model_dump(exclude={"image_bytes"})
-    renderer = ("korean-composition-v2" if any(region.typography is not None
+    renderer = ("korean-composition-v3" if any(region.typography is not None
                 for region in body.layout.text_regions.values()) else VERSION)
     fingerprint.update(renderer=renderer,font_sha256=font_hash,font_index=font_index)
     receipt = {"renderer":renderer,"pillow_version":pillow_version,

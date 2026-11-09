@@ -161,8 +161,14 @@ def _wrapped_lines(segments, font, tracking, scale, width, explicit):
                 if _line_width(candidate, font, tracking, scale) > width:
                     if not line:
                         return None
-                    lines.append(line)
-                    line = cluster
+                    boundary = max((index+1 for index, char in enumerate(line)
+                                    if char.isspace()), default=0)
+                    if boundary:
+                        lines.append(line[:boundary])
+                        line = line[boundary:] + cluster
+                    else:
+                        lines.append(line)
+                        line = cluster
                 else:
                     line = candidate
             lines.append(line)

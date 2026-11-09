@@ -248,8 +248,9 @@ img { max-width: 100%; }
 .step-head h1 { margin-top: 8px; font-family: var(--serif); font-weight: 700; font-size: clamp(28px, 3vw, 36px); line-height: 1.2; letter-spacing: -0.01em; }
 .step-desc { margin-top: 10px; max-width: 40em; font-size: 16px; color: var(--text-2); text-wrap: pretty; }
 
-/* 하단 작업 영역: 스크롤해도 화면 아래에 붙어 있고, 문서 끝에서는 흐름 안에 놓여 콘텐츠를 가리지 않는다 */
+/* 하단 작업 영역: 기본은 sticky, 결과 화면은 문서 흐름에 배치 */
 .step-actions { position: sticky; bottom: 0; z-index: 10; padding: 12px 0 calc(12px + env(safe-area-inset-bottom)); background: rgb(247 245 239 / 0.96); border-top: 1px solid var(--border); }
+.step-actions.in-flow { position: static; }
 .step-actions-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .step-actions-note { margin-bottom: 8px; }
 .step-actions-note p { margin: 0; }
