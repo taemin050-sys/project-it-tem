@@ -178,8 +178,9 @@ def _competing_projection_worker(source_root, destination, barrier, queue):
         queue.put(f"FAIL:{type(error).__name__}:{error}")
 
 
+@pytest.mark.parametrize("start_method", ("spawn", "forkserver"))
 def test_existing_output_replaced_never_after_concurrent_publication(
-    tmp_path,monkeypatch
+    tmp_path,monkeypatch,start_method
 ):
     import multiprocessing
     root=make_fixture(tmp_path,monkeypatch)
@@ -187,8 +188,9 @@ def test_existing_output_replaced_never_after_concurrent_publication(
     # macOS/Python 3.12: fork after pytest/PIL/SQLite/ObjC initialization
     # can crash before reaching the publication barrier. Use an independent
     # interpreter per contender; NEVER weaken the two-winner race assertion.
-    # Works identically in Linux, where a clean process is also preferable.
-    ctx=multiprocessing.get_context("spawn")
+    # Verify both independent interpreter startup and fresh forkserver.
+    # Neither may fork the populated pytest parent.
+    ctx=multiprocessing.get_context(start_method)
     barrier=ctx.Barrier(2)
     queue=ctx.Queue()
     processes=[ctx.Process(target=_competing_projection_worker,
