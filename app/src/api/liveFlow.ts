@@ -3,7 +3,7 @@ import {queryClient} from './queryClient'
 import {useProjectStore} from '../store/projectStore'
 import {approveLiveCopy,rejectLiveCopy,queueLive,waitLiveTask,approveLiveImage,
     rejectLiveImage,composeLive,getLiveSnapshot,qaPromptImage,qaCompose,
-  reviseLiveCopy,restoreLiveCopy,regenerateLiveImage,qaRegenerateImage} from './liveJobs'
+  reviseLiveCopy,restoreLiveCopy,regenerateLiveImage,qaRegenerateImage,queueLiveCopyReview} from './liveJobs'
 import { AD_LAYOUT, QA_OFFLINE_FIXTURE } from '../config'
 import {guardCopyApproval,guardImageApproval,type LiveSnapshot} from './liveMapping'
 // Legacy-only composition layout. Managed A Jobs NEVER receive this value.
@@ -96,6 +96,16 @@ export async function reviseCopyFromInstruction(s:LiveSnapshot,instruction:strin
 export async function restorePreviousLiveCopy(s:LiveSnapshot){
   if(!s.previous_copy_available)throw Error('복원 가능한 이전 버전이 없습니다.')
   await run(s.job_id,'ai/copy-review',async()=>{await restoreLiveCopy(s)})
+}
+export async function completeLiveCopyReview(s:LiveSnapshot){
+  await run(s.job_id,'ai/copy-review',async()=>{
+    const task=await queueLiveCopyReview(s)
+    useProjectStore.getState().setLiveTask(task.task_id)
+    const reviewed=await waitLiveTask(s.job_id,task.task_id,'COPY_REVIEW_REQUIRED')
+    if(reviewed.generation!==s.generation || reviewed.copy_sha!==s.copy_sha ||
+      reviewed.review_sha===s.review_sha || reviewed.llm_review_pending)
+      throw Error('현재 카피의 AI 검수 결과를 확인하지 못했습니다.')
+  })
 }
 export async function rejectCopy(s:LiveSnapshot){
   if(s.state!=='COPY_REVIEW_REQUIRED')throw Error('카피 거절 상태 오류')

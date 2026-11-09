@@ -1,20 +1,21 @@
 import { Link, Navigate, useNavigate } from 'react-router-dom'
 import { restorePrevious, review, reviseJob } from '../api/jobs'
-import { approveCopyAndCreateImage, reviseCopyFromInstruction, restorePreviousLiveCopy } from '../api/liveFlow'
+import { approveCopyAndCreateImage, completeLiveCopyReview, reviseCopyFromInstruction, restorePreviousLiveCopy } from '../api/liveFlow'
 import {getLiveSnapshot,getTextCostEstimate,revalidateLiveReviewPolicy,type TextCostEstimate} from '../api/liveJobs'
 import { useState, useRef,useEffect } from 'react'
 import { advance, resetJob, useJob, useLiveProgress, useLiveSnapshot } from '../api/useJob'
 import JobBadges from '../components/JobBadges'
 import RunStatus from '../components/RunStatus'
+import ResearchPanel from '../components/ResearchPanel'
 import StepPage from '../components/StepPage'
 import { COPY_LIMITS, countChars, overLimits, SUBLINE_LINE_MAX, SUBLINE_MAX_LINES } from '../lib/copyLimits'
 import { copyFieldText, splitByIssues } from '../lib/highlight'
 import { canApproveCopy } from '../lib/pipeline'
-import { isCopyReviewHydrated } from '../api/liveMapping'
+import { isCopyReviewHydrated, sameCopyReview } from '../api/liveMapping'
 import { queryClient } from '../api/queryClient'
 import { useProjectStore } from '../store/projectStore'
 import type { Job } from '../types/draft'
-import type { ComplianceIssue, ComplianceReport, CopyField, ResearchResult, RiskLevel, SourceType } from '../types/textSchema'
+import type { ComplianceIssue, ComplianceReport, CopyField, RiskLevel } from '../types/textSchema'
 
 const FIELD_LABELS: Record<CopyField, string> = {
   product_name: '제품명',
@@ -28,13 +29,6 @@ const FIELD_LABELS: Record<CopyField, string> = {
 
 // 색만으로 구분하지 않도록 배지에는 항상 위험도 글자를 함께 쓴다
 const RISK_TONE: Record<RiskLevel, string> = { '위반 의심': 'danger', '근거 확인 필요': 'warning', 정상: 'success' }
-
-// 사실(사용자 입력·검색 결과)과 의견(AI 추론)을 구분해 표시한다 (10/26 결정)
-const SOURCE_BADGE: Record<SourceType, { label: string; tone: string }> = {
-  '사용자 입력': { label: '사용자 입력', tone: 'neutral' },
-  '검색 결과': { label: '검색 결과', tone: 'success' },
-  'AI 추론': { label: 'AI 추론·의견', tone: 'warning' },
-}
 
 const BACK = { to: '/create/product', label: '제품 정보' }
 // 검수 리포트가 있으면 서버 notice를 그대로 쓴다. 이 문구는 리포트가 없는 레거시 mock 카피용 (텍스트 모듈 기본 notice와 같은 문장)
@@ -112,6 +106,7 @@ export default function CopyPage() {
   const rejected = job?.status === 'COPY_REJECTED'
   const approved = job !== undefined && ['COPY_APPROVED', 'IMAGE_REVIEW_REQUIRED', 'IMAGE_APPROVED', 'IMAGE_REJECTED', 'COMPLETED'].includes(job.status)
   const canApprove = job !== undefined && canApproveCopy(job) && liveReady &&
+    !live?.llm_review_pending &&
     !(['REVALIDATION_REQUIRED','LEGACY_UNBOUND','BINDING_TAMPERED','RESTART_REQUIRED']
       .includes(live?.review_policy?.status??'CURRENT'))
   const overs = copy ? overLimits(copy.ad_copy) : []
@@ -124,6 +119,8 @@ export default function CopyPage() {
     ['REVALIDATION_REQUIRED','LEGACY_UNBOUND','BINDING_TAMPERED','RESTART_REQUIRED']
       .includes(live.review_policy?.status??'CURRENT')
   const policyBlocked=Boolean(policyMustRevalidate)
+  const aiReviewPending=reviewing && !mock && live?.llm_review_pending===true
+  const taskBlocksReview=task?.state==='QUEUED' || task?.state==='RUNNING' || task?.state==='BILLING_UNKNOWN'
   async function resetCurrentReviewQueries(){
     await queryClient.invalidateQueries({queryKey:['live-snapshot',jobId]})
     await queryClient.invalidateQueries({queryKey:['job',jobId]})
@@ -143,6 +140,18 @@ export default function CopyPage() {
     }).catch(error=>useProjectStore.getState().setRun({
       error:error instanceof Error?error.message:'정책 재검수 실패'
     }))
+  }
+  function requestAIReview(){
+    if(!jobId || !live || !aiReviewPending || !liveReady || policyBlocked ||
+      busy || taskBlocksReview || revisionInFlight.current)return
+    revisionInFlight.current=true
+    setAckKey(null)
+    void getLiveSnapshot(jobId).then(current=>{
+      if(!sameCopyReview(live,current))throw Error('카피가 변경됐습니다. 최신 버전을 확인해 주세요.')
+      return completeLiveCopyReview(current)
+    }).catch(error=>useProjectStore.getState().setRun({
+      error:error instanceof Error?error.message:'AI 검수를 완료하지 못했습니다.'
+    })).finally(()=>{revisionInFlight.current=false})
   }
 
   // 글자 수를 넘었으면 줄여 달라는 요청을 미리 채워 둔다 (사용자가 기준을 몰라도 바로 보낼 수 있게)
@@ -262,7 +271,13 @@ export default function CopyPage() {
           <button type="button" className="button secondary small" disabled={busy}
             onClick={requestPolicyRevalidation}>현재 정책으로 재검수</button>
         </div>}
-        {reviewing && job && <ApprovalNote job={job} />}
+        {aiReviewPending && !policyBlocked && <div className="notice notice-warning" role="status">
+          <strong>현재 카피에 AI 표현 검수가 필요합니다.</strong>
+          <p>규칙 검수 결과와 AI 검수 결과를 함께 확인한 뒤 카피를 승인할 수 있습니다.</p>
+          <button type="button" className="button secondary small"
+            disabled={busy || !liveReady || taskBlocksReview} onClick={requestAIReview}>AI 표현 검수 시작</button>
+        </div>}
+        {reviewing && job && !aiReviewPending && <ApprovalNote job={job} />}
         {reviewing && overs.length > 0 && <p className="field-error" role="alert">
           글자 수 기준을 넘어 이미지를 만들 수 없습니다: {overs.join(', ')}.
           수정 요청에서 짧은 카피를 요청해 주세요.</p>}
@@ -275,11 +290,11 @@ export default function CopyPage() {
         {reviewing && !liveReady && !mock && <p role="status" className="field-hint">
           현재 카피·검수 버전을 동기화하고 있습니다. 확인·승인 전에 잠시 상태를 확인해 주세요.
         </p>}
-        {reviewing && liveReady && <label className="field-hint">
+        {reviewing && liveReady && !aiReviewPending && <label className="field-hint">
           <input type="checkbox" checked={evidenceAck}
             onChange={e=>setAckKey(e.target.checked?copyKey:null)}/>
           근거 확인 필요 표현과 제품 정보의 근거를 직접 확인하겠습니다.
-          (1차 규칙 검수는 법적 적합성 확정이 아닙니다)
+          (검수 결과는 법적 적합성 판단을 대신하지 않습니다)
         </label>}
         {!mock && task?.state==='BILLING_UNKNOWN' && <p role="alert" className="notice notice-warning">
           AI 작업의 과금 여부가 불확실합니다. 재호출하지 말고 담당자에게 확인하세요.
@@ -313,8 +328,7 @@ export default function CopyPage() {
                 onChange={e=>setInstruction(e.target.value)}/>
             </label>
             {!mock && <p className="field-hint" role="status">
-              QA Fixture는 유료 모델을 호출하지 않습니다.
-              실제 Text Owner v0.10 수정은 관리자가 승인한 Live Worker에서만 실행됩니다.
+              수정한 카피는 규칙 검사와 AI 표현 검수를 거쳐 다시 확인할 수 있습니다.
               {revisionEstimate
                 ? <> 텍스트 수정 1회 예상 비용: <strong>{revisionEstimate.display}</strong>.</>
                 : ' 텍스트 수정 예상 비용을 확인 중이거나 조회할 수 없습니다.'}
@@ -375,7 +389,7 @@ export default function CopyPage() {
                   ? (
                     <ul className="issues">
                       {report.issues.map((r) => (
-                        <li key={`${r.field}-${r.start}`} className={`issue issue-${RISK_TONE[r.risk_level]}`}>
+                        <li key={`${r.field}-${r.start}-${r.category}-${r.detected_by}`} className={`issue issue-${RISK_TONE[r.risk_level]}`}>
                           <div className="issue-head">
                             <span className={`badge badge-${RISK_TONE[r.risk_level]}`}>{r.risk_level}</span>
                             <span className="issue-where">{FIELD_LABELS[r.field]} · {r.category}</span>
@@ -392,7 +406,11 @@ export default function CopyPage() {
                             </div>
                           </div>
                           <p className="issue-reason">{r.reason}</p>
-                          {r.basis && <p className="field-hint">근거: {r.basis}</p>}
+                          {r.basis && <p className="field-hint">근거: {
+                            r.basis_url?.startsWith('https://www.law.go.kr/LSW/')
+                              ? <a href={r.basis_url} target="_blank" rel="noreferrer">{r.basis}</a>
+                              : r.basis
+                          }</p>}
                         </li>
                       ))}
                     </ul>
@@ -502,34 +520,5 @@ function ReviewSummary({ report }: { report: ComplianceReport }) {
       <p className="notice-title">✓ 검수에서 주의할 표현을 찾지 못했습니다</p>
       <p>자동 검수는 모든 위험을 찾아내지 못할 수 있습니다. {report.notice}</p>
     </div>
-  )
-}
-
-function ResearchPanel({ research }: { research: ResearchResult }) {
-  return (
-    <section className="panel" aria-labelledby="research-title">
-      <h2 id="research-title" className="panel-title">AI 사전 조사 요약</h2>
-      {!research.research_performed && (
-        <p className="notice notice-warning">외부 검색을 하지 못해 조사 내용은 모두 AI 추론입니다.</p>
-      )}
-      <ul className="plain-list summary-list">
-        {research.research.display_summary.map((s) => (
-          <li key={s.text}>
-            <span className={`badge badge-${SOURCE_BADGE[s.source].tone}`}>{SOURCE_BADGE[s.source].label}</span> {s.text}
-          </li>
-        ))}
-      </ul>
-      <p className="field-hint">AI 추론·의견은 근거가 확인되지 않은 내용입니다. 참고용으로만 봐 주세요.</p>
-      {research.citations.length > 0 && (
-        <div className="source-group">
-          <h3 className="group-label">검색 출처</h3>
-          <ul className="plain-list">
-            {research.citations.map((c) => (
-              <li key={c.url}><a className="text-link" href={c.url} target="_blank" rel="noreferrer">{c.title ?? c.url}</a></li>
-            ))}
-          </ul>
-        </div>
-      )}
-    </section>
   )
 }

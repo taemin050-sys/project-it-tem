@@ -12,7 +12,7 @@ from uuid import uuid4
 
 from .contracts import LiveGateError, digest, validate_input, strict_review, live_prompt, owner_text_snapshots
 from .review_policy import (enabled as policy_enabled, current as current_policy,
-    review_digest, sources_fingerprint)
+    review_digest, sources_fingerprint, llm_required)
 from .template_contract import (A_ID,A_VERSION,LEGACY_ID,LEGACY_VERSION,SIZE_PREFIX,BP18_PREFIX,
     owner_a_policy,owner_size_policy,historical_a_v1_layout,normalize_layout,verify_policy,canonical)
 
@@ -255,6 +255,86 @@ class LiveStore:
         with self.db() as c:
             return self._ensure_current_review_policy(c,self._read(c,job_id,actor))
 
+    def active_review_policy(self):
+        with self.db() as c:
+            return self._active_policy(c)
+
+    @staticmethod
+    def _require_llm_review(job,policy):
+        if not llm_required(job["mode"]):
+            return
+        proof=json.loads(job["compliance_json"]).get("llm_review")
+        if not proof:
+            raise LiveGateError("LLM_REVIEW_REQUIRED")
+        analysis=json.loads(job["analysis_json"])
+        copy=json.loads(job["copy_json"])
+        rule_report=strict_review(copy,json.loads(job["input_json"])["product"],analysis)
+        expected={"job_id":job["job_id"],"input_sha":job["input_sha"],
+                  "copy_sha":job["copy_sha"],"generation":job["generation"],
+                  "policy_version":policy["version"] if policy else None,
+                  "policy_sha":policy["sha"] if policy else None,
+                  "policy_epoch":policy["epoch"] if policy else None,
+                  "model":__import__("os").environ.get("IT_TEM_TEXT_MODEL","gpt-6-luna"),
+                  "source_review_sha":review_digest(
+                      job["input_sha"],analysis,copy,rule_report,job["generation"],policy)}
+        if (any(proof.get(key)!=value for key,value in expected.items()) or
+                not all(isinstance(proof.get(key),str) and len(proof[key])==64
+                        for key in ("receipt_sha","result_sha")) or
+                not proof.get("attempt_id") or not proof.get("response_model")):
+            raise LiveGateError("LLM_REVIEW_BINDING_INVALID")
+
+    def _copy_review_context(self,c,job,expected_generation,expected_review_sha,*,text_model):
+        if not llm_required(job["mode"]):
+            raise LiveGateError("LLM_REVIEW_NOT_ENABLED")
+        if (type(expected_generation) is not int or job["state"]!="COPY_REVIEW_REQUIRED" or
+                job["generation"]!=expected_generation or job["review_sha"]!=expected_review_sha):
+            raise LiveGateError("STALE_REVIEW_OR_REVISION")
+        policy=self._ensure_current_review_policy(c,job)
+        if policy is None:
+            raise LiveGateError("LLM_REVIEW_POLICY_REQUIRED")
+        if text_model!=__import__("os").environ.get("IT_TEM_TEXT_MODEL","gpt-6-luna"):
+            raise LiveGateError("LLM_REVIEW_MODEL_MISMATCH")
+        if digest(json.loads(job["copy_json"]))!=job["copy_sha"]:
+            raise LiveGateError("LLM_REVIEW_COPY_INTEGRITY_FAILED")
+        if json.loads(job["compliance_json"]).get("llm_review"):
+            self._require_llm_review(job,policy)
+            raise LiveGateError("LLM_REVIEW_ALREADY_CURRENT")
+        return {"job_id":job["job_id"],"input_sha":job["input_sha"],
+                "copy_sha":job["copy_sha"],"generation":job["generation"],
+                "source_review_sha":job["review_sha"],"model":text_model,
+                "policy_version":policy["version"],"policy_sha":policy["sha"],
+                "policy_epoch":policy["epoch"]}
+
+    def copy_review_context(self,actor,job_id,expected_generation,expected_review_sha,*,text_model):
+        with self.db() as c:
+            return self._copy_review_context(c,self._read(c,job_id,actor),
+                expected_generation,expected_review_sha,text_model=text_model)
+
+    def complete_copy_review(self,actor,job_id,context,result,receipt):
+        from src.text_generation.schemas import AdCopyOutput,ProductInput
+        from .copy_review import complete_report
+        with self.db() as c:
+            c.execute("BEGIN IMMEDIATE")
+            job=self._read(c,job_id,actor)
+            current=self._copy_review_context(c,job,context["generation"],
+                context["source_review_sha"],text_model=context["model"])
+            if current!=context:
+                raise LiveGateError("LLM_REVIEW_CONTEXT_STALE")
+            copy=AdCopyOutput.model_validate(json.loads(job["copy_json"]),strict=True)
+            product=ProductInput.model_validate(json.loads(job["input_json"])["product"],strict=True)
+            report=complete_report(json.loads(job["compliance_json"]),copy,product,result,context,receipt)
+            policy=self._active_policy(c)
+            bound=review_digest(job["input_sha"],json.loads(job["analysis_json"]),copy.model_dump(mode="json"),
+                                report,job["generation"],policy)
+            c.execute("UPDATE live_jobs SET compliance_json=?,review_sha=? WHERE job_id=?",
+                      (json.dumps(report,ensure_ascii=False),bound,job_id))
+            c.execute("UPDATE live_review_policy SET review_sha=? WHERE job_id=? AND generation=?",
+                      (bound,job_id,job["generation"]))
+            updated=self._read(c,job_id,actor)
+            self._event(c,updated,"real_llm_compliance_reviewed",updated["state"],bound)
+            c.commit()
+            return updated
+
     def policy_status(self,actor,job_id):
         with self.db() as c:
             job=self._read(c,job_id,actor)
@@ -384,9 +464,16 @@ class LiveStore:
             generation=job["generation"]+1
             policy=self._active_policy(c) if policy_enabled() else None
             report_sha=review_digest(job["input_sha"],analysis,parsed.output,report,generation,policy)
-            # A legacy manual edit is a different edit path. Prevent a stale
-            # QA previous-copy row from surviving an unrelated direct edit.
-            c.execute("DELETE FROM live_copy_previous WHERE job_id=?",(job_id,))
+            if llm_required(job["mode"]):
+                c.execute("""INSERT INTO live_copy_previous
+                    (job_id,copy_json,copy_sha,origin_generation,reason_sha)
+                    VALUES (?,?,?,?,?) ON CONFLICT(job_id) DO UPDATE SET
+                    copy_json=excluded.copy_json,copy_sha=excluded.copy_sha,
+                    origin_generation=excluded.origin_generation,reason_sha=excluded.reason_sha""",
+                    (job_id,job["copy_json"],job["copy_sha"],job["generation"],
+                     digest({"source":"manual_edit","copy_sha":parsed.sha256})))
+            else:
+                c.execute("DELETE FROM live_copy_previous WHERE job_id=?",(job_id,))
             c.execute("DELETE FROM live_copy_revision_feedback WHERE job_id=?",(job_id,))
             c.execute("""UPDATE live_jobs SET generation=?,state='COPY_REVIEW_REQUIRED',copy_json=?,
               copy_sha=?,compliance_json=?,review_sha=?,approval_sha=NULL,
@@ -459,6 +546,9 @@ class LiveStore:
             analysis=json.loads(job["analysis_json"])
             report=strict_review(parsed.output,context["product"],analysis)
             previous_report=json.loads(job["compliance_json"])
+            if parsed.sha256==job["copy_sha"] and previous_report.get("llm_review"):
+                self._require_llm_review(job,self._active_policy(c))
+                report=previous_report
             if (parsed.sha256==job["copy_sha"] and
                     digest(report)==digest(previous_report)):
                 # Owner note does not create a new copy/review. Keep approval,
@@ -602,7 +692,8 @@ class LiveStore:
                 raise LiveGateError("COPY_APPROVAL_STATE_CONFLICT")
             if job["generation"]!=expected_generation or job["review_sha"]!=expected_review_sha:
                 raise LiveGateError("STALE_REVIEW_OR_REVISION")
-            self._ensure_current_review_policy(c,job)
+            policy=self._ensure_current_review_policy(c,job)
+            self._require_llm_review(job,policy)
             review=json.loads(job["compliance_json"])
             if not review["passed"]:
                 raise LiveGateError("REAL_COMPLIANCE_BLOCKED")
@@ -647,9 +738,12 @@ class LiveStore:
         if policy_enabled():
             if c is None:
                 with self.db() as con:
-                    self._ensure_current_review_policy(con,job)
+                    policy=self._ensure_current_review_policy(con,job)
             else:
-                self._ensure_current_review_policy(c,job)
+                policy=self._ensure_current_review_policy(c,job)
+        else:
+            policy=None
+        self._require_llm_review(job,policy)
         if not (job["state"] in {"COPY_APPROVED","PROMPT_READY","IMAGE_REVIEW_REQUIRED","IMAGE_APPROVED","IMAGE_REJECTED"}
                 and job["approval_sha"] and job["approved_generation"]==job["generation"]
                 and job["approval_sha"]==self.approval_binding(job,c)

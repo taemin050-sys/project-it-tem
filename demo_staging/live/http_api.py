@@ -19,6 +19,7 @@ from pydantic import BaseModel,ConfigDict,Field
 from .contracts import LiveGateError,digest
 from .pipeline import LivePipeline
 from .queue import LiveQueue
+from .review_policy import llm_required
 from .reviews import LiveShares
 from demo_staging.app import ReviewBody
 from demo_staging.live_safety import LiveNotAuthorized
@@ -169,6 +170,7 @@ def register_live_api(app:FastAPI, ledger, runtime_root:Path, cookie_name:str):
             return HTTPException(status_code=409 if ("STATE" in code or "STALE" in code or
                              "APPROVAL" in code or "CONFLICT" in code or
                              code in ("REAL_COMPLIANCE_BLOCKED","REVISION_IN_PROGRESS",
+                                      "LLM_REVIEW_REQUIRED",
                                       "REVIEW_POLICY_REVALIDATION_REQUIRED",
                                       "REVIEW_POLICY_BINDING_TAMPERED",
                                       "REVIEW_POLICY_RUNTIME_SOURCE_CHANGED",
@@ -218,6 +220,12 @@ def register_live_api(app:FastAPI, ledger, runtime_root:Path, cookie_name:str):
                            ("prompt_json","image_prompt")):
             if job[stored] is not None:
                 out[key]=json.loads(job[stored])
+        required = llm_required(job["mode"])
+        pending = bool(required and job["copy_sha"] and not out.get("compliance", {}).get("llm_review"))
+        out["llm_review_required"] = required
+        out["llm_review_pending"] = pending
+        if pending:
+            out["approval_current"] = False
         return out
 
     # Isolated developer QA fixture path. NOT a Live Provider substitute:
@@ -411,6 +419,7 @@ def register_live_api(app:FastAPI, ledger, runtime_root:Path, cookie_name:str):
         blocker = queue_blocker(actor)
         return {"live_enabled":blocker is None,
                 "mode":"LIVE_QUEUE_READY" if blocker is None else "LIVE_BLOCKED",
+                "source_sha":app.state.demo_code_sha,
                 "reason":"COST_AND_CONTRACT_PM_GATE" if not signed_b and
                          blocker == "LIVE_PROVIDER_NOT_APPROVED" else blocker,
                 "provisional_wire":True,"mock_fallback":False}
@@ -547,6 +556,23 @@ def register_live_api(app:FastAPI, ledger, runtime_root:Path, cookie_name:str):
             return visible(flow.state.restore_previous_copy(
                 actor,job_id,body.expected_generation,body.expected_review_sha))
         except (LiveGateError,ValueError) as e:raise safe_error(e) from None
+
+    @app.post(prefix+"/jobs/{job_id}/review-copy")
+    def queue_copy_review(job_id:str,body:CopyRestoreRequest,request:Request):
+        actor=authorized(request,job_id)
+        require_queue(actor)
+        try:
+            context=flow.copy_review_context(
+                actor,job_id,body.expected_generation,body.expected_review_sha,
+                text_model=os.environ.get("IT_TEM_TEXT_MODEL","gpt-6-luna"))
+            task,new=queue.enqueue(
+                actor=actor,job_id=job_id,stage="copy_review",context_sha=digest(context),mode="LIVE",
+                review_payload={"expected_generation":body.expected_generation,
+                                "expected_review_sha":body.expected_review_sha})
+            return JSONResponse({"task_id":task["id"],"state":task["state"],"new":new},
+                                status_code=202)
+        except (LiveGateError,ValueError) as error:
+            raise safe_error(error) from None
 
     @app.post(prefix+"/jobs/{job_id}/revalidate-policy")
     def revalidate_review_policy(job_id:str,body:CopyRestoreRequest,request:Request):

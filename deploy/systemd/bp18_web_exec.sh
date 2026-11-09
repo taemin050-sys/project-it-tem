@@ -10,6 +10,11 @@ flock -n 9 || { echo "BP18_WEB_EXEC_SECOND_INSTANCE_DENIED" >&2;exit 78; }
 test "$(readlink "$ROOT/repo")" = "releases/$(cat "$ROOT/repo/SOURCE_SHA.txt")"
 echo "$$" > "$ROOT/web.pid"
 export IT_TEM_DEMO_CODE_SHA="$(cat "$ROOT/repo/SOURCE_SHA.txt")"
+launcher=()
+if test -f "$ROOT/repo/deploy/systemd/bp18_live_launch.py"; then
+    launcher=("$ROOT/repo/deploy/systemd/bp18_live_launch.py" web)
+fi
 exec /home/macstudio/ittem-a-template-ui-test-20261102/.venv/bin/python \
+    "${launcher[@]}" \
     -m uvicorn demo_staging.serve:app --app-dir "$ROOT/repo" \
     --host 127.0.0.1 --port 18100 --workers 1 --no-use-colors

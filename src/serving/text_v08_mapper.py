@@ -12,6 +12,7 @@ import json
 from typing import Any, Mapping
 
 from pydantic import BaseModel, ValidationError
+from src.text_generation.research_evidence import CLAIM_SECTIONS, citation_url, claim_sha256
 
 
 class TextBoundaryError(ValueError):
@@ -89,6 +90,34 @@ class ResearchSnapshot:
     outcome: str
 
 
+def _research_claim_citations(citations: list) -> dict:
+    bound = {}
+    for citation in citations:
+        if not isinstance(citation, dict):
+            continue
+        url = citation_url(citation.get("url"))
+        if url is None:
+            continue
+        title = citation.get("title")
+        safe = {"url": url, "title": title if isinstance(title, str) else None}
+        claims = citation.get("claims", [])
+        if not isinstance(claims, list):
+            continue
+        for claim in claims:
+            if not isinstance(claim, dict):
+                continue
+            section, index, text_sha = (
+                claim.get("section"), claim.get("index"), claim.get("text_sha256")
+            )
+            if section not in CLAIM_SECTIONS or type(index) is not int or index < 0 or (
+                not isinstance(text_sha, str)
+            ):
+                continue
+            refs = bound.setdefault((section, index, text_sha), {})
+            refs[url] = safe
+    return bound
+
+
 def verify_research(
     incoming: Mapping[str, Any] | BaseModel,
     *, model: type[BaseModel] | None = None,
@@ -108,26 +137,31 @@ def verify_research(
     display = deepcopy(parsed)
     failure = display.get("error") is not None
     performed = display["research_performed"]
-    cited = bool(display["citations"])
     if failure:
         outcome = "research_failed_fallback"
     elif not performed:
         outcome = "search_not_performed"
-    elif not cited:
-        outcome = "search_completed_uncited"
     else:
-        outcome = "search_cited"
-    # The v0.8 schema offers a global citation list, NOT item-to-URL bindings.
-    # Even one real citation cannot substantiate every individual search claim.
-    # Retain the original research/citations internally, but show neither
-    # unbound citations nor an unsupported per-item "검색 결과" claim.
-    display["citations"] = []
+        outcome = "search_completed_uncited"
+    # New Provider annotations bind a URL to the exact cleaned claim text.
+    # Historical global-only citations remain internal evidence.
+    bound = _research_claim_citations(display["citations"]) if performed and not failure else {}
+    visible_citations = {}
     if failure or not performed:
         display["research_performed"] = False
-    for key in ("market_insights", "similar_products", "display_summary"):
-        for item in display["research"].get(key, []):
+    for key in CLAIM_SECTIONS:
+        for index, item in enumerate(display["research"].get(key, [])):
+            item.pop("citations", None)
             if item.get("source") == "검색 결과":
-                item["source"] = "AI 추론"
+                refs = bound.get((key, index, claim_sha256(item["text"])), {})
+                if refs:
+                    item["citations"] = list(refs.values())
+                    visible_citations.update(refs)
+                else:
+                    item["source"] = "AI 추론"
+    display["citations"] = list(visible_citations.values())
+    if performed and not failure and visible_citations:
+        outcome = "search_cited"
     # Provider error details belong to the internal original only.
     # No exceptions, API URLs, credentials, or provider traces in UI payload.
     if failure:

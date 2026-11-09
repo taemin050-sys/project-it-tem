@@ -2,7 +2,8 @@ import os
 
 from dotenv import load_dotenv
 
-load_dotenv()
+if os.getenv("PYTHON_DOTENV_DISABLED") != "1":
+    load_dotenv()
 
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 MODEL_TEXT = os.getenv("OPENAI_MODEL_TEXT", "gpt-6-luna")

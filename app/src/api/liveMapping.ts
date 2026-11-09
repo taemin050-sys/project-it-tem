@@ -10,6 +10,7 @@ export type LiveSnapshot={
   input_sha:string;copy_sha:string|null;review_sha:string|null;
   image_sha:string|null;final_sha:string|null;caption_sha:string|null;
   approval_current:boolean;previous_copy_available?:boolean;
+  llm_review_required?:boolean;llm_review_pending?:boolean;
   review_policy?:{status:'CURRENT'|'REVALIDATION_REQUIRED'|'LEGACY_UNBOUND'|
     'BINDING_TAMPERED'|'RESTART_REQUIRED'|'LEGACY_POLICY_MODE';version:string|null;sha:string|null};
   functional_types?:string[];
@@ -109,6 +110,7 @@ export const guardCopyRevision=guardCopyReviewMutation
 export function guardCopyApproval(s:LiveSnapshot){
   if(s.state!=='COPY_REVIEW_REQUIRED'||!s.review_sha||!s.copy_sha||
       !Number.isSafeInteger(s.generation)||s.generation<1||!s.compliance?.passed||
+      s.llm_review_pending||
       (s.review_policy && !['CURRENT','LEGACY_POLICY_MODE'].includes(s.review_policy.status)))
     throw Error('COPY_COMPLIANCE_OR_REVISION_NOT_APPROVED')
 }

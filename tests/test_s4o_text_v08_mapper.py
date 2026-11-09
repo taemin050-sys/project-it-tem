@@ -74,7 +74,7 @@ def test_vlm_default_cosmetic_true_with_failed_flag_is_rejected():
     (False, None, [], "search_not_performed"),
     (False, "provider failure", [], "research_failed_fallback"),
     (True, None, [], "search_completed_uncited"),
-    (True, None, [{"title": "Source", "url": "https://example.org/research"}], "search_cited"),
+    (True, None, [{"title": "Source", "url": "https://example.org/research"}], "search_completed_uncited"),
 ])
 def test_research_failure_vs_not_performed_vs_citation(performed,error,citations,expected):
     original = research(research_performed=performed,error=error,citations=citations)
@@ -126,7 +126,7 @@ def test_single_global_citation_does_not_verify_unrelated_search_claims():
             {"text": "개별 URL 연결 없는 주장 2", "source": "검색 결과"},
         ]
     result = verify_research(data)
-    assert result.outcome == "search_cited"
+    assert result.outcome == "search_completed_uncited"
     assert result.original["citations"] == data["citations"]
     assert result.display["citations"] == []
     for key in ("market_insights", "similar_products", "display_summary"):

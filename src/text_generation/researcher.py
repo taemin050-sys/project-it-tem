@@ -1,17 +1,20 @@
 """기획 AI 사전 조사 : ProductInput + ProductAnalysis → ResearchResult (웹 검색 1회 호출)"""
 
+import json
 import logging
 import re
 from datetime import date
 from typing import Any
-from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 from .config import MODEL_TEXT, REASONING_EFFORT
 from .llm_client import LLMError, call_structured
+from .research_evidence import CLAIM_SECTIONS, citation_url, claim_sha256
 from .schemas import (
     Citation,
+    ClaimCitation,
     ProductAnalysis,
     ProductInput,
+    ResearchClaimReference,
     ResearchOutput,
     ResearchResult,
     SummaryLine,
@@ -23,6 +26,9 @@ DEFAULT_MAX_TOOL_CALLS = 2
 
 _PAREN_LINK = re.compile(r"\s*\(\[[^\]]*\]\([^)]*\)\)")
 _MD_LINK = re.compile(r"\s*\[[^\]]*\]\([^)]*\)")
+_BARE_LINK = re.compile(r"https?://[^\s\])>\"}]+", re.IGNORECASE)
+_CITATION_MARKER = re.compile(r"cite[^]*")
+_JSON_CLAIM = re.compile(r'(?<!\\)"text"\s*:\s*("(?:[^"\\]|\\.)*")')
 _SOURCE_PREFIX = re.compile(
     r"^\s*(?:\[(?:사용자 입력|검색 결과|AI 추론)\]|(?:사용자 입력|검색 결과|AI 추론)\s*[:：])\s*"
 )
@@ -47,13 +53,13 @@ INSTRUCTIONS = """너는 소상공인 화장품 브랜드의 인스타그램 피
 - display_summary : 사용자 화면에 보여줄 조사 요약 3~5줄, 한 줄 40자 이내
 
 [출처 source]
-- 사용자 입력 : 사용자가 입력한 제품 정보를 정리한 내용
+- 사용자 입력 : 사용자가 입력한 제품 정보에 있는 원문 그대로
 - 검색 결과 : 이번 웹 검색 결과에서 직접 확인한 사실만
 - AI 추론 : 사진 분석 결과, 일반 지식, 그리고 검색 결과를 바탕으로 한 너의 판단·제안·광고 아이디어
 - display_summary도 같은 기준으로 표시해
 - 출처는 source에만 적고, text에는 출처 이름(사용자 입력, 검색 결과, AI 추론)을 쓰지 마
 - 검색으로 확인하지 못한 내용을 검색 결과라고 표시하지 마
-- 검색 결과로 표시한 문장에는 출처 링크를 달아
+- 검색 결과의 각 문장은 검색 도구가 확인한 사실 하나만 담고, 같은 text 값 안에 실제 검색 인용을 붙여. 검색 인용이 없으면 AI 추론으로 표시해
 
 [규칙]
 - 브랜드명·제품명은 사용자 입력을 그대로 써. 사진에서 읽은 라벨 글자는 틀릴 수 있으니 확인된 사실로 쓰지 마
@@ -83,16 +89,10 @@ def _build_input(product: ProductInput, analysis: ProductAnalysis) -> str:
 - 라벨에서 읽은 글자 : {", ".join(analysis.label_text) or "없음"}"""
 
 
-def _clean_url(url: str) -> str:
-    """utm_ 추적 값 제거 (예: ?utm_source=openai)"""
-    parts = urlsplit(url)
-    query = [(k, v) for k, v in parse_qsl(parts.query) if not k.startswith("utm_")]
-    return urlunsplit(parts._replace(query=urlencode(query)))
-
-
 def _strip_links(text: str) -> str:
-    """본문에 붙은 마크다운 링크 제거 (화면 표시용)"""
-    return _MD_LINK.sub("", _PAREN_LINK.sub("", text)).strip()
+    """표시용 본문에서 인용 링크를 분리한다."""
+    text = _CITATION_MARKER.sub("", text)
+    return _BARE_LINK.sub("", _MD_LINK.sub("", _PAREN_LINK.sub("", text))).strip()
 
 
 def _strip_source_prefix(text: str) -> str:
@@ -104,27 +104,74 @@ def _clean_output(output: ResearchOutput) -> ResearchOutput:
     output.product_summary = _strip_links(output.product_summary)
     output.functional_notes = _strip_links(output.functional_notes)
     output.ad_direction = _strip_links(output.ad_direction)
-    for item in [
-        *output.market_insights,
-        *output.similar_products,
-        *output.display_summary,
-    ]:
-        item.text = _strip_source_prefix(_strip_links(item.text))
+    for section in CLAIM_SECTIONS:
+        for item in getattr(output, section):
+            item.text = _strip_source_prefix(_strip_links(item.text))
     return output
 
 
-def _extract_citations(res: Any) -> list[Citation]:
-    """응답의 url_citation만 모아서 Citation 목록으로 (utm 제거, 중복 URL 제거)"""
+def _claim_spans(raw: object, output: ResearchOutput):
+    """Find exact JSON text values in the response used for structured parsing."""
+    if not isinstance(raw, str):
+        return []
+    try:
+        data = json.loads(raw)
+    except ValueError:
+        return []
+    if data != output.model_dump(mode="json"):
+        return []
+    claims = [
+        (section, index, item)
+        for section in data if section in CLAIM_SECTIONS
+        for index, item in enumerate(data[section])
+    ]
+    spans = list(_JSON_CLAIM.finditer(raw))
+    if [json.loads(match[1]) for match in spans] != [item["text"] for _, _, item in claims]:
+        return []
+
+    # A range must identify the same field whether the indices count Unicode
+    # characters or UTF-16 code units. This is identical for Hangul and ASCII.
+    def units(offset: int) -> int:
+        return len(raw[:offset].encode("utf-16-le", errors="surrogatepass")) // 2
+
+    return [
+        (section, index, item, units(match.start(1) + 1), match.end(1) - 1)
+        for (section, index, item), match in zip(claims, spans, strict=True)
+    ]
+
+
+def _extract_citations(res: Any, output: ResearchOutput) -> list[ClaimCitation | Citation]:
+    """Bind only Provider citation ranges contained in the exact claim value."""
     citations: dict[str, Citation] = {}
+    references: dict[str, list[ResearchClaimReference]] = {}
     for item in res.output:
         for c in getattr(item, "content", None) or []:
+            spans = _claim_spans(getattr(c, "text", None), output)
             for a in getattr(c, "annotations", None) or []:
-                if a.type != "url_citation":
+                if getattr(a, "type", None) != "url_citation":
                     continue
-                url = _clean_url(a.url)
-                if url not in citations:
-                    citations[url] = Citation(title=a.title, url=url)
-    return list(citations.values())
+                url = citation_url(getattr(a, "url", None))
+                if url is None:
+                    continue
+                title = getattr(a, "title", None)
+                citations.setdefault(url, Citation(title=title if isinstance(title, str) else None, url=url))
+                start, end = getattr(a, "start_index", None), getattr(a, "end_index", None)
+                if type(start) is not int or type(end) is not int or start >= end:
+                    continue
+                for section, index, claim, first, last in spans:
+                    if claim["source"] != "검색 결과" or not first <= start < end <= last:
+                        continue
+                    text = _strip_source_prefix(_strip_links(claim["text"]))
+                    if not text:
+                        continue
+                    ref = ResearchClaimReference(section=section, index=index, text_sha256=claim_sha256(text))
+                    refs = references.setdefault(url, [])
+                    if ref not in refs:
+                        refs.append(ref)
+    return [
+        ClaimCitation(title=c.title, url=url, claims=references[url]) if url in references else c
+        for url, c in citations.items()
+    ]
 
 
 def _search_succeeded(res: Any) -> bool:
@@ -135,16 +182,22 @@ def _search_succeeded(res: Any) -> bool:
     )
 
 
-def _downgrade_search_sources(output: ResearchOutput) -> ResearchOutput:
-    """인용이 없는데 '검색 결과'로 표시된 항목 → 'AI 추론'"""
-    for item in [
-        *output.market_insights,
-        *output.similar_products,
-        *output.display_summary,
-    ]:
-        if item.source == "검색 결과":
-            item.source = "AI 추론"
-    return output
+def _check_sources(output: ResearchOutput, citations: list[ClaimCitation | Citation], product: ProductInput) -> None:
+    sourced = {
+        (claim.section, claim.index, claim.text_sha256)
+        for citation in citations if isinstance(citation, ClaimCitation)
+        for claim in citation.claims
+    }
+    user_values = (product.brand_name, product.product_name, product.product_category,
+                   product.features, product.ad_purpose)
+    for section in CLAIM_SECTIONS:
+        for index, item in enumerate(getattr(output, section)):
+            if item.source == "검색 결과" and (section, index, claim_sha256(item.text)) not in sourced:
+                item.source = "AI 추론"
+            if item.source == "사용자 입력" and not (
+                item.text and any(value and item.text in value for value in user_values)
+            ):
+                item.source = "AI 추론"
 
 
 def _functional_notes(product: ProductInput) -> str:
@@ -196,22 +249,21 @@ def research(
             reasoning_effort=reasoning_effort,
             return_raw=True,
         )
-    except LLMError as e:
-        logger.warning("기획 AI 조사 실패, 기본 조사로 대체: %s", e)
+    except LLMError:
+        logger.warning("기획 AI 조사 실패, 기본 조사로 대체")
         return ResearchResult(
             research=default_research(product, analysis),
             citations=[],
             research_performed=False,
-            error=str(e),
+            error="RESEARCH_UNAVAILABLE",
         )
 
-    citations = _extract_citations(res)
-    output = _clean_output(output)
     performed = _search_succeeded(res)
+    citations = _extract_citations(res, output) if performed else []
+    _clean_output(output)
+    _check_sources(output, citations, product)
     if not performed:
         logger.warning("웹 검색이 수행되지 않음 (호출은 성공)")
-    if not citations:
-        output = _downgrade_search_sources(output)
 
     search_calls = sum(1 for item in res.output if item.type == "web_search_call")
     logger.info(

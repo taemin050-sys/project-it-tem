@@ -1,0 +1,30 @@
+[Unit]
+Description=IT-TEM BP18 B explicit live worker with ephemeral provider credential
+Requisite=ittem-bp18-b.service
+BindsTo=ittem-bp18-b.service
+After=ittem-bp18-b.service
+
+[Service]
+Type=exec
+WorkingDirectory=/home/macstudio/ittem-bp18-product-completion-20261111/repo
+Environment=PYTHONDONTWRITEBYTECODE=1
+Environment=PYTHONPATH=/home/macstudio/ittem-bp18-product-completion-20261111/vendor/bp10_unicode_site:/home/macstudio/ittem-bp18-product-completion-20261111/repo
+Environment=IT_TEM_DEMO_ROOT=/home/macstudio/ittem-bp18-product-completion-20261111
+Environment=IT_TEM_DEMO_ENABLE_LIVE_CONFIG=NO
+Environment=IT_TEM_TAILNET_AUTH_ENABLED=YES
+Environment=IT_TEM_TAILNET_SSO_ONLY=YES
+Environment=IT_TEM_TAILNET_EXPECTED_HOST=macstudio-macstudio.tail17dfff.ts.net:10500
+Environment=IT_TEM_BP18_VISUAL_V3_ENABLED=YES
+Environment=IT_TEM_BP18_F11_ENABLED=YES
+Environment=IT_TEM_BP18_REVIEW_POLICY_ID=bp18-f11-compliance-policy-v1
+LoadCredential=bp18-openai.env:/home/macstudio/ittem-remote-demo-20261030/config/openai.env
+UnsetEnvironment=OPENAI_API_KEY OPENAI_BASE_URL OPENAI_ORG_ID OPENAI_PROJECT_ID
+ExecStartPre=/usr/bin/python3 /home/macstudio/ittem-bp18-product-completion-20261111/control/bp18_release_prestart.py --mode worker --port 0
+ExecStart=/home/macstudio/ittem-a-template-ui-test-20261102/.venv/bin/python /home/macstudio/ittem-bp18-product-completion-20261111/repo/deploy/systemd/bp18_live_launch.py worker
+Restart=no
+KillSignal=SIGTERM
+TimeoutStopSec=25min
+SendSIGKILL=no
+NoNewPrivileges=true
+UMask=0077
+LimitCORE=0

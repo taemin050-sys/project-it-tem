@@ -1,7 +1,8 @@
 """Official Text Owner DTO and PR#10 Image offline bridge integration.
 
-This test was introduced with v0.8. It is re-pinned to Owner PR25 v0.10,
-while all original fail-closed contract cases remain enforced.
+This test was introduced with v0.8. The Owner PR25 v0.10 baseline is retained
+below. Track B adds exact claim references to Research citations while
+preserving the baseline DTO fixtures and fail-closed contract cases.
 
 On dev alone, these integrations SKIP (never count as integrated PASS).
 In an isolated combined checkout, NO SKIP is acceptable. No OpenAI/API calls.
@@ -40,6 +41,7 @@ from src.serving.text_v08_mapper import (
 # Original v0.8 historical schema hash (not the current Owner source).
 LEGACY_V08_SCHEMA_SHA256 = "051aab8b02d461b4d8787053e6af6dfc1267acbd48fd0304ff0f4f090bac18f7"
 OWNER_SCHEMA_SHA256 = "93849c85a1bd155136f69a71ce22aa9371e7b48cfd5b432ce07a0617e1560235"
+B_F07_SCHEMA_SHA256 = "76558bbbe4b1cd91bceef37f917486a35b488b367bddd7b5300851ef87277489"
 FIX = Path(__file__).resolve().parents[1] / "docs/contracts/fixtures"
 
 
@@ -92,7 +94,7 @@ def layout():
 
 
 def test_owner_official_models_and_strict_no_coercion():
-    assert hashlib.sha256(Path(text_owner.__file__).read_bytes()).hexdigest() == OWNER_SCHEMA_SHA256
+    assert hashlib.sha256(Path(text_owner.__file__).read_bytes()).hexdigest() == B_F07_SCHEMA_SHA256
     a,r,c,p = official_inputs()
     assert verify_analysis(a, model=text_owner.ProductAnalysisResult).image_owner_input["analysis_succeeded"] is True
     assert verify_research(r, model=text_owner.ResearchResult).outcome == "search_not_performed"
@@ -203,7 +205,7 @@ def test_s4_stage_mutation_cannot_reach_pr10_stage_copy(tmp_path, mutate):
 
 @pytest.mark.parametrize("revision",["1",1])
 def test_real_current_owner_owner_through_existing_pr10_offline_image_flow(tmp_path,revision):
-    assert hashlib.sha256(Path(text_owner.__file__).read_bytes()).hexdigest() == OWNER_SCHEMA_SHA256
+    assert hashlib.sha256(Path(text_owner.__file__).read_bytes()).hexdigest() == B_F07_SCHEMA_SHA256
     source = official_inputs()
     stage=prepare_offline_stage(*source,owner_schemas=text_owner,copy_revision=revision)
     assert content_hash(stage.copy_output) == stage.copy_hash

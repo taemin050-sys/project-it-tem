@@ -138,6 +138,18 @@ def _run_locked(root:Path,flow:LivePipeline,queue:LiveQueue)->str:
                 actor,jid,payload["instruction"],payload["expected_generation"],
                 payload["expected_review_sha"],offline=False,text_model=text_model)
             result_sha=result["review_sha"]
+        elif item["stage"]=="copy_review":
+            payload=queue.review_payload(item["id"])
+            text_model=os.environ.get("IT_TEM_TEXT_MODEL","gpt-6-luna")
+            context=flow.copy_review_context(
+                actor,jid,payload["expected_generation"],payload["expected_review_sha"],
+                text_model=text_model)
+            if digest(context)!=item["context_sha"]:
+                raise LiveGateError("LLM_REVIEW_QUEUE_CONTEXT_STALE")
+            result=flow.review_current_copy(
+                actor,jid,payload["expected_generation"],payload["expected_review_sha"],
+                text_model=text_model)
+            result_sha=result["review_sha"]
         elif item["stage"]=="image_prompt":
             result=flow.prompt(actor,jid,offline=False,
                 text_model=os.environ.get("IT_TEM_TEXT_MODEL","gpt-6-luna"),
@@ -181,7 +193,7 @@ def _run_locked(root:Path,flow:LivePipeline,queue:LiveQueue)->str:
         return "LIVE_STAGE_HELD_FOR_RECONCILIATION"
 
 
-def serve_loop(root:Path,interval:float=2.0):
+def serve_loop(root:Path,interval:float=2.0,*,stop_requested=None):
     """One task per cycle, no recursive attempt and no backend mock fallback."""
     import time
     with exclusive_live_worker(root):
@@ -190,11 +202,16 @@ def serve_loop(root:Path,interval:float=2.0):
         if _reconcile_locked(flow,queue):
             return "LIVE_STAGE_HELD_FOR_RECONCILIATION"
         while True:
+            if stop_requested is not None and stop_requested.is_set():
+                return "LIVE_WORKER_STOPPED"
             status=_run_locked(root,flow,queue)
             if status=="LIVE_STAGE_HELD_FOR_RECONCILIATION":
                 # A charged or ambiguous failure requires incident review.
                 return status
-            time.sleep(interval)
+            if stop_requested is None:
+                time.sleep(interval)
+            else:
+                stop_requested.wait(interval)
 
 
 if __name__=="__main__":

@@ -30,7 +30,7 @@ class LiveQueue:
               UNIQUE(job_id,stage,context_sha)
             );
             CREATE INDEX IF NOT EXISTS queue_state ON queued_ops(state,created_at);
-            -- Durable private user revision instructions for the isolated worker.
+            -- Durable private text task payloads for the isolated worker.
             -- Never put them in URL, task-status or event logs.
             CREATE TABLE IF NOT EXISTS queued_revision_payloads (
               task_id TEXT PRIMARY KEY REFERENCES queued_ops(id),
@@ -44,15 +44,18 @@ class LiveQueue:
         db.row_factory=sqlite3.Row
         return db
 
-    def enqueue(self,*,actor,job_id,stage,context_sha,mode="LIVE",revision_payload=None):
+    def enqueue(self,*,actor,job_id,stage,context_sha,mode="LIVE",revision_payload=None,
+                review_payload=None):
         if (stage not in {"analysis","research","copy","image_prompt","image",
-                          "copy_revision"} or
+                          "copy_revision","copy_review"} or
                 mode not in {"LIVE","OFFLINE_FIXTURE"} or
                 type(context_sha) is not str or len(context_sha)!=64 or
                 any(ch not in "0123456789abcdef" for ch in context_sha)):
             raise LiveGateError("QUEUE_INVALID_REQUEST")
         if (stage=="copy_revision") != (revision_payload is not None):
             raise LiveGateError("QUEUE_REVISION_PAYLOAD_REQUIRED")
+        if (stage=="copy_review") != (review_payload is not None):
+            raise LiveGateError("QUEUE_REVIEW_PAYLOAD_REQUIRED")
         raw=None
         if stage=="copy_revision":
             if (type(revision_payload) is not dict or
@@ -64,6 +67,16 @@ class LiveQueue:
                 raise LiveGateError("QUEUE_REVISION_PAYLOAD_INVALID")
             raw=json.dumps(revision_payload,ensure_ascii=False,sort_keys=True,
                            separators=(",",":"))
+        if stage=="copy_review":
+            if (type(review_payload) is not dict or
+                set(review_payload)!={"expected_generation","expected_review_sha"} or
+                type(review_payload["expected_generation"]) is not int or
+                review_payload["expected_generation"]<1 or
+                type(review_payload["expected_review_sha"]) is not str or
+                len(review_payload["expected_review_sha"])!=64 or
+                any(ch not in "0123456789abcdef" for ch in review_payload["expected_review_sha"])):
+                raise LiveGateError("QUEUE_REVIEW_PAYLOAD_INVALID")
+            raw=json.dumps(review_payload,ensure_ascii=False,sort_keys=True,separators=(",",":"))
         with self.db() as db:
             db.execute("BEGIN IMMEDIATE")
             existing=db.execute("""SELECT * FROM queued_ops WHERE job_id=?
@@ -71,15 +84,15 @@ class LiveQueue:
             if existing:
                 if existing["actor"]!=actor or existing["mode"]!=mode:
                     raise LiveGateError("QUEUE_IDENTITY_MISMATCH")
-                if stage=="copy_revision":
+                if stage in {"copy_revision","copy_review"}:
                     previous=db.execute("""SELECT payload_json FROM queued_revision_payloads
                         WHERE task_id=?""",(existing["id"],)).fetchone()
                     if not previous or previous["payload_json"]!=raw:
                         raise LiveGateError("QUEUE_REVISION_CONTEXT_CONFLICT")
                 return dict(existing),False
-            if stage=="copy_revision":
+            if stage in {"copy_revision","copy_review"}:
                 active=db.execute("""SELECT id FROM queued_ops
-                    WHERE job_id=? AND stage='copy_revision' AND state IN
+                    WHERE job_id=? AND stage IN ('analysis','copy_revision','copy_review') AND state IN
                     ('QUEUED','RUNNING','BILLING_UNKNOWN') LIMIT 1""",
                     (job_id,)).fetchone()
                 if active:
@@ -88,7 +101,7 @@ class LiveQueue:
             db.execute("""INSERT INTO queued_ops(id,actor,job_id,stage,context_sha,state,mode)
                 VALUES (?,?,?,?,?,'QUEUED',?)""",
                 (task,actor,job_id,stage,context_sha,mode))
-            if stage=="copy_revision":
+            if stage in {"copy_revision","copy_review"}:
                 db.execute("""INSERT INTO queued_revision_payloads(task_id,payload_json)
                     VALUES (?,?)""",(task,raw))
             item=db.execute("SELECT * FROM queued_ops WHERE id=?",(task,)).fetchone()
@@ -107,11 +120,17 @@ class LiveQueue:
             raise LiveGateError("IMAGE_RETRY_OUTSTANDING_OR_UNKNOWN")
 
     def revision_payload(self,task_id):
+        return self._text_payload(task_id,"copy_revision")
+
+    def review_payload(self,task_id):
+        return self._text_payload(task_id,"copy_review")
+
+    def _text_payload(self,task_id,stage):
         with self.db() as db:
             row=db.execute("""SELECT p.payload_json FROM queued_revision_payloads p
                 JOIN queued_ops q ON q.id=p.task_id
-                WHERE p.task_id=? AND q.stage='copy_revision'""",
-                (task_id,)).fetchone()
+                WHERE p.task_id=? AND q.stage=?""",
+                (task_id,stage)).fetchone()
         if row is None:
             raise LiveGateError("REVISION_PAYLOAD_NOT_FOUND")
         try:

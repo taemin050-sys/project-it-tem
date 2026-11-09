@@ -61,6 +61,12 @@ export const editLiveCopy=(id:string,copy:AdCopyOutput)=>
 export const revalidateLiveReviewPolicy=(s:LiveSnapshot)=>
   request<LiveSnapshot>(url(s.job_id)+'/revalidate-policy',
     json({expected_generation:s.generation,expected_review_sha:s.review_sha}))
+export function queueLiveCopyReview(s:LiveSnapshot){
+  guardCopyReviewMutation(s)
+  if (!s.llm_review_pending) throw Error('현재 카피에는 추가 AI 검수가 필요하지 않습니다.')
+  return request<{task_id:string;state:string;new:boolean}>(url(s.job_id)+'/review-copy',
+    json({expected_generation:s.generation,expected_review_sha:s.review_sha}))
+}
 /** User initiated only. QA gives an explicit Fixture snapshot.
  * LIVE accepts an asynchronous, one-shot, signed Text Owner worker task.
  * Never perform a paid model request directly from the browser.

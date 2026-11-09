@@ -11,9 +11,9 @@ from pathlib import Path
 from pydantic import BaseModel
 from .contracts import digest, LiveGateError
 
-_STAGES=frozenset({"vision","research","copy","image_prompt","copy_revision"})
+_STAGES=frozenset({"vision","research","copy","image_prompt","copy_revision","copy_review"})
 _MODES=frozenset({"LIVE","OFFLINE_FIXTURE"})
-_CONTEXT_STAGES=frozenset({"copy_revision","image_prompt"})
+_CONTEXT_STAGES=frozenset({"copy_revision","image_prompt","copy_review"})
 
 
 class LiveCheckpoints:

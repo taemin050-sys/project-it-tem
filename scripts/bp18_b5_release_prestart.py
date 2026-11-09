@@ -23,6 +23,19 @@ SHA_RE = re.compile(r"^[0-9a-f]{40}$")
 VALID_MODES = frozenset({"web", "worker"})
 EXIT_DENY = 78
 AUTH_CONTRACT_FILE = "config/bp18_required_auth_contract.json"
+REVIEW_CONTRACT_FILE = "config/bp18_required_review_contract.json"
+REVIEW_SOURCE_FILES = (
+    "demo_staging/live/copy_review.py",
+    "demo_staging/live/pipeline.py",
+    "demo_staging/live/store.py",
+    "demo_staging/live/review_policy.py",
+)
+REVIEW_SOURCE_MARKERS = {
+    "demo_staging/live/copy_review.py": (b"def request_review(", b"def complete_report("),
+    "demo_staging/live/pipeline.py": (b"copy_review", b"require_live_actor"),
+    "demo_staging/live/store.py": (b"LLM_REVIEW_REQUIRED",),
+    "demo_staging/live/review_policy.py": (b"IT_TEM_BP18_F09_REQUIRED", b"llm_model"),
+}
 SSO_SOURCE_FILES = (
     "demo_staging/app.py",
     "demo_staging/tailnet_assertion.py",
@@ -117,6 +130,62 @@ def _required_sso_auth_contract(root: Path, target: str,
     return doc["required_mode"]
 
 
+def review_contract_required(root: Path) -> bool:
+    if (root / REVIEW_CONTRACT_FILE).exists():
+        return True
+    db = root / "runtime/live/live.sqlite"
+    if not db.exists():
+        return False
+    try:
+        with sqlite3.connect(_regular(db).resolve().as_uri() + "?mode=ro",
+                             uri=True, timeout=2) as cx:
+            cx.execute("PRAGMA query_only=ON")
+            table = cx.execute("SELECT 1 FROM sqlite_master WHERE type='table' "
+                               "AND name='live_policy_activation'").fetchone()
+            if not table:
+                return False
+            rows = cx.execute("SELECT policy_version FROM live_policy_activation "
+                              "WHERE singleton=1").fetchall()
+            if len(rows) != 1:
+                raise ReleaseUnsafe("POLICY_EPOCH_LEDGER_INVALID")
+            return str(rows[0][0]).startswith("bp18-f09-")
+    except (sqlite3.DatabaseError, OSError) as exc:
+        raise ReleaseUnsafe("POLICY_DB_READ_FAILED") from exc
+
+
+def required_review_contract(root: Path, target: str) -> dict | None:
+    """An activated two-stage policy requires exact reviewed release sources."""
+    if not review_contract_required(root):
+        return None
+    try:
+        doc = json.loads(_regular(root / REVIEW_CONTRACT_FILE, trusted=True).read_text())
+    except (OSError, ValueError, UnicodeError, ReleaseUnsafe) as exc:
+        raise ReleaseUnsafe("LLM_REQUIRED_REVIEW_CONTRACT_INVALID") from exc
+    if (not isinstance(doc, dict) or set(doc) !=
+            {"version", "required_mode", "model", "verified_sources"} or
+            doc["version"] != 1 or doc["required_mode"] != "RULES_AND_LLM" or
+            not isinstance(doc["model"], str) or
+            not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,99}", doc["model"]) or
+            not isinstance(doc["verified_sources"], dict)):
+        raise ReleaseUnsafe("LLM_REQUIRED_REVIEW_CONTRACT_INVALID")
+    verified = doc["verified_sources"].get(target)
+    if not isinstance(verified, dict) or set(verified) != set(REVIEW_SOURCE_FILES):
+        raise ReleaseUnsafe("LLM_INCOMPATIBLE_RELEASE_DENIED")
+    for name in REVIEW_SOURCE_FILES:
+        expected = verified[name]
+        if not isinstance(expected, str) or not re.fullmatch(r"[0-9a-f]{64}", expected):
+            raise ReleaseUnsafe("LLM_REVIEW_SOURCE_PROVENANCE_INVALID")
+        try:
+            actual = _regular(root / "releases" / target / name).read_bytes()
+        except (OSError, ReleaseUnsafe) as exc:
+            raise ReleaseUnsafe("LLM_REVIEW_SOURCE_PROVENANCE_INVALID") from exc
+        if hashlib.sha256(actual).hexdigest() != expected:
+            raise ReleaseUnsafe("LLM_REVIEW_SOURCE_PROVENANCE_INVALID")
+        if any(marker not in actual for marker in REVIEW_SOURCE_MARKERS[name]):
+            raise ReleaseUnsafe("LLM_REQUIRED_REVIEW_CODE_MISSING")
+    return doc
+
+
 def _queue_running(root: Path) -> bool:
     db = _regular(root / "runtime/live/queue.sqlite")
     try:
@@ -190,6 +259,7 @@ def validate(root: Path, *, mode: str, port: int = 18100,
     if epoch > 0 and target not in listed:
         raise ReleaseUnsafe("OLD_RELEASE_CANNOT_START_WITH_EPOCH_DB")
     required_auth=_required_sso_auth_contract(root,target,mode=mode,port=port)
+    review_contract=required_review_contract(root,target)
     if _worker_lock_busy(root):
         raise ReleaseUnsafe("ACTIVE_PROVIDER_WORKER_BLOCKS_RELEASE")
     if _queue_running(root):
@@ -200,6 +270,7 @@ def validate(root: Path, *, mode: str, port: int = 18100,
         raise ReleaseUnsafe("WORKER_REQUIRES_INITIALIZED_EPOCH")
     return {"release": target, "policy_epoch": epoch, "mode": mode,
             "required_auth": required_auth,
+            "required_review": review_contract["required_mode"] if review_contract else None,
             "worker_lock": "FREE", "queue_running": 0}
 
 

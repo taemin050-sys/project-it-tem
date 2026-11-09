@@ -65,6 +65,10 @@ class OfficialTextProvider:
                            model=self.text_model,
                            compliance_context=compliance_context)
 
+    def review_copy(self,copy,product,rule_report):
+        from .copy_review import request_review
+        return request_review(copy,product,rule_report,model=self.text_model)
+
 
 def atomic_write(path:Path,data:bytes):
     path.parent.mkdir(parents=True,exist_ok=True,mode=0o700)
@@ -141,7 +145,7 @@ class LivePipeline:
         if actor not in self.approved_actors:
             raise LiveNotAuthorized("LIVE_ACTOR_NOT_AUTHORIZED")
 
-    def _guarded(self,actor,job_id,stage,payload,action,*,image=False):
+    def _guarded(self,actor,job_id,stage,payload,action,*,image=False,include_receipt=False):
         self.require_live_actor(actor)
         # No key/client/import/provider even attempted before this transaction.
         cost=self.image_reservation if image else self.text_reservation
@@ -152,10 +156,18 @@ class LivePipeline:
             raise LiveNotAuthorized("ATTEMPT_EXISTS_NO_AUTOMATIC_RETRY")
         self.cost.dispatch_intent(record["id"])
         from .provider_receipts import collect_receipts
+        captured=None
         try:
             with collect_receipts() as captured:
                 result=action()
         except BaseException:
+            if captured is not None and len(captured.events)==1:
+                try:
+                    self.cost.confirm_usage_unpriced(record["id"],captured.events[0])
+                except LiveNotAuthorized:
+                    pass
+                else:
+                    raise LiveGateError("PROVIDER_RESULT_INVALID") from None
             self.cost.mark_billing_unknown(record["id"])
             raise LiveGateError("PROVIDER_RESULT_UNKNOWN") from None
         # Official Image Owner returns its own durable paid attempt receipt.
@@ -183,6 +195,9 @@ class LivePipeline:
             raise LiveGateError("PROVIDER_BILLING_RECONCILIATION_REQUIRED") from None
         # The reserved USD remains held until provider invoice reconciliation;
         # no replays, no fabricated 'actual cost' claim.
+        if include_receipt:
+            return result,{"attempt_id":record["id"],"receipt_sha":digest(receipts[0]),
+                           "response_model":receipts[0]["model"]}
         return result
 
     def text(self,actor,job_id,provider:TextProvider|None=None,*,offline=False,
@@ -199,6 +214,9 @@ class LivePipeline:
             if provider is None:raise LiveGateError("OFFLINE_FAKE_REQUIRED")
         else:
             self.require_live_actor(actor)
+            from .review_policy import llm_required
+            if llm_required("LIVE"):
+                self.state.active_review_policy()
             if provider is not None:
                 raise LiveGateError("INJECTED_PROVIDER_FORBIDDEN_IN_LIVE")
             provider=OfficialTextProvider(text_model,vision_model)
@@ -227,8 +245,48 @@ class LivePipeline:
                          "research_sha":digest(r.model_dump(mode="json")),
                          "model":text_model},
                 AdCopyOutput,lambda:provider.generate_copy(product,a.analysis,r))
-        return self.state.store_text(
+        stored=self.state.store_text(
             actor,job_id,a,r,cp,mode=mode)
+        if not offline and llm_required("LIVE"):
+            return self.review_current_copy(actor,job_id,stored["generation"],stored["review_sha"],
+                                            text_model=text_model)
+        return stored
+
+    def copy_review_context(self,actor,job_id,expected_generation,expected_review_sha,
+                            *,text_model="gpt-6-luna"):
+        return self.state.copy_review_context(actor,job_id,expected_generation,
+                                             expected_review_sha,text_model=text_model)
+
+    def review_current_copy(self,actor,job_id,expected_generation,expected_review_sha,
+                            *,text_model="gpt-6-luna"):
+        self.require_live_actor(actor)
+        from .copy_review import CopyReviewCheckpoint
+        context=self.copy_review_context(actor,job_id,expected_generation,expected_review_sha,
+                                         text_model=text_model)
+        fingerprint=digest(context)
+        saved=self.checkpoints.load(actor,job_id,"copy_review",fingerprint,"LIVE",CopyReviewCheckpoint)
+        if saved is not None:
+            attempt=self.cost.inspect(saved.receipt["attempt_id"])
+            if (not attempt or attempt["actor"]!=actor or attempt["job_id"]!=job_id
+                    or attempt["stage"]!="copy_review" or attempt["payload_hash"]!=fingerprint
+                    or attempt["status"]!="SUCCEEDED_USAGE_UNPRICED"
+                    or digest(json.loads(attempt["receipt"]))!=saved.receipt["receipt_sha"]):
+                raise LiveGateError("LLM_REVIEW_RECEIPT_BINDING_INVALID")
+        if saved is None:
+            job=self.state.get(actor,job_id)
+            if (job["generation"]!=context["generation"] or job["copy_sha"]!=context["copy_sha"]
+                    or job["review_sha"]!=context["source_review_sha"] or job["input_sha"]!=context["input_sha"]):
+                raise LiveGateError("LLM_REVIEW_CONTEXT_STALE")
+            copy=AdCopyOutput.model_validate(json.loads(job["copy_json"]),strict=True)
+            product=ProductInput.model_validate(json.loads(job["input_json"])["product"],strict=True)
+            report=json.loads(job["compliance_json"])
+            provider=OfficialTextProvider(text_model,text_model)
+            result,receipt=self._guarded(actor,job_id,"copy_review",context,
+                lambda:provider.review_copy(copy,product,report),include_receipt=True)
+            saved=self.checkpoints.commit(
+                actor,job_id,"copy_review",fingerprint,"LIVE",
+                CopyReviewCheckpoint(result=result,receipt=receipt),CopyReviewCheckpoint)
+        return self.state.complete_copy_review(actor,job_id,context,saved.result,saved.receipt)
 
     def revision_context(self,actor,job_id,instruction,
                          expected_generation,expected_review_sha,*,text_model="gpt-6-luna"):
@@ -356,9 +414,14 @@ class LivePipeline:
             "context_sha":fingerprint,
             "source":("OWNER_TEXT_V010_OFFLINE" if offline else "OWNER_TEXT_V010_LIVE"),
         }
-        return self.state.apply_copy_revision(
+        stored=self.state.apply_copy_revision(
             actor,job_id,revised,instruction,
             expected_generation,expected_review_sha,owner_feedback=feedback)
+        from .review_policy import llm_required
+        if not offline and llm_required("LIVE") and not json.loads(stored["compliance_json"]).get("llm_review"):
+            return self.review_current_copy(actor,job_id,stored["generation"],stored["review_sha"],
+                                            text_model=text_model)
+        return stored
 
     def prompt(self,actor,job_id,provider:TextProvider|None=None,*,offline=False,
                text_model="gpt-6-luna",expected_approval_sha=None):
