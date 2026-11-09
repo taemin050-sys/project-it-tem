@@ -1,0 +1,105 @@
+{
+  "manifest": {
+    "a3_evidence_integrity_gate": "PASS",
+    "a3r_evidence_integrity_gate": "PASS",
+    "a3r_test_evidence_sha256": {
+      "docs/integration/evidence/A3R_20261109/A3R_AFTER_C_A3_ADVERSARIAL.log": "7737c852ff39dc34bfc875e8d7a9548e5429591e12fd320c921c5c0521a8acbe",
+      "docs/integration/evidence/A3R_20261109/A3R_BEFORE_C_A3_ADVERSARIAL.log": "e6d9886a032f10315d83720029d8c89aafb96ca7ebfbc7180377f1827a6f4035",
+      "docs/integration/evidence/A3R_20261109/A3R_BUILD.log": "67cd42963af5c8539e720eae207fe8bbf54b90f8497ca03a6c1a93afb3906207",
+      "docs/integration/evidence/A3R_20261109/A3R_C_A2_7_NEGATIVES.log": "a073d88c1b947ec34432fbe034bdc858d9ae3a3e36e10925ba62442f94fc64c7",
+      "docs/integration/evidence/A3R_20261109/A3R_FULL_PYTHON.log": "2e11fe57b6ffbc2108fd0a9e4c365ca4662c80f3aeac5b62f6020a29d73a3aa3",
+      "docs/integration/evidence/A3R_20261109/A3R_LINT.log": "bd516be56636df120cb8bc307f484cc906a7b95c073ef5b4064bdb8dfe32d2cf",
+      "docs/integration/evidence/A3R_20261109/A3R_REACT.log": "eb0383bf5816596c71b4a489e58e9379faac342971c48639f01012899223e8ee"
+    },
+    "acceptance": {
+      "A2_C_AUDIT": "C_A2_SAFETY_CODE_ACCEPTED_WITH_KNOWN_TEST_NOTE",
+      "GCP_A_SHA_SSO": "NOT_AUDITED",
+      "PAID_WORKER": "HOLD",
+      "PROVIDER_COST_INVOICE": "NOT_AUDITED",
+      "REAL_PROVIDER_E2E": "NOT_AUDITED",
+      "RELEASE": "HOLD"
+    },
+    "branch": "integration/bp18-baseline-e2e-20261111",
+    "build_provenance": {
+      "build_rule": "MUST_BUILD_FROM_VERIFIED_GIT_ARCHIVE_NOT_LIVE_WORKTREE",
+      "build_runtime_match_gate": "NOT_AUDITED",
+      "built_artifact_sha256": null,
+      "contract": "IMMUTABLE_ARCHIVE_TO_BUILD_SHA_V1",
+      "expected_git_archive_sha256": "e646b08cb42cc2e31ab40c1c28d3cbbcb36b36d2616b815ccdd25a3ded1cbdf4",
+      "running_build_sha256": null,
+      "source_commit": "be79ceb18722ac6f11195fdeb722212527d89f5a",
+      "source_tree": "a5f7e6f86795848a17c7c75594414a95a5ba16b4",
+      "verified_head_files": 370,
+      "verified_head_tree_content_sha256": "6183049d3d006436ecb0e2d63423d9da28924aa76f0e2e00ae4e9de64e059c11"
+    },
+    "commit": "be79ceb18722ac6f11195fdeb722212527d89f5a",
+    "contract": "IT_TEM_P03_A3R1_ALL_TRACKED_HEAD_ATTESTATION_V3",
+    "evidence_integrity_gate": "PASS",
+    "evidence_scope": {
+      "A3": "6 legacy A3 proof logs pinned to Git HEAD",
+      "A3R": "7 A3R developer logs pinned to Git HEAD",
+      "A3R1": "new attest/replay logs in separate audit packet; not yet part of this fixed baseline",
+      "C_independent": "external audit-only evidence; excluded from deploy-source tree"
+    },
+    "gcp_qa_deployed": false,
+    "git_status_clean": true,
+    "image_contract": {
+      "batch_allowed": false,
+      "candidates_per_request": 1,
+      "modes": [
+        "composed",
+        "freeform"
+      ],
+      "ratios": [
+        "3:4",
+        "4:5",
+        "9:16"
+      ]
+    },
+    "live_provider_post_authorized": false,
+    "lock_integrity_gate": "PASS",
+    "locks_sha256": {
+      "app/package-lock.json": "de5d56ac4eff9570c11b2dcb9c939088073f500537df02eaa25019b49fb0b6e7",
+      "configs/requirements-serving-gcp.lock.txt": "77b42b666020c6adef21717edbbc4d58fe7065b1ef6368498d5b09ceb1c69673",
+      "demo_staging/requirements-live-extra.txt": "84a1417fac790f7c808f3853cef48addfbf01d8ac951160cd4f6f633b5dd084b",
+      "tests/browser-harness/package-lock.json": "3c95c02cd56a5b6351868a0d1dab2694ad5272c51f2de6f01856f6239a9d485e",
+      "tests/image_generation/requirements.txt": "bfc03614c8f72fd0313472cb6b7c849d1369b9ed6f4993860d54747c5b659333"
+    },
+    "paid_worker_authorization_gate": "HOLD",
+    "policy_priority": [
+      "FE_PR26",
+      "TEXT_PR27",
+      "IMAGE_PR24"
+    ],
+    "python": "3.12.2",
+    "qa_deployment_readiness_gate": "HOLD",
+    "serving_schema_contract": {
+      "approval_policy_table": "live_copy_policy_bindings",
+      "immutable_prompt_checkpoint_table": "text_revision_checkpoints",
+      "legacy_live_approval_without_policy": "HOLD_FOR_REVIEW",
+      "migration_permission": "SEPARATE_APPROVAL_REQUIRED",
+      "prompt_cas_table": "live_prompt_context_bindings"
+    },
+    "source_gate": "PASS",
+    "source_integrity_gate": "PASS",
+    "test_evidence_sha256": {
+      "docs/integration/evidence/A3_20261109/A31_30x_real_process_race.log": "8f1e450b67a3758c0b0b0a872bf82d2ee92eae562238106bc422a4d429ecda7c",
+      "docs/integration/evidence/A3_20261109/A31_FULL_PYTHON.log": "d4700fe3de04d9b062ad8ceb7ef63360b02ffe9f7d31c093624e1eb796fb766f",
+      "docs/integration/evidence/A3_20261109/A31_LINUX_SYSCALL_30x.log": "180660352cc3b35606f6a1778ce29855ebe495440b363bdc26da87dfe4bbab0e",
+      "docs/integration/evidence/A3_20261109/A34_C_INDEPENDENT_NEGATIVES_REPLAY.log": "7ca832cdad5bc684bd4be1add92ded00843f649c503f8fb61a57165156d1cca8",
+      "docs/integration/evidence/A3_20261109/A34_FULL_PYTHON_FINAL.log": "20c05cef53ddbfb2a2b3f24205c7b97e2d43413d53006c5d8e9f308b510e04e5",
+      "docs/integration/evidence/A3_20261109/A34_REACT_TEST.log": "57ae31aee8d7debcbef9f26570eab37eeec37f36c2630385554faee78b1ce955"
+    },
+    "track": "A_OWNER_SOURCE_FIRST",
+    "tracked_source_attestation": {
+      "checked_files": 370,
+      "content_sha256": "6183049d3d006436ecb0e2d63423d9da28924aa76f0e2e00ae4e9de64e059c11",
+      "gate": "PASS",
+      "head_files": 370,
+      "index_flags_gate": "PASS",
+      "reason": null
+    },
+    "tree": "a5f7e6f86795848a17c7c75594414a95a5ba16b4",
+    "worktree_clean": true
+  }
+}
