@@ -1,0 +1,64 @@
+{
+  "actor": "alice",
+  "approval_sha": "ad805ec6db2c35ac815e7ae7854ad88355be430afe4d350e823a3cd677374a79",
+  "browser_actual_application": "OFFICIAL_REACT_FE",
+  "browser_flow_gate": "PASS",
+  "browser_screenshot_count": 12,
+  "browser_trace_sha256": "55491e42fff313d7e427e2faf0123888c86f8e63f676efb7cfaebd4a3e40b953",
+  "caption_sha256": "a2269c826e49dd43406c281935c1fc411e720c278ef24b14f6f9c10ab109c839",
+  "composition_receipt_sha256": "94ad00e5ef2e7c2b104ecb1e32ebf83aa46d9075594cab755d87c826af36731a",
+  "contract": "IT_TEM_A41_OFFLINE_FIXTURE_EVIDENCE_VERIFICATION_V1",
+  "copy_policy_bindings": 1,
+  "copy_sha": "50c1dc6eba5029c8cb8355951aacf8dacd2012351447e198fa7efd5eeee2a98c",
+  "cost_attempt_rows": 0,
+  "download_verified": true,
+  "final_png_pixels": [
+    1080,
+    1350
+  ],
+  "final_png_sha256": "a43bd648a8803a875d7199b9ca10af70fb585e9f2ed29431d5c516fa62e50179",
+  "gcp_qa_gate": "HOLD",
+  "generation": 3,
+  "human_pm_visual_acceptance": "PENDING",
+  "image_attempt_ids": [
+    "dda693dcd7114ff386ea75cfa4e03920",
+    "c49be122aae144ad8d094985832354a7"
+  ],
+  "image_attempt_shas": [
+    "57e7aaf5a2a7b6e9f778278408ee421a158f478101ed207416bee349297868b3",
+    "2189010b94ed8ffaec7f2d66d61b0f3345b6396ed326f564fc70413ec07e9282"
+  ],
+  "image_attempt_states": [
+    "REJECTED",
+    "COMPLETED"
+  ],
+  "image_attempt_versions": [
+    1,
+    2
+  ],
+  "input_sha": "4cbfef718a5496b634fb798c7bc63eb92dc199493b7e7af1a2b29176cc160103",
+  "job_id": "2132f2abb75e4d42a11812a82029900f",
+  "job_state": "COMPLETED",
+  "mode": "OFFLINE_FIXTURE",
+  "paid_worker": "HOLD",
+  "product_quality": {
+    "4x5_composed_image_cta_required": true,
+    "4x5_image_cta_present": false,
+    "actual_owner_layout": "cta_placement=platform",
+    "finding": "A41-PRODUCT-CTA-01",
+    "gate": "HOLD",
+    "reason": "PM-approved 4:5 composed demands on-image CTA; legacy Owner layout v2 omits CTA. Do not promote fixture PNG to product quality acceptance.",
+    "receipt_omitted_image_fields": [
+      "cta"
+    ]
+  },
+  "prompt_context_bindings": 1,
+  "prompt_sha": "615868424014d2e6cb47b397978e42aff7932f6cac480406dc630f6a96937c57",
+  "provider_calls": 0,
+  "provider_e2e": "NOT_AUDITED",
+  "queue_rows": 0,
+  "release": "NOT_RELEASE_READY",
+  "review_sha": "388bc2366365ea92540d68be0a4ab1864665ac0d60c88e983eca62d518b5d477",
+  "scenario": "A4-S01_COMPOSED_4_5",
+  "source_commit": "df4ef6128bd2902e9037a2d943470ea9ebea69a0"
+}
