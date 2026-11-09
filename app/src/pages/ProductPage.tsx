@@ -1,8 +1,9 @@
 import { useEffect,useState, type FormEvent } from 'react'
+import { useQuery } from '@tanstack/react-query'
 import { useNavigate } from 'react-router-dom'
 import { isUnreachable } from '../api/client'
 import { createJob } from '../api/jobs'
-import {getTextCostEstimate,getTotalCostEstimate,
+import {getTextCostEstimate,getTotalCostEstimate,getLiveCapabilities,
   type TextCostEstimate,type CombinedCostEstimate} from '../api/liveJobs'
 import { advance,hasUnfinishedJob,productPayload,recoverLiveInput,resetJob } from '../api/useJob'
 import Field from '../components/Field'
@@ -10,7 +11,7 @@ import MockFallback from '../components/MockFallback'
 import OptionGroup from '../components/OptionGroup'
 import PhotoDrop from '../components/PhotoDrop'
 import StepPage from '../components/StepPage'
-import { DUAL_QA, PRODUCT_PHOTOS, RATIOS, REFERENCE_PHOTOS, SHRINK, type Ratio } from '../config'
+import { DUAL_QA, QA_OFFLINE_FIXTURE, PRODUCT_PHOTOS, RATIOS, REFERENCE_PHOTOS, SHRINK, type Ratio } from '../config'
 import { shrinkImage } from '../lib/shrinkImage'
 import { validateProduct, type ProductErrors } from '../lib/validateProduct'
 import { useProjectStore } from '../store/projectStore'
@@ -49,7 +50,14 @@ export default function ProductPage() {
   const [uploadError, setUploadError] = useState<{ message: string; offline: boolean }>()
   const [textEstimate,setTextEstimate]=useState<{photoCount:number;estimate:TextCostEstimate}>()
   const [combinedEstimate,setCombinedEstimate]=useState<{key:string;estimate:CombinedCostEstimate}>()
-  const dual=DUAL_QA && !mock
+  const identityScope=useProjectStore(s=>s.identityScope)
+  const capability=useQuery({
+    queryKey:['product-live-capabilities',identityScope],queryFn:getLiveCapabilities,
+    enabled:!mock && !QA_OFFLINE_FIXTURE,retry:false,refetchInterval:15000,
+  })
+  const liveDual=!mock && (capability.data?.live_dual_configured===true || capability.data?.live_dual_enabled===true)
+  const dual=(DUAL_QA || liveDual) && !mock
+  const dualProvenance=dual ? liveDual ? 'LIVE_DUAL' as const : 'OFFLINE_FIXTURE' as const : false
   useEffect(()=>{
     let active=true
     if(!mock && !dual && images.length>=2 && images.length<=5){
@@ -110,7 +118,7 @@ export default function ProductPage() {
       // 업로드가 성공한 뒤에 비워야 실패해도 이전 작업으로 돌아갈 수 있다
       resetJob()
       navigate('/create/copy')
-      void advance(async () => job)
+      void advance(async () => job,null,dualProvenance)
     } catch (err) {
       setUploadError({ message: err instanceof Error ? err.message : '사진을 올리지 못했습니다.', offline: isUnreachable(err) })
     } finally {
@@ -120,7 +128,9 @@ export default function ProductPage() {
 
   const busy = uploading || run.busy
   // All three ratios are accepted by the Owner #23 size-only contract.
-  const ratioBlocked = false
+  const ratioBlocked = liveDual && ratio!=='4:5'
+  const capabilityPending = !mock && !QA_OFFLINE_FIXTURE && !capability.data
+  const liveDualPaused=liveDual && capability.data?.live_dual_enabled!==true
 
   return (
     <StepPage
@@ -129,12 +139,19 @@ export default function ProductPage() {
       back={{ to: '/', label: '처음으로' }}
       actions={
         <button className="button" type="submit" form="product-form"
-          disabled={busy || ratioBlocked} aria-busy={uploading}>
+          disabled={busy || ratioBlocked || capabilityPending || liveDualPaused} aria-busy={uploading}>
           {uploading ? '사진을 올리는 중…' : '다음: 기획·카피 만들기'}
         </button>
       }
       actionsNote={
         <>
+          {capabilityPending && <p role="status" className="field-hint">
+            {capability.isError ? '실행 상태를 확인하지 못했습니다. 잠시 후 다시 확인해 주세요.' : '실행 가능한 생성 방식을 확인하고 있습니다…'}
+          </p>}
+          {liveDualPaused && <p role="status" className="field-hint">두 시안 실행 준비를 확인하고 있습니다. 준비가 완료되면 시작할 수 있습니다.</p>}
+          {ratioBlocked && <p role="alert" className="field-error">
+            두 시안 실모델 생성은 현재 4:5만 지원합니다. 9:16 CTA 정책은 Owner/PM 결정 대기입니다.
+          </p>}
           {!mock && !dual && <p className="field-hint" role="status">
             {currentEstimate
               ? <>텍스트 AI 예상 비용: <strong>{currentEstimate.display}</strong>
@@ -309,7 +326,7 @@ export default function ProductPage() {
               <li><strong>합성형</strong> · 제품 이미지에 승인 문구를 서버에서 합성합니다.</li>
               <li><strong>자유형</strong> · 모델이 문구까지 이미지에 그리는 방식입니다. 한글과 라벨은 직접 검토합니다.</li>
             </ul>
-            <p className="field-hint">QA용 브랜드명은 ‘라움’입니다. 두 방식 모두 시험 데이터로 준비합니다.</p>
+            <p className="field-hint">{liveDual ? '한 요청의 이미지 모델 호출은 기본 2건입니다. 공통 텍스트 작업과 시안별 사용량을 따로 기록하며 실제 청구액은 확인 전까지 UNPRICED로 표시합니다.' : 'QA용 브랜드명은 ‘라움’입니다. 두 방식 모두 시험 데이터로 준비합니다.'}</p>
           </> : <>
             <OptionGroup legend="이미지 생성 방식 · 이미지 1장" name="generation-mode"
               value={generationMode} onChange={setGenerationMode}

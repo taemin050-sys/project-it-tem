@@ -6,7 +6,7 @@ import {approveLiveCopy,rejectLiveCopy,queueLive,waitLiveTask,approveLiveImage,
   reviseLiveCopy,restoreLiveCopy,regenerateLiveImage,qaRegenerateImage,queueLiveCopyReview} from './liveJobs'
 import { AD_LAYOUT, DUAL_QA, QA_OFFLINE_FIXTURE } from '../config'
 import {guardCopyApproval,guardImageApproval,type LiveSnapshot} from './liveMapping'
-import {dualQueryKey,startDualJob} from './dualJobs'
+import {dualQueryKey,startDualJob,snapshotDualProvenance} from './dualJobs'
 // Legacy-only composition layout. Managed A Jobs NEVER receive this value.
 // The server records each Job's layout version/hash and composes from it.
 export const LEGACY_LAYOUT={text_regions:{
@@ -59,13 +59,14 @@ async function queuePromptAndImage(id:string){
   const image=await queueLive(id,'image')
   useProjectStore.getState().setLiveTask(image.task_id)
 }
-export async function approveCopyAndCreateImage(s:LiveSnapshot,ack:boolean,onApproved:()=>void=()=>{}){
+export async function approveCopyAndCreateImage(s:LiveSnapshot,ack:boolean,onApproved:()=>void=()=>{},ackTwoImages=false){
   guardCopyApproval(s)
   await run(s.job_id,'ai/image',async()=>{
     if(s.dual_requested){
-      if(!DUAL_QA || s.mode!=='OFFLINE_FIXTURE')throw Error('이 두 시안 작업은 지정된 QA 환경에서만 진행할 수 있습니다.')
-      const result=await startDualJob(s,ack)
-      queryClient.setQueryData(dualQueryKey(s.job_id),result)
+      if(s.dual_provenance==='LIVE_DUAL' && s.mode!=='LIVE')throw Error('두 시안 작업의 모델 실행 출처를 확인해야 합니다.')
+      if(s.dual_provenance!=='LIVE_DUAL' && (!DUAL_QA || s.mode!=='OFFLINE_FIXTURE'))throw Error('이 두 시안 작업은 지정된 QA 환경에서만 진행할 수 있습니다.')
+      const result=await startDualJob(s,ack,ackTwoImages)
+      queryClient.setQueryData(dualQueryKey(s.job_id,snapshotDualProvenance(s)),result)
       onApproved()
       return
     }

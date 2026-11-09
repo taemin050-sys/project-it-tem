@@ -14,6 +14,10 @@ from pathlib import Path
 from .contracts import LiveGateError
 
 
+LIVE_DUAL_PROTOCOL = "LIVE_DUAL_V1"
+LIVE_DUAL_STAGES = frozenset({"analysis", "copy_revision", "copy_review", "image_prompt", "image"})
+
+
 class LiveQueue:
     def __init__(self, file:Path):
         self.file=Path(file)
@@ -48,7 +52,8 @@ class LiveQueue:
                 review_payload=None):
         if (stage not in {"analysis","research","copy","image_prompt","image",
                           "copy_revision","copy_review"} or
-                mode not in {"LIVE","OFFLINE_FIXTURE"} or
+                mode not in {"LIVE","OFFLINE_FIXTURE",LIVE_DUAL_PROTOCOL} or
+                (mode == LIVE_DUAL_PROTOCOL and stage not in LIVE_DUAL_STAGES) or
                 type(context_sha) is not str or len(context_sha)!=64 or
                 any(ch not in "0123456789abcdef" for ch in context_sha)):
             raise LiveGateError("QUEUE_INVALID_REQUEST")
@@ -138,16 +143,21 @@ class LiveQueue:
         except (ValueError,TypeError):
             raise LiveGateError("REVISION_PAYLOAD_CORRUPTED") from None
 
-    def claim(self,worker_mode="LIVE"):
+    def claim(self,worker_mode="LIVE",*,include_dual=False):
         with self.db() as db:
             db.execute("BEGIN IMMEDIATE")
             in_progress=db.execute("""SELECT 1 FROM queued_ops
                 WHERE state='RUNNING' LIMIT 1""").fetchone()
             if in_progress:
                 return None  # one attempt at a time across stages
+            # An unresolved Dual send survives process restart and blocks new
+            # sends, including its sibling. Legacy uncertainty semantics remain.
+            if self._dual_unknown(db):
+                return None
             item=db.execute("""SELECT * FROM queued_ops
-                WHERE state='QUEUED' AND mode=? ORDER BY created_at,id LIMIT 1""",
-                (worker_mode,)).fetchone()
+                WHERE state='QUEUED' AND (mode=? OR (? AND mode=?))
+                ORDER BY created_at,id LIMIT 1""",
+                (worker_mode,include_dual,LIVE_DUAL_PROTOCOL)).fetchone()
             if not item:
                 return None
             db.execute("""UPDATE queued_ops SET state='RUNNING',
@@ -182,6 +192,31 @@ class LiveQueue:
             return db.execute("""UPDATE queued_ops SET state='BILLING_UNKNOWN',
                 error_code='WORKER_RESTART_UNCERTAIN',ended_at=CURRENT_TIMESTAMP
                 WHERE state='RUNNING'""").rowcount
+
+    @staticmethod
+    def _dual_unknown(db):
+        return db.execute("""SELECT 1 FROM queued_ops
+            WHERE mode=? AND state='BILLING_UNKNOWN' LIMIT 1""",
+            (LIVE_DUAL_PROTOCOL,)).fetchone() is not None
+
+    def dual_billing_unknown(self):
+        with self.db() as db:
+            return self._dual_unknown(db)
+
+    def running_dual(self):
+        with self.db() as db:
+            return [dict(row) for row in db.execute("""SELECT * FROM queued_ops
+                WHERE mode=? AND state='RUNNING'""", (LIVE_DUAL_PROTOCOL,))]
+
+    def fail_dual(self,task_id,error_code):
+        """Terminal failure with dispatch and billing certainty; never a retry."""
+        with self.db() as db:
+            db.execute("BEGIN IMMEDIATE")
+            changed=db.execute("""UPDATE queued_ops SET state='FAILED',error_code=?,
+                ended_at=CURRENT_TIMESTAMP WHERE id=? AND mode=? AND state='RUNNING'""",
+                (error_code,task_id,LIVE_DUAL_PROTOCOL)).rowcount
+            if changed != 1:
+                raise LiveGateError("QUEUE_ATTEMPT_NOT_RUNNING")
 
     def read(self,task_id):
         with self.db() as db:

@@ -26,3 +26,15 @@ test('Dual candidates accept the native ratio while finals require exact export 
   }
   assert.equal(matchesDualImageSize(undefined, {width: 1080, height: 1350}, 'candidate'), false)
 })
+
+test('Signed Live Dual artifacts stay bound to their own namespace and provenance', () => {
+  const sha = 'a'.repeat(64)
+  const job = '1'.repeat(32)
+  const live = `/demo/api/live/jobs/${job}/dual/composed/artifacts/final?sha256=${sha}`
+  const qa = `/demo/api/qa/jobs/${job}/dual/composed/artifacts/final?sha256=${sha}`
+  assert.equal(dualPath(job, 'LIVE_DUAL'), `/demo/api/live/jobs/${job}/dual`)
+  assert.equal(dualArtifactPath(job, 'composed', 'final', live, sha, 'LIVE_DUAL'), live)
+  assert.equal(dualArtifactPath(job, 'composed', 'final', qa, sha, 'LIVE_DUAL'), undefined)
+  assert.equal(dualArtifactPath(job, 'composed', 'final', live, sha, 'OFFLINE_FIXTURE'), undefined)
+  assert.equal(dualArtifactPath(job, 'freeform', 'final', live, sha, 'LIVE_DUAL'), undefined)
+})

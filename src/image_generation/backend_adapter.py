@@ -278,7 +278,8 @@ class BackendImageAdapter:
         except (sqlite3.Error, ValueError):
             raise GatewayError("BACKEND_BINDING_INVALID", "Image binding is unavailable or invalid.") from None
 
-    def generate(self, body: BackendImageInput, *, project_id: UUID) -> BackendGeneratedImage:
+    def generate(self, body: BackendImageInput, *, project_id: UUID,
+                 include_provider_prompt_sha: bool = False) -> BackendGeneratedImage:
         # Revalidate copies/model_construct before trusting mutable nested data.
         snapshot = body.model_dump(warnings=False)
         # Public serialization intentionally excludes the private provider error.
@@ -305,11 +306,19 @@ class BackendImageAdapter:
                 raise GatewayError("BACKEND_COPY_INVALID", "승인된 전체 카피와 전달값을 확인해 주세요.") from None
         internal_job = self._job(project_id, body.job_id)
         request = self._bind(body, project_id)
+        provider_prompt_sha = None
+        if include_provider_prompt_sha:
+            from .korean_image_policy import render_korean_image_policy
+            provider_prompt_sha = hashlib.sha256(
+                render_korean_image_policy(request).encode("utf-8")
+            ).hexdigest()
         result = self.processor.process_job(request, project_id, internal_job)
         data = self.processor.assets.read_bytes(result.image, project_id=project_id)
         receipt = self.get_receipt(body.job_id, project_id=project_id)
         if receipt is None:
             raise GatewayError("BACKEND_RECEIPT_MISSING", "Result needs receipt reconciliation.")
+        if provider_prompt_sha is not None:
+            receipt["provider_prompt_sha256"] = provider_prompt_sha
         return BackendGeneratedImage(data, result.image.mime_type, result.image.width,
             result.image.height, result.image.sha256, body.job_id, body.copy_revision,
             body.copy_hash, self.processor.adapter.offline, receipt)

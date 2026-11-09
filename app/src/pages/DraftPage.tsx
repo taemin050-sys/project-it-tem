@@ -10,7 +10,6 @@ import DualModePage, { DualModeLoading } from '../components/DualModePage'
 import JobBadges from '../components/JobBadges'
 import RunStatus from '../components/RunStatus'
 import StepPage from '../components/StepPage'
-import { DUAL_QA } from '../config'
 import { download } from '../lib/download'
 import { imagePath } from '../lib/pipeline'
 import { useProjectStore } from '../store/projectStore'
@@ -22,7 +21,7 @@ export default function DraftPage() {
   const jobId = useProjectStore(s=>s.jobId)
   const snapshot = useLiveSnapshot()
   if (snapshot.data?.dual_requested) return <DualModePage snapshot={snapshot.data} stage="draft" />
-  if (DUAL_QA && !mock && jobId && !snapshot.data)
+  if (!mock && jobId && !snapshot.data)
     return <DualModeLoading failed={snapshot.isError} retry={() => void snapshot.refetch()} />
   return <SingleDraftPage live={snapshot.data} />
 }

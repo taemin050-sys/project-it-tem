@@ -7,8 +7,10 @@ from __future__ import annotations
 
 import fcntl
 import json
+import re
 import sqlite3
 from contextlib import contextmanager
+from datetime import datetime, timezone
 from pathlib import Path
 from uuid import uuid4
 
@@ -107,6 +109,21 @@ class LiveStore:
                 copy_sha TEXT, review_sha TEXT, approval_sha TEXT,
                 preferred_mode TEXT, preferred_final_sha TEXT
             );
+            CREATE TABLE IF NOT EXISTS live_paid_dual_groups (
+                parent_job_id TEXT PRIMARY KEY, actor TEXT NOT NULL,
+                child_job_id TEXT UNIQUE, approval_sha TEXT, copy_sha TEXT,
+                authority_json TEXT, authority_sha TEXT, prompt_sha TEXT, hold_code TEXT,
+                preferred_mode TEXT, preferred_final_sha TEXT
+            );
+            CREATE TABLE IF NOT EXISTS live_paid_dual_intents (
+                parent_job_id TEXT NOT NULL, actor TEXT NOT NULL, job_id TEXT NOT NULL,
+                stage TEXT NOT NULL, context_sha TEXT NOT NULL, state TEXT NOT NULL,
+                queue_task_id TEXT UNIQUE, result_sha TEXT, error_code TEXT,
+                PRIMARY KEY (job_id,stage)
+            );
+            CREATE TABLE IF NOT EXISTS live_paid_dual_visual_reviews (
+                job_id TEXT PRIMARY KEY, record_json TEXT NOT NULL, record_sha TEXT NOT NULL
+            );
             CREATE TABLE IF NOT EXISTS live_dual_variants (
                 job_id TEXT PRIMARY KEY, parent_job_id TEXT NOT NULL,
                 dispatch_state TEXT NOT NULL, dispatch_error TEXT,
@@ -145,7 +162,7 @@ class LiveStore:
         c.execute("""INSERT INTO live_events(job_id,generation,event,status,payload_sha)
             VALUES (?,?,?,?,?)""",(job["job_id"],job["generation"],ev,status,sha))
 
-    def create(self,actor,job_id,input_body,assets,*,template_profile="LEGACY",dual=False):
+    def create(self,actor,job_id,input_body,assets,*,template_profile="LEGACY",dual=False,live_dual=False):
         if template_profile not in ("LEGACY","A"):
             raise LiveGateError("TEMPLATE_PROFILE_INVALID")
         # Validate the complete Owner policy before opening the DB transaction.
@@ -153,6 +170,9 @@ class LiveStore:
         # No migration/overwrite of stored A v1 Jobs. Explicit new FE input
         # selects an Owner #23 size profile before the immutable Job is saved.
         new_size=snapshot.get("image_size")
+        if live_dual and (dual or template_profile!="A" or new_size!="4:5" or
+                          snapshot.get("generation_mode")!="composed"):
+            raise LiveGateError("LIVE_DUAL_REQUIRES_COMPOSED_4X5")
         if dual and (template_profile!="A" or new_size is None or
                      snapshot.get("generation_mode")!="composed"):
             raise LiveGateError("DUAL_REQUIRES_COMPOSED_SIZE")
@@ -160,7 +180,7 @@ class LiveStore:
             raise LiveGateError("OWNER_SIZE_REQUIRES_VERSIONED_PROFILE")
         a_policy=(owner_size_policy(new_size) if new_size is not None
                   else owner_a_policy()) if template_profile=="A" else None
-        if dual and new_size=="4:5":
+        if (dual or live_dual) and new_size=="4:5":
             a_policy=bp18_provisional_4x5_policy()
         with self.db() as c:
             c.execute("BEGIN IMMEDIATE")
@@ -170,7 +190,8 @@ class LiveStore:
                     raise LiveGateError("LIVE_JOB_NOT_FOUND")
                 if existing["input_sha"]!=sha:
                     raise LiveGateError("LIVE_INPUT_CONFLICT")
-                if dual!=bool(self._dual_row(c,actor,job_id)):
+                if (dual!=bool(self._dual_row(c,actor,job_id)) or
+                    live_dual!=bool(self._live_dual_row(c,actor,job_id))):
                     raise LiveGateError("LIVE_INPUT_CONFLICT")
                 return self._read(c,job_id,actor)
             c.execute("""INSERT INTO live_jobs
@@ -190,6 +211,10 @@ class LiveStore:
                 c.execute("INSERT INTO live_dual_groups(parent_job_id,actor) VALUES (?,?)",
                           (job_id,actor))
                 self._event(c,r,"dual_input_committed",r["state"],sha)
+            if live_dual:
+                c.execute("INSERT INTO live_paid_dual_groups(parent_job_id,actor) VALUES (?,?)",
+                          (job_id,actor))
+                self._event(c,r,"live_dual_input_committed",r["state"],sha)
             if template_profile=="A":
                 # Owner Image size v2 and frozen A v1 use distinct immutable
                 # marker events. Neither may be silently imported into the other.
@@ -212,6 +237,282 @@ class LiveStore:
     def get(self,actor,job_id):
         with self.db() as c:
             return self._read(c,job_id,actor)
+
+    @staticmethod
+    def _live_dual_row(c,actor,job_id):
+        return c.execute("""SELECT * FROM live_paid_dual_groups WHERE actor=?
+            AND (parent_job_id=? OR child_job_id=?)""",(actor,job_id,job_id)).fetchone()
+
+    def live_dual_membership(self,actor,job_id):
+        with self.db() as c:
+            row=self._live_dual_row(c,actor,job_id)
+            return row["parent_job_id"] if row else None
+
+    def _live_dual_group(self,c,actor,parent_id):
+        self._read(c,parent_id,actor)
+        group=self._live_dual_row(c,actor,parent_id)
+        if group is None or group["parent_job_id"]!=parent_id:
+            return None
+        intents=[dict(row) for row in c.execute("""SELECT * FROM live_paid_dual_intents
+            WHERE parent_job_id=? ORDER BY stage,job_id""",(parent_id,))]
+        reviews={row["job_id"]:row["record_sha"] for row in c.execute("""
+            SELECT job_id,record_sha FROM live_paid_dual_visual_reviews
+            WHERE job_id IN (?,?)""",(parent_id,group["child_job_id"]))}
+        dispatch={row["job_id"]:{"state":row["state"],"error_code":row["error_code"],
+            "visual_review_sha":reviews.get(row["job_id"])}
+            for row in intents if row["stage"]=="image"}
+        return {**dict(group),"intents":intents,"dispatch":dispatch,
+                "execution_profile":json.loads(group["authority_json"])["execution_profile"]
+                    if group["authority_json"] else None}
+
+    def live_dual_group(self,actor,parent_id):
+        with self.db() as c:
+            return self._live_dual_group(c,actor,parent_id)
+
+    def _live_dual_f09_proof(self,parent):
+        """Cross-check actual F09 evidence without opening an attempt for dispatch."""
+        proof=json.loads(parent["compliance_json"]).get("llm_review")
+        try:
+            with sqlite3.connect((self.filename.parent/"cost.sqlite").resolve().as_uri()
+                                 +"?mode=ro",uri=True) as c:
+                c.row_factory=sqlite3.Row
+                attempt=c.execute("""SELECT actor,job_id,stage,status,receipt,payload_hash
+                    FROM attempts WHERE id=?""",(proof["attempt_id"],)).fetchone()
+            if (attempt is None or attempt["actor"]!=parent["actor"] or
+                attempt["job_id"]!=parent["job_id"] or attempt["stage"]!="copy_review" or
+                attempt["status"] not in ("SUCCEEDED_USAGE_UNPRICED","SUCCEEDED")):
+                raise ValueError
+            context={key:proof[key] for key in ("job_id","input_sha","copy_sha","generation",
+                "source_review_sha","model","policy_version","policy_sha","policy_epoch")}
+            if attempt["payload_hash"]!=digest(context):
+                raise ValueError
+            receipt=json.loads(attempt["receipt"])
+            if digest(receipt)!=proof["receipt_sha"] or receipt["model"]!=proof["response_model"]:
+                raise ValueError
+        except (KeyError,ValueError,TypeError,sqlite3.Error):
+            raise LiveGateError("LIVE_DUAL_F09_RECEIPT_UNVERIFIED") from None
+        return {"job_id":parent["job_id"],"review_sha":parent["review_sha"],
+                "attempt_id":proof["attempt_id"],"receipt_sha":proof["receipt_sha"]}
+
+    @staticmethod
+    def _live_dual_child_report(parent,proof):
+        report=json.loads(parent["compliance_json"])
+        del report["llm_review"]
+        report["live_dual_f09_parent"]=proof
+        return report
+
+    def _live_dual_authority(self,c,parent,child,execution_profile):
+        profiles=[]
+        for job in (parent,child):
+            template=verify_policy(c.execute("""SELECT * FROM live_job_templates WHERE job_id=?""",
+                                             (job["job_id"],)).fetchone())
+            if template is None or template["profile_id"]!=BP18_PREFIX+"4_5":
+                raise LiveGateError("LIVE_DUAL_TEMPLATE_REQUIRED")
+            profiles.append({"layout_sha":template["layout_sha"],
+                             "safe_zone_sha":template["safe_zone_sha"]})
+        if profiles[0]!=profiles[1]:
+            raise LiveGateError("LIVE_DUAL_TEMPLATE_CHANGED")
+        return {"protocol":"LIVE_DUAL_V1","actor":parent["actor"],
+                "acknowledge_two_images":True,"planned_image_attempts":2,
+                "parent_job_id":parent["job_id"],"child_job_id":child["job_id"],
+                "generation":parent["generation"],"copy_sha":parent["copy_sha"],
+                "parent_input_sha":parent["input_sha"],"child_input_sha":child["input_sha"],
+                "parent_approval_sha":parent["approval_sha"],"child_approval_sha":child["approval_sha"],
+                "child_review_sha":child["review_sha"],"f09":self._live_dual_f09_proof(parent),
+                "template":profiles[0],"execution_profile":execution_profile}
+
+    def start_live_dual(self,actor,parent_id,*,expected_generation,expected_review_sha,
+                        acknowledge_evidence=False,acknowledge_two_images=False,execution_profile):
+        """Commit canonical approval, derived authority, and the first queue intent together."""
+        if type(expected_generation) is not int:
+            raise LiveGateError("REVISION_TYPE_INVALID")
+        if acknowledge_two_images is not True:
+            raise LiveGateError("LIVE_DUAL_TWO_IMAGES_ACKNOWLEDGEMENT_REQUIRED")
+        if (not isinstance(execution_profile,dict) or set(execution_profile)!={
+            "protocol","release_sha","policy_sha","text_model","image_profile","image_size"} or
+            execution_profile["protocol"]!="LIVE_DUAL_V1" or execution_profile["image_size"]!="4:5" or
+            not isinstance(execution_profile["release_sha"],str) or
+            re.fullmatch(r"[0-9a-f]{40}",execution_profile["release_sha"]) is None or
+            not isinstance(execution_profile["policy_sha"],str) or
+            re.fullmatch(r"[0-9a-f]{64}",execution_profile["policy_sha"]) is None or
+            not isinstance(execution_profile["text_model"],str) or
+            not isinstance(execution_profile["image_profile"],dict)):
+            raise LiveGateError("LIVE_DUAL_EXECUTION_PROFILE_REQUIRED")
+        with self.db() as c:
+            c.execute("BEGIN IMMEDIATE")
+            parent=self._read(c,parent_id,actor)
+            group=self._live_dual_row(c,actor,parent_id)
+            if not group or group["parent_job_id"]!=parent_id:
+                raise LiveGateError("LIVE_DUAL_GROUP_NOT_FOUND")
+            if parent["mode"]!="LIVE" or not llm_required("LIVE") or not policy_enabled():
+                raise LiveGateError("LIVE_DUAL_F09_POLICY_REQUIRED")
+            if parent["generation"]!=expected_generation or parent["review_sha"]!=expected_review_sha:
+                raise LiveGateError("STALE_REVIEW_OR_REVISION")
+            if group["child_job_id"]:
+                self._approved(parent,c,allow_completed=True)
+                result=self._live_dual_group(c,actor,parent_id)
+                if result["execution_profile"]!=execution_profile:
+                    raise LiveGateError("LIVE_DUAL_EXECUTION_PROFILE_CHANGED")
+                return result
+            source=json.loads(parent["input_json"])
+            if (source.get("generation_mode")!="composed" or source.get("image_size")!="4:5"
+                    or digest(source)!=parent["input_sha"]
+                    or digest(json.loads(parent["copy_json"]))!=parent["copy_sha"]):
+                raise LiveGateError("LIVE_DUAL_SOURCE_INPUT_CHANGED")
+            parent=self._approve_copy_locked(c,parent,expected_generation,expected_review_sha,
+                                            acknowledge_evidence=acknowledge_evidence)
+            policy=self._ensure_current_review_policy(c,parent)
+            report=self._live_dual_child_report(parent,self._live_dual_f09_proof(parent))
+            snapshot={**source,"generation_mode":"freeform"}
+            input_sha=digest(snapshot)
+            review_sha=review_digest(input_sha,json.loads(parent["analysis_json"]),
+                json.loads(parent["copy_json"]),report,expected_generation,policy)
+            child_id=uuid4().hex
+            child={**parent,"job_id":child_id,"input_sha":input_sha,"review_sha":review_sha}
+            approval_sha=self.approval_binding(child,c)
+            c.execute("""INSERT INTO live_jobs (job_id,actor,state,mode,generation,input_json,
+                input_sha,analysis_json,research_json,research_display_json,copy_json,copy_sha,
+                compliance_json,review_sha,approval_sha,approved_generation,evidence_acknowledged)
+                VALUES (?,?,'COPY_APPROVED','LIVE',?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                (child_id,actor,expected_generation,canonical(snapshot),input_sha,
+                 parent["analysis_json"],parent["research_json"],parent["research_display_json"],
+                 parent["copy_json"],parent["copy_sha"],canonical(report),review_sha,
+                 approval_sha,expected_generation,parent["evidence_acknowledged"]))
+            self._bind_review_policy(c,child_id,expected_generation,review_sha,policy)
+            c.execute("""INSERT INTO live_job_templates (job_id,profile_id,profile_version,
+                safe_zone_json,safe_zone_sha,layout_json,layout_sha)
+                SELECT ?,profile_id,profile_version,safe_zone_json,safe_zone_sha,layout_json,layout_sha
+                FROM live_job_templates WHERE job_id=?""",(child_id,parent_id))
+            child=self._read(c,child_id,actor)
+            authority=self._live_dual_authority(c,parent,child,execution_profile)
+            authority_sha=digest(authority)
+            c.execute("""UPDATE live_paid_dual_groups SET child_job_id=?,approval_sha=?,
+                copy_sha=?,authority_json=?,authority_sha=? WHERE parent_job_id=?""",
+                (child_id,parent["approval_sha"],parent["copy_sha"],canonical(authority),
+                 authority_sha,parent_id))
+            self._event(c,parent,"live_dual_authority_committed",parent["state"],authority_sha)
+            self._event(c,child,"live_dual_copy_derived",child["state"],authority_sha)
+            self._insert_live_dual_intent(c,parent_id,parent,"image_prompt",authority_sha)
+            result=self._live_dual_group(c,actor,parent_id)
+            c.commit()
+            return result
+
+    @staticmethod
+    def _insert_live_dual_intent(c,parent_id,job,stage,authority_sha,prompt_sha=None):
+        context_sha=digest({"authority_sha":authority_sha,"prompt_sha":prompt_sha,
+                            "job_id":job["job_id"],"stage":stage,"approval_sha":job["approval_sha"]})
+        c.execute("""INSERT INTO live_paid_dual_intents
+            (parent_job_id,actor,job_id,stage,context_sha,state) VALUES (?,?,?,?,?,'PENDING')""",
+            (parent_id,job["actor"],job["job_id"],stage,context_sha))
+
+    def share_live_dual_prompt(self,actor,parent_id):
+        """Bind one committed Text Owner prompt to both independently authorized inputs."""
+        with self.db() as c:
+            c.execute("BEGIN IMMEDIATE")
+            parent=self._read(c,parent_id,actor)
+            group=self._live_dual_row(c,actor,parent_id)
+            if not group or group["parent_job_id"]!=parent_id or not group["child_job_id"]:
+                raise LiveGateError("LIVE_DUAL_GROUP_NOT_FOUND")
+            if group["hold_code"]:
+                raise LiveGateError("LIVE_DUAL_GROUP_HELD")
+            self._approved(parent,c,allow_completed=True)
+            if not parent["prompt_json"]:
+                raise LiveGateError("LIVE_DUAL_PROMPT_NOT_COMMITTED")
+            child=self._read(c,group["child_job_id"],actor)
+            self._approved(child,c,allow_completed=True)
+            prompt_sha=digest(json.loads(parent["prompt_json"]))
+            if group["prompt_sha"]:
+                if (group["prompt_sha"]!=prompt_sha or
+                    digest(json.loads(child["prompt_json"]))!=prompt_sha):
+                    raise LiveGateError("LIVE_DUAL_PROMPT_CHANGED")
+                return prompt_sha
+            if child["state"]!="COPY_APPROVED":
+                raise LiveGateError("LIVE_DUAL_PROMPT_STATE_CONFLICT")
+            c.execute("UPDATE live_jobs SET state='PROMPT_READY',prompt_json=? WHERE job_id=?",
+                      (parent["prompt_json"],child["job_id"]))
+            c.execute("UPDATE live_paid_dual_groups SET prompt_sha=? WHERE parent_job_id=?",
+                      (prompt_sha,parent_id))
+            for job in (parent,child):
+                self._insert_live_dual_intent(c,parent_id,job,"image",group["authority_sha"],prompt_sha)
+            self._event(c,child,"live_dual_prompt_derived","PROMPT_READY",prompt_sha)
+            c.commit()
+            return prompt_sha
+
+    def live_dual_intents(self):
+        with self.db() as c:
+            return [dict(row) for row in c.execute("""SELECT i.* FROM live_paid_dual_intents i
+                JOIN live_paid_dual_groups g ON g.parent_job_id=i.parent_job_id AND g.actor=i.actor
+                WHERE i.state='PENDING' AND g.hold_code IS NULL ORDER BY i.rowid""")]
+
+    def attach_live_dual_task(self,intent,task_id):
+        with self.db() as c:
+            c.execute("BEGIN IMMEDIATE")
+            changed=c.execute("""UPDATE live_paid_dual_intents SET queue_task_id=?,state='QUEUED'
+                WHERE job_id=? AND actor=? AND stage=? AND context_sha=? AND parent_job_id=?
+                AND ((state='PENDING' AND queue_task_id IS NULL) OR
+                     (state='QUEUED' AND queue_task_id=?))""",
+                (task_id,intent["job_id"],intent["actor"],intent["stage"],intent["context_sha"],
+                 intent["parent_job_id"],task_id)).rowcount
+            if changed!=1:
+                raise LiveGateError("LIVE_DUAL_QUEUE_IDENTITY_CONFLICT")
+            c.commit()
+
+    def _live_dual_task_row(self,c,item):
+        row=c.execute("""SELECT * FROM live_paid_dual_intents WHERE queue_task_id=?
+            AND actor=? AND job_id=? AND stage=? AND context_sha=?""",
+            (item["id"],item["actor"],item["job_id"],item["stage"],item["context_sha"])).fetchone()
+        if row is None:
+            raise LiveGateError("LIVE_DUAL_QUEUE_IDENTITY_CONFLICT")
+        return row
+
+    def live_dual_intent_by_task(self,item):
+        with self.db() as c:
+            return dict(self._live_dual_task_row(c,item))
+
+    def live_dual_task(self,item,execution_profile):
+        with self.db() as c:
+            row=self._live_dual_task_row(c,item)
+            job=self._read(c,item["job_id"],item["actor"])
+            group=self._live_dual_group(c,item["actor"],row["parent_job_id"])
+            if not group or group["hold_code"] or row["state"]!="QUEUED":
+                raise LiveGateError("LIVE_DUAL_GROUP_HELD")
+            if group["execution_profile"]!=execution_profile:
+                raise LiveGateError("LIVE_DUAL_EXECUTION_PROFILE_CHANGED")
+            self._approved(job,c,allow_completed=True)
+            prompt_sha=group["prompt_sha"] if item["stage"]=="image" else None
+            context=digest({"authority_sha":group["authority_sha"],"prompt_sha":prompt_sha,
+                            "job_id":job["job_id"],"stage":item["stage"],"approval_sha":job["approval_sha"]})
+            if row["context_sha"]!=context:
+                raise LiveGateError("LIVE_DUAL_QUEUE_CONTEXT_CHANGED")
+            return group
+
+    def hold_live_dual(self,parent_job_id,code):
+        with self.db() as c:
+            c.execute("""UPDATE live_paid_dual_groups SET hold_code=COALESCE(hold_code,?)
+                         WHERE parent_job_id=?""",(code,parent_job_id))
+
+    def finish_live_dual_intent(self,item,state,result_sha=None,error_code=None):
+        if state not in ("SUCCEEDED","FAILED","BILLING_UNKNOWN"):
+            raise LiveGateError("LIVE_DUAL_INTENT_STATE_INVALID")
+        with self.db() as c:
+            c.execute("BEGIN IMMEDIATE")
+            row=self._live_dual_task_row(c,item)
+            if row["state"]!="QUEUED":
+                if (row["state"],row["result_sha"],row["error_code"])==(state,result_sha,error_code):
+                    return
+                raise LiveGateError("LIVE_DUAL_INTENT_STATE_CONFLICT")
+            if state=="SUCCEEDED":
+                job=self._read(c,item["job_id"],item["actor"])
+                field="prompt_json" if row["stage"]=="image_prompt" else "image_sha"
+                actual=digest(json.loads(job[field])) if field=="prompt_json" else job[field]
+                if not actual or actual!=result_sha:
+                    raise LiveGateError("LIVE_DUAL_INTENT_RESULT_CHANGED")
+            c.execute("""UPDATE live_paid_dual_intents SET state=?,result_sha=?,error_code=?
+                         WHERE queue_task_id=?""",(state,result_sha,error_code,row["queue_task_id"]))
+            if state=="BILLING_UNKNOWN":
+                c.execute("""UPDATE live_paid_dual_groups SET hold_code=COALESCE(hold_code,?)
+                             WHERE parent_job_id=?""",(error_code or state,row["parent_job_id"]))
+            c.commit()
 
     @staticmethod
     def _dual_row(c,actor,job_id):
@@ -579,7 +880,7 @@ class LiveStore:
             c.execute("BEGIN IMMEDIATE")
             policy=self._active_policy(c)
             job=self._read(c,job_id,actor)
-            dual=self._dual_row(c,actor,job_id)
+            dual=self._dual_row(c,actor,job_id) or self._live_dual_row(c,actor,job_id)
             if dual and dual["child_job_id"]:
                 raise LiveGateError("DUAL_APPROVED_COPY_IMMUTABLE")
             if job["state"] not in ("COPY_REVIEW_REQUIRED","COPY_APPROVED",
@@ -640,6 +941,8 @@ class LiveStore:
         with self.db() as c:
             c.execute("BEGIN IMMEDIATE")
             job=self._read(c,job_id,actor)
+            if mode!="LIVE" and self._live_dual_row(c,actor,job_id):
+                raise LiveGateError("LIVE_DUAL_REQUIRES_LIVE")
             if mode=="LIVE" and self._dual_row(c,actor,job_id):
                 raise LiveGateError("DUAL_REQUIRES_OFFLINE_FIXTURE")
             if job["state"]!="INPUT_STORED" or job["mode"]!="INPUT_ONLY":
@@ -669,7 +972,7 @@ class LiveStore:
         with self.db() as c:
             c.execute("BEGIN IMMEDIATE")
             job=self._read(c,job_id,actor)
-            dual=self._dual_row(c,actor,job_id)
+            dual=self._dual_row(c,actor,job_id) or self._live_dual_row(c,actor,job_id)
             if dual and dual["child_job_id"]:
                 raise LiveGateError("DUAL_APPROVED_COPY_IMMUTABLE")
             if job["state"] not in ("COPY_REVIEW_REQUIRED","COPY_APPROVED","COPY_REJECTED"):
@@ -906,7 +1209,7 @@ class LiveStore:
         with self.db() as c:
             c.execute("BEGIN IMMEDIATE")
             job=self._read(c,job_id,actor)
-            if self._dual_row(c,actor,job_id) is not None:
+            if self._dual_row(c,actor,job_id) or self._live_dual_row(c,actor,job_id):
                 raise LiveGateError("DUAL_COPY_APPROVAL_REQUIRED")
             updated=self._approve_copy_locked(c,job,expected_generation,expected_review_sha,
                                               acknowledge_evidence=acknowledge_evidence)
@@ -964,20 +1267,31 @@ class LiveStore:
         if c is None:
             with self.db() as opened:
                 return self._approved(job,opened,allow_completed=allow_completed)
+        live_group=self._live_dual_row(c,job["actor"],job["job_id"])
+        if live_group is not None:
+            if not llm_required("LIVE") or not policy_enabled():
+                raise LiveGateError("LIVE_DUAL_F09_POLICY_REQUIRED")
+            parent=self._assert_live_dual_binding(c,job,live_group)
+            if parent["job_id"]!=job["job_id"]:
+                self._check_approval(c,parent,allow_completed=True)
+                return self._check_approval(c,job,allow_completed=allow_completed,derived_f09=True)
+            return self._check_approval(c,job,allow_completed=allow_completed)
         group=self._dual_row(c,job["actor"],job["job_id"])
         if group is not None:
             parent=self._assert_dual_binding(c,job,group)
             if parent["job_id"]!=job["job_id"]:
                 self._check_approval(c,parent,allow_completed=True)
         elif c.execute("""SELECT 1 FROM live_events WHERE job_id=?
-                           AND event IN ('dual_input_committed','dual_copy_derived')""",
+                           AND event IN ('dual_input_committed','dual_copy_derived',
+                                         'live_dual_input_committed','live_dual_copy_derived')""",
                         (job["job_id"],)).fetchone():
             raise LiveGateError("DUAL_GROUP_BINDING_MISSING")
         self._check_approval(c,job,allow_completed=allow_completed)
 
-    def _check_approval(self,c,job,*,allow_completed=False):
+    def _check_approval(self,c,job,*,allow_completed=False,derived_f09=False):
         policy=self._ensure_current_review_policy(c,job)
-        self._require_llm_review(job,policy)
+        if not derived_f09:
+            self._require_llm_review(job,policy)
         states={"COPY_APPROVED","PROMPT_READY","IMAGE_REVIEW_REQUIRED","IMAGE_APPROVED","IMAGE_REJECTED"}
         if allow_completed:
             states.add("COMPLETED")
@@ -986,6 +1300,42 @@ class LiveStore:
                 and job["approval_sha"]==self.approval_binding(job,c)
                 and json.loads(job["compliance_json"])["passed"]):
             raise LiveGateError("APPROVAL_CONTEXT_NOT_CURRENT")
+
+    def _assert_live_dual_binding(self,c,job,group):
+        try:
+            parent=self._read(c,group["parent_job_id"],job["actor"])
+            child=self._read(c,group["child_job_id"],job["actor"])
+            if job["job_id"] not in (parent["job_id"],child["job_id"]):
+                raise ValueError
+            authority=json.loads(group["authority_json"])
+            snapshot=json.loads(parent["input_json"])
+            expected_child={**snapshot,"generation_mode":"freeform"}
+            if (parent["mode"]!="LIVE" or child["mode"]!="LIVE" or
+                snapshot.get("generation_mode")!="composed" or snapshot.get("image_size")!="4:5" or
+                digest(snapshot)!=parent["input_sha"] or digest(expected_child)!=child["input_sha"] or
+                expected_child!=json.loads(child["input_json"]) or
+                digest(json.loads(parent["copy_json"]))!=parent["copy_sha"] or
+                group["copy_sha"]!=parent["copy_sha"] or group["approval_sha"]!=parent["approval_sha"] or
+                any(child[key]!=parent[key] for key in ("generation","copy_json","copy_sha","analysis_json",
+                    "research_json","research_display_json","evidence_acknowledged")) or
+                digest(authority)!=group["authority_sha"] or
+                authority!=self._live_dual_authority(c,parent,child,authority["execution_profile"]) or
+                json.loads(child["compliance_json"])!=self._live_dual_child_report(parent,authority["f09"])):
+                raise ValueError
+            marker=c.execute("""SELECT 1 FROM live_events WHERE job_id=? AND event=?
+                AND generation=? AND payload_sha=?""",(job["job_id"],
+                "live_dual_authority_committed" if job["job_id"]==parent["job_id"] else "live_dual_copy_derived",
+                parent["generation"],group["authority_sha"])).fetchone()
+            if marker is None:
+                raise ValueError
+            if group["prompt_sha"] and any(digest(json.loads(member["prompt_json"]))!=group["prompt_sha"]
+                                          for member in (parent,child)):
+                raise ValueError
+            self._assert_dual_review_digest(c,parent)
+            self._assert_dual_review_digest(c,child)
+        except (ValueError,KeyError,TypeError):
+            raise LiveGateError("LIVE_DUAL_AUTHORITY_BINDING_INVALID") from None
+        return parent
 
     def _assert_dual_binding(self,c,job,group):
         parent_id=group["parent_job_id"]
@@ -1040,6 +1390,10 @@ class LiveStore:
                                    (job_id,)).fetchone()
                 if not dispatch or dispatch["dispatch_state"]!="RUNNING":
                     raise LiveGateError("DUAL_DISPATCH_NOT_CLAIMED")
+            if self._live_dual_row(c,actor,job_id) and not c.execute("""
+                SELECT 1 FROM live_paid_dual_intents WHERE job_id=? AND stage='image_prompt'
+                AND state='QUEUED'""",(job_id,)).fetchone():
+                raise LiveGateError("LIVE_DUAL_PROMPT_INTENT_REQUIRED")
             cp=json.loads(job["copy_json"])
             parsed=live_prompt(prompt,cp)
             c.execute("UPDATE live_jobs SET state='PROMPT_READY',prompt_json=? WHERE job_id=?",
@@ -1076,6 +1430,8 @@ class LiveStore:
         with self.db() as c:
             c.execute("BEGIN IMMEDIATE")
             job=self._read(c,job_id,actor)
+            if self._live_dual_row(c,actor,job_id):
+                raise LiveGateError("LIVE_DUAL_REGENERATION_NOT_ENABLED")
             previous=c.execute("""SELECT * FROM live_image_attempts WHERE job_id=?
                 ORDER BY attempt_version DESC LIMIT 1""",(job_id,)).fetchone()
             if (job["state"]=="PROMPT_READY" and previous is not None
@@ -1184,6 +1540,11 @@ class LiveStore:
                 raise LiveGateError("IMAGE_APPROVAL_STALE")
             self._approved(job,c)
             dual=self._dual_row(c,actor,job_id)
+            if self._live_dual_row(c,actor,job_id) and (
+                not provider_attempt_id or not candidate_receipt_sha or not c.execute("""
+                    SELECT 1 FROM live_paid_dual_intents WHERE job_id=? AND stage='image'
+                    AND state='QUEUED'""",(job_id,)).fetchone()):
+                raise LiveGateError("LIVE_DUAL_IMAGE_INTENT_OR_RECEIPT_REQUIRED")
             prior=c.execute("""SELECT * FROM live_image_attempts WHERE job_id=?
                 ORDER BY attempt_version DESC LIMIT 1""",(job_id,)).fetchone()
             if prior is None:
@@ -1216,7 +1577,7 @@ class LiveStore:
             c.commit()
             return updated
 
-    def approve_image(self,actor,job_id,expected_sha,*,visual_review=None):
+    def approve_image(self,actor,job_id,expected_sha,*,visual_review=None,reviewer_role=None):
         with self.db() as c:
             c.execute("BEGIN IMMEDIATE")
             job=self._read(c,job_id,actor)
@@ -1232,6 +1593,15 @@ class LiveStore:
                 if changed!=1:
                     raise LiveGateError("DUAL_CANDIDATE_NOT_COMMITTED")
                 self._event(c,job,"dual_fixture_visual_attested",job["state"],visual_sha)
+            elif self._live_dual_row(c,actor,job_id):
+                attempt=self._live_dual_candidate(c,job)
+                record=self._live_dual_visual_record(
+                    job,visual_review,attempt,reviewer_role=reviewer_role,
+                    reviewed_utc=datetime.now(timezone.utc).isoformat())
+                visual_sha=digest(record)
+                c.execute("""INSERT INTO live_paid_dual_visual_reviews (job_id,record_json,record_sha)
+                    VALUES (?,?,?)""",(job_id,canonical(record),visual_sha))
+                self._event(c,job,"live_dual_visual_attested",job["state"],visual_sha)
             elif visual_review is not None:
                 raise LiveGateError("DUAL_VARIANT_NOT_FOUND")
             bind=digest({"image_sha":job["image_sha"],"approval_sha":job["approval_sha"],
@@ -1279,6 +1649,82 @@ class LiveStore:
             raise LiveGateError("DUAL_VISUAL_REVIEW_BINDING_INVALID") from None
         return row["visual_review_sha"]
 
+    @staticmethod
+    def _live_dual_visual_record(job,checks,attempt,*,reviewer_role,reviewed_utc):
+        if reviewer_role not in ("admin","evaluator"):
+            raise LiveGateError("LIVE_DUAL_REVIEWER_ROLE_REQUIRED")
+        try:
+            timestamp=datetime.fromisoformat(reviewed_utc)
+            if (timestamp.tzinfo!=timezone.utc or timestamp.isoformat()!=reviewed_utc):
+                raise ValueError
+        except (ValueError,TypeError):
+            raise LiveGateError("LIVE_DUAL_REVIEW_TIMESTAMP_INVALID") from None
+        mode=json.loads(job["input_json"])["generation_mode"]
+        required={"product_matches","label_matches","cta_policy_matches"}
+        if mode=="freeform":
+            required.add("no_extra_text")
+        expected_keys=required|({"observed_copy"} if mode=="freeform" else set())
+        if (not isinstance(checks,dict) or set(checks)!=expected_keys or
+            any(checks[field] is not True for field in required) or
+            (mode=="freeform" and checks["observed_copy"]!=json.loads(job["copy_json"])["ad_copy"])):
+            raise LiveGateError("LIVE_DUAL_VISUAL_REVIEW_REQUIRED")
+        return {"source":"LIVE_DUAL_MANUAL_ATTESTATION","actor":job["actor"],
+                "reviewer_role":reviewer_role,"reviewed_utc":reviewed_utc,
+                "job_id":job["job_id"],"mode":mode,"image_sha":job["image_sha"],
+                "copy_sha":job["copy_sha"],"approval_sha":job["approval_sha"],
+                "candidate_receipt_sha":attempt["candidate_receipt_sha"],"checks":checks}
+
+    @staticmethod
+    def _live_dual_candidate(c,job):
+        attempt=c.execute("""SELECT * FROM live_image_attempts WHERE job_id=?
+            ORDER BY attempt_version DESC LIMIT 1""",(job["job_id"],)).fetchone()
+        if (attempt is None or not attempt["candidate_receipt_sha"] or not attempt["provider_attempt_id"] or
+            attempt["candidate_sha"]!=job["image_sha"] or attempt["actor"]!=job["actor"] or
+            attempt["approval_sha"]!=job["approval_sha"] or
+            attempt["prompt_sha"]!=digest(json.loads(job["prompt_json"]))):
+            raise LiveGateError("LIVE_DUAL_CANDIDATE_BINDING_INVALID")
+        return attempt
+
+    def _live_dual_artifact_binding(self,c,job,group):
+        attempt=self._live_dual_candidate(c,job)
+        visual=c.execute("""SELECT record_json,record_sha FROM live_paid_dual_visual_reviews
+            WHERE job_id=?""",(job["job_id"],)).fetchone()
+        try:
+            record=json.loads(visual["record_json"])
+            expected=self._live_dual_visual_record(
+                job,record["checks"],attempt,reviewer_role=record["reviewer_role"],
+                reviewed_utc=record["reviewed_utc"])
+            if (record!=expected or
+                digest(record)!=visual["record_sha"] or not group["prompt_sha"]):
+                raise ValueError
+        except (KeyError,ValueError,TypeError):
+            raise LiveGateError("LIVE_DUAL_VISUAL_BINDING_INVALID") from None
+        return {"live_dual_authority_sha":group["authority_sha"],
+                "live_dual_prompt_sha":group["prompt_sha"],
+                "live_dual_visual_review_sha":visual["record_sha"],
+                "owner_candidate_receipt_sha":attempt["candidate_receipt_sha"]}
+
+    def select_live_dual_variant(self,actor,parent_id,mode,expected_final_sha):
+        if mode not in ("composed","freeform"):
+            raise LiveGateError("LIVE_DUAL_VARIANT_NOT_FOUND")
+        with self.db() as c:
+            c.execute("BEGIN IMMEDIATE")
+            group=self._live_dual_row(c,actor,parent_id)
+            if not group or group["parent_job_id"]!=parent_id or not group["child_job_id"]:
+                raise LiveGateError("LIVE_DUAL_GROUP_NOT_FOUND")
+            variant_id=parent_id if mode=="composed" else group["child_job_id"]
+            job=self._read(c,variant_id,actor)
+            if job["state"]!="COMPLETED" or not job["final_sha"] or job["final_sha"]!=expected_final_sha:
+                raise LiveGateError("LIVE_DUAL_SELECTION_STALE")
+            self._approved(job,c,allow_completed=True)
+            self._live_dual_artifact_binding(c,job,group)
+            c.execute("""UPDATE live_paid_dual_groups SET preferred_mode=?,preferred_final_sha=?
+                WHERE parent_job_id=?""",(mode,expected_final_sha,parent_id))
+            self._event(c,job,"live_dual_variant_selected",job["state"],expected_final_sha)
+            result=self._live_dual_group(c,actor,parent_id)
+            c.commit()
+            return result
+
     def reject_image(self,actor,job_id,expected_sha):
         with self.db() as c:
             c.execute("BEGIN IMMEDIATE")
@@ -1307,6 +1753,9 @@ class LiveStore:
                 raise LiveGateError("FINAL_REQUIRES_IMAGE_APPROVAL")
             self._approved(job,c)
             self._dual_visual_sha(c,job)
+            live_group=self._live_dual_row(c,actor,job_id)
+            if live_group is not None:
+                self._live_dual_artifact_binding(c,job,live_group)
             expected=digest({"image_sha":job["image_sha"],
                  "approval_sha":job["approval_sha"],"generation":job["generation"],
                  "evidence_acknowledged":bool(job["evidence_acknowledged"])})
@@ -1391,6 +1840,12 @@ class LiveStore:
             envelope.update(dual_parent_job_id=group["parent_job_id"],
                             dual_source_approval_sha=group["approval_sha"],
                             dual_visual_review_sha=visual_sha)
+        live_group=self._live_dual_row(connection,actor,job_id)
+        if live_group is not None:
+            binding=self._live_dual_artifact_binding(connection,job,live_group)
+            if receipt.get("owner_candidate_receipt_sha")!=binding["owner_candidate_receipt_sha"]:
+                raise LiveGateError("LIVE_DUAL_CANDIDATE_RECEIPT_CHANGED")
+            envelope.update(binding)
         receipt_sha=digest(receipt)
         connection.execute("""INSERT INTO live_compose_manifests
             (job_id,receipt_json,envelope_json,receipt_sha,envelope_sha,final_sha,caption_sha)
@@ -1438,6 +1893,15 @@ class LiveStore:
                     envelope.get("dual_source_approval_sha")!=(group["approval_sha"] if group else None) or
                     envelope.get("dual_visual_review_sha")!=self._dual_visual_sha(c,job)):
                     raise ValueError
+                live_group=self._live_dual_row(c,actor,job_id)
+                if live_group is not None:
+                    self._assert_live_dual_binding(c,job,live_group)
+                    binding=self._live_dual_artifact_binding(c,job,live_group)
+                    if (any(envelope.get(key)!=value for key,value in binding.items()) or
+                        receipt.get("owner_candidate_receipt_sha")!=binding["owner_candidate_receipt_sha"]):
+                        raise ValueError
+                elif "live_dual_authority_sha" in envelope:
+                    raise ValueError
                 if (not profile or digest(receipt)!=r["receipt_sha"] or
                     digest(envelope)!=r["envelope_sha"] or
                     envelope["job_id"]!=job_id or
@@ -1472,7 +1936,7 @@ class LiveStore:
             if job["state"]!="IMAGE_APPROVED":
                 raise LiveGateError("FINAL_REQUIRES_IMAGE_APPROVAL")
             self._approved(job,c)
-            if self._dual_row(c,actor,job_id):
+            if self._dual_row(c,actor,job_id) or self._live_dual_row(c,actor,job_id):
                 raise LiveGateError("DUAL_REQUIRES_COMPOSITION_RECEIPT")
             policy=c.execute("SELECT profile_id FROM live_job_templates WHERE job_id=?",
                              (job_id,)).fetchone()

@@ -24,6 +24,18 @@ VALID_MODES = frozenset({"web", "worker"})
 EXIT_DENY = 78
 AUTH_CONTRACT_FILE = "config/bp18_required_auth_contract.json"
 REVIEW_CONTRACT_FILE = "config/bp18_required_review_contract.json"
+DUAL_CONTRACT_FILE = "config/bp18_required_dual_contract.json"
+DUAL_PROTOCOL = "LIVE_DUAL_V1"
+DUAL_SOURCE_MARKERS = {
+    "demo_staging/live/store.py": (b"live_paid_dual_groups", b"live_dual_f09_parent"),
+    "demo_staging/live/pipeline.py": (b"live_dual_candidate_receipt", b"verify_live_dual_f09"),
+    "demo_staging/live/queue.py": (b"LIVE_DUAL_V1", b"dual_billing_unknown"),
+    "demo_staging/live/worker.py": (b"live_dual_lease", b"reconcile_live_dual"),
+    "demo_staging/live/dual_worker.py": (b"LIVE_DUAL_PROTOCOL", b"LIVE_DUAL_WORKER_RESTART_UNCERTAIN"),
+    "demo_staging/live/http_api.py": (b"LIVE_DUAL", b"live_dual_access"),
+    "src/image_generation/backend_adapter.py": (b"include_provider_prompt_sha",),
+}
+DUAL_SOURCE_FILES = tuple(DUAL_SOURCE_MARKERS)
 REVIEW_SOURCE_FILES = (
     "demo_staging/live/copy_review.py",
     "demo_staging/live/pipeline.py",
@@ -186,6 +198,67 @@ def required_review_contract(root: Path, target: str) -> dict | None:
     return doc
 
 
+def _dual_history(root: Path) -> bool:
+    """Pending work and historical outputs both require a compatible reader."""
+    for filename, table, condition, parameters in (
+        ("live.sqlite", "live_paid_dual_groups", "", ()),
+        ("queue.sqlite", "queued_ops", " WHERE mode=?", (DUAL_PROTOCOL,)),
+    ):
+        database = root / "runtime/live" / filename
+        if not database.exists():
+            continue
+        try:
+            with sqlite3.connect(_regular(database).resolve().as_uri() + "?mode=ro",
+                                 uri=True, timeout=2) as connection:
+                connection.execute("PRAGMA query_only=ON")
+                if not connection.execute(
+                    "SELECT 1 FROM sqlite_master WHERE type='table' AND name=?", (table,)
+                ).fetchone():
+                    continue
+                # Original pre-Dual test/legacy queue schemas may have only state.
+                columns = {row[1] for row in connection.execute("PRAGMA table_info(queued_ops)")}
+                if table == "queued_ops" and "mode" not in columns:
+                    continue
+                if connection.execute(
+                    "SELECT 1 FROM " + table + condition + " LIMIT 1", parameters
+                ).fetchone():
+                    return True
+        except (sqlite3.DatabaseError, OSError) as error:
+            raise ReleaseUnsafe("LIVE_DUAL_HISTORY_UNREADABLE") from error
+    return False
+
+
+def required_dual_contract(root: Path, target: str, *, activating: bool = False) -> dict | None:
+    """Pin both the executor and historical-result reader before release swap."""
+    path = root / DUAL_CONTRACT_FILE
+    if not activating and not path.exists() and not _dual_history(root):
+        return None
+    try:
+        document = json.loads(_regular(path, trusted=True).read_text())
+    except (OSError, ValueError, UnicodeError, ReleaseUnsafe) as error:
+        raise ReleaseUnsafe("LIVE_DUAL_REQUIRED_CONTRACT_INVALID") from error
+    if (not isinstance(document, dict) or set(document) !=
+            {"version", "required_mode", "verified_sources"} or
+            document["version"] != 1 or document["required_mode"] != DUAL_PROTOCOL or
+            not isinstance(document["verified_sources"], dict)):
+        raise ReleaseUnsafe("LIVE_DUAL_REQUIRED_CONTRACT_INVALID")
+    verified = document["verified_sources"].get(target)
+    if not isinstance(verified, dict) or set(verified) != set(DUAL_SOURCE_FILES):
+        raise ReleaseUnsafe("LIVE_DUAL_INCOMPATIBLE_RELEASE_DENIED")
+    for name in DUAL_SOURCE_FILES:
+        expected = verified[name]
+        try:
+            source = _regular(root / "releases" / target / name).read_bytes()
+        except (OSError, ReleaseUnsafe) as error:
+            raise ReleaseUnsafe("LIVE_DUAL_SOURCE_PROVENANCE_INVALID") from error
+        if (not isinstance(expected, str) or not re.fullmatch(r"[0-9a-f]{64}", expected) or
+                hashlib.sha256(source).hexdigest() != expected):
+            raise ReleaseUnsafe("LIVE_DUAL_SOURCE_PROVENANCE_INVALID")
+        if any(marker not in source for marker in DUAL_SOURCE_MARKERS[name]):
+            raise ReleaseUnsafe("LIVE_DUAL_REQUIRED_PROTOCOL_CODE_MISSING")
+    return document
+
+
 def _queue_running(root: Path) -> bool:
     db = _regular(root / "runtime/live/queue.sqlite")
     try:
@@ -260,6 +333,7 @@ def validate(root: Path, *, mode: str, port: int = 18100,
         raise ReleaseUnsafe("OLD_RELEASE_CANNOT_START_WITH_EPOCH_DB")
     required_auth=_required_sso_auth_contract(root,target,mode=mode,port=port)
     review_contract=required_review_contract(root,target)
+    dual_contract=required_dual_contract(root,target)
     if _worker_lock_busy(root):
         raise ReleaseUnsafe("ACTIVE_PROVIDER_WORKER_BLOCKS_RELEASE")
     if _queue_running(root):
@@ -271,6 +345,7 @@ def validate(root: Path, *, mode: str, port: int = 18100,
     return {"release": target, "policy_epoch": epoch, "mode": mode,
             "required_auth": required_auth,
             "required_review": review_contract["required_mode"] if review_contract else None,
+            "required_dual": dual_contract["required_mode"] if dual_contract else None,
             "worker_lock": "FREE", "queue_running": 0}
 
 

@@ -10,6 +10,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import sqlite3
 import tempfile
 from io import BytesIO
 from pathlib import Path
@@ -124,22 +125,25 @@ class LivePipeline:
         for a in assets:
             path,_=self.jobs.get_asset(job_id,a["asset_id"])
             raw=path.read_bytes()
+            original=expected[a["asset_id"]]
             if (hashlib.sha256(raw).hexdigest()!=a["sha256"]
-                    or expected[a["asset_id"]]["sha256"]!=a["sha256"]):
+                    or original["sha256"]!=a["sha256"] or original["role"]!=a["role"]):
                 raise LiveGateError("INPUT_ASSET_TAMPERED")
             (product if a["role"]=="product" else refs).append(raw)
         if not 2<=len(product)<=5 or len(refs)>5:
             raise LiveGateError("INPUT_PHOTO_COUNTS_INVALID")
         return product,refs
 
-    def prepare(self,actor,job_id,payload,*,template_profile="LEGACY",dual=False):
+    def prepare(self,actor,job_id,payload,*,template_profile="LEGACY",dual=False,live_dual=False):
         if dual and (self.live_enabled or self.pm_authorized):
             raise LiveGateError("DUAL_REQUIRES_OFFLINE_FIXTURE")
+        if live_dual:
+            self.require_live_actor(actor)
         job=self.jobs.get_job(job_id)
         if job["status"]!="INPUTS_VALIDATED":
             raise LiveGateError("B0_JOB_NOT_INPUT_READY")
         return self.state.create(actor,job_id,payload,job["assets"],
-                                 template_profile=template_profile,dual=dual)
+                                 template_profile=template_profile,dual=dual,live_dual=live_dual)
 
     def require_live_actor(self, actor):
         if not (self.live_enabled and self.pm_authorized):
@@ -291,6 +295,46 @@ class LivePipeline:
                 actor,job_id,"copy_review",fingerprint,"LIVE",
                 CopyReviewCheckpoint(result=result,receipt=receipt),CopyReviewCheckpoint)
         return self.state.complete_copy_review(actor,job_id,context,saved.result,saved.receipt)
+
+    def verify_live_dual_f09(self,actor,parent_id):
+        """Verify the original F09 result and cost evidence before either mode can dispatch."""
+        from .contracts import strict_review
+        from .copy_review import CopyReviewCheckpoint,complete_report
+        from .review_policy import enabled,llm_required
+
+        job=self.state.get(actor,parent_id)
+        if job["mode"]!="LIVE" or not enabled() or not llm_required("LIVE"):
+            raise LiveGateError("LIVE_DUAL_F09_REQUIRED")
+        policy=self.state.ensure_policy_current(actor,parent_id)
+        self.state._require_llm_review(job,policy)
+        try:
+            report=json.loads(job["compliance_json"])
+            proof=report["llm_review"]
+            context={key:proof[key] for key in (
+                "job_id","input_sha","copy_sha","generation","source_review_sha","model",
+                "policy_version","policy_sha","policy_epoch")}
+            fingerprint=digest(context)
+            saved=self.checkpoints.load(actor,parent_id,"copy_review",fingerprint,"LIVE",CopyReviewCheckpoint)
+            receipt={key:proof[key] for key in ("attempt_id","receipt_sha","response_model")}
+            attempt=self.cost.inspect(receipt["attempt_id"])
+            if (saved is None or saved.receipt!=receipt or not attempt
+                or attempt["actor"]!=actor or attempt["job_id"]!=parent_id
+                or attempt["stage"]!="copy_review" or attempt["payload_hash"]!=fingerprint
+                or attempt["status"]!="SUCCEEDED_USAGE_UNPRICED"):
+                raise ValueError
+            outer=json.loads(attempt["receipt"])
+            if digest(outer)!=receipt["receipt_sha"] or outer["model"]!=receipt["response_model"]:
+                raise ValueError
+            raw_copy=json.loads(job["copy_json"])
+            raw_product=json.loads(job["input_json"])["product"]
+            copy=AdCopyOutput.model_validate(raw_copy,strict=True)
+            product=ProductInput.model_validate(raw_product,strict=True)
+            baseline=strict_review(raw_copy,raw_product,json.loads(job["analysis_json"]))
+            if (complete_report(baseline,copy,product,saved.result,context,receipt)!=report
+                or report["passed"] is not True):
+                raise ValueError
+        except (KeyError,TypeError,ValueError):
+            raise LiveGateError("LIVE_DUAL_F09_RECEIPT_MISMATCH") from None
 
     def revision_context(self,actor,job_id,instruction,
                          expected_generation,expected_review_sha,*,text_model="gpt-6-luna"):
@@ -502,12 +546,14 @@ class LivePipeline:
     def image_input(self,actor,job_id,*,expected_approval_sha=None):
         job=self.state.get(actor,job_id)
         snapshot=json.loads(job["input_json"])
-        asset_job_id=self.state.dual_membership(actor,job_id) or job_id
+        asset_job_id=(self.state.live_dual_membership(actor,job_id)
+                      or self.state.dual_membership(actor,job_id) or job_id)
         photos,refs=self._photos(asset_job_id,snapshot["ordered_asset_hashes"])
         return self.state.image_request(actor,job_id,photos,refs,
                                         expected_approval_sha=expected_approval_sha)
 
-    def accept_image_result(self,actor,job_id,output,*,offline=False,expected_approval_sha=None):
+    def accept_image_result(self,actor,job_id,output,*,offline=False,expected_approval_sha=None,
+                            dual_receipt=None):
         job=self.state.get(actor,job_id)
         if job["state"]!="PROMPT_READY":
             raise LiveGateError("IMAGE_NOT_READY")
@@ -520,6 +566,9 @@ class LivePipeline:
         if not output.receipt:
             raise LiveGateError("PROVIDER_RECEIPT_REQUIRED")
         mode=json.loads(job["input_json"]).get("generation_mode","composed")
+        parent_id=self.state.live_dual_membership(actor,job_id)
+        if bool(parent_id)!=(dual_receipt is not None) or (parent_id and offline):
+            raise LiveGateError("LIVE_DUAL_PROVIDER_RECEIPT_REQUIRED")
         if mode=="freeform" and (output.receipt.get("generation_mode")!="freeform"
                or output.receipt.get("state")!="succeeded"):
             raise LiveGateError("FREEFORM_OWNER_RECEIPT_UNVERIFIED")
@@ -538,9 +587,13 @@ class LivePipeline:
                     or (output.width,output.height)!=im.size):
                 raise LiveGateError("OWNER_IMAGE_SIZE_INVALID")
         receipt_sha=None
-        if mode=="freeform":
+        if mode=="freeform" or parent_id:
             receipt={"source_sha256":sha,"copy_sha":job["copy_sha"],
                      "generation":job["generation"],"owner_receipt":output.receipt}
+            if parent_id:
+                receipt.update(parent_job_id=parent_id,job_id=job_id,approval_sha=job["approval_sha"],
+                               prompt_sha=digest(json.loads(job["prompt_json"])),cost_receipt=dual_receipt)
+                self._check_live_dual_candidate_receipt(job,parent_id,mode,receipt,sha,verify_prompt=True)
             receipt_bytes=json.dumps(receipt,sort_keys=True,ensure_ascii=False).encode("utf-8")
             receipt_sha=hashlib.sha256(receipt_bytes).hexdigest()
             atomic_write(self.root/"outputs"/job_id/"owner_candidate_receipt.json",
@@ -552,6 +605,86 @@ class LivePipeline:
         return self.state.store_image_candidate(actor,job_id,sha,
                 provider_attempt_id=provider_id,candidate_receipt_sha=receipt_sha,
                 expected_approval_sha=job["approval_sha"])
+
+    def _check_live_dual_candidate_receipt(self,job,parent_id,mode,binding,image_sha,*,verify_prompt=False):
+        """Join one candidate to its independent Owner and cost ledger records."""
+        try:
+            owner=binding["owner_receipt"]
+            cost=binding["cost_receipt"]
+            attempt=self.cost.inspect(cost["attempt_id"])
+            outer=json.loads(attempt["receipt"])
+            request_hashes=(owner["request_sha256"],owner["provider_prompt_sha256"])
+            if (binding["source_sha256"]!=image_sha or binding["copy_sha"]!=job["copy_sha"]
+                or binding["generation"]!=job["generation"] or binding["job_id"]!=job["job_id"]
+                or binding["parent_job_id"]!=parent_id or binding["approval_sha"]!=job["approval_sha"]
+                or binding["prompt_sha"]!=digest(json.loads(job["prompt_json"]))
+                or owner["state"]!="succeeded" or owner["generation_mode"]!=mode
+                or not owner["attempt_id"] or not owner["provider_request_id"]
+                or any(not isinstance(value,str) or len(value)!=64
+                       or any(character not in "0123456789abcdef" for character in value)
+                       for value in request_hashes)
+                or attempt["actor"]!=job["actor"] or attempt["job_id"]!=job["job_id"]
+                or attempt["stage"]!="image" or attempt["payload_hash"]!=cost["payload_hash"]
+                or attempt["status"] not in ("SUCCEEDED_USAGE_UNPRICED","SUCCEEDED")
+                or (attempt["status"]=="SUCCEEDED_USAGE_UNPRICED" and attempt["cost_microusd"] is not None)
+                or (attempt["status"]=="SUCCEEDED" and
+                    (type(attempt["cost_microusd"]) is not int or attempt["cost_microusd"]<0))
+                or digest(outer)!=cost["receipt_sha"] or outer["model"]!=cost["response_model"]
+                or outer["provider"]!=owner["provider"] or outer["model"]!=owner["model"]
+                or outer["provider_response_id"]!=owner["provider_request_id"]
+                or outer["usage"]!=owner["usage"]):
+                raise ValueError
+            # Read the Owner's independent immutable binding and saved result.
+            # This does not instantiate a processor or acquire dispatch rights.
+            project=str(uuid5(self.project_id,"live-dual/"+parent_id))
+            native_root=self.root/"owner_image"
+            with sqlite3.connect((native_root/"image_bindings.sqlite").resolve().as_uri()
+                                 +"?mode=ro",uri=True) as c:
+                row=c.execute("""SELECT request_json,request_hash FROM backend_image_bindings
+                    WHERE project_id=? AND service_job_id=?""",(project,job["job_id"])).fetchone()
+            with sqlite3.connect((native_root/"image_attempts.sqlite").resolve().as_uri()
+                                 +"?mode=ro",uri=True) as c:
+                native=c.execute("""SELECT state,request_hash,provider_request_id,usage_json,result_json
+                    FROM provider_attempts WHERE project_id=? AND job_id=? AND attempt_id=?""",
+                    (project,owner["model_job_id"],owner["attempt_id"])).fetchone()
+            from src.image_generation.contracts import ExternalImageRequest,content_hash
+            if row is None or native is None:
+                raise ValueError
+            request=ExternalImageRequest.model_validate_json(row[0])
+            result=json.loads(native[4])
+            if (content_hash(request)!=row[1] or row[1]!=owner["request_sha256"]
+                or native[0]!="succeeded" or native[1]!=row[1]
+                or native[2]!=owner["provider_request_id"] or json.loads(native[3])!=owner["usage"]
+                or result["image"]["sha256"]!=image_sha or result["attempt_id"]!=owner["attempt_id"]
+                or result["model"]!=owner["model"]
+                or ("freeform" if request.text_rendering=="freeform-v1" else "composed")!=mode):
+                raise ValueError
+            if verify_prompt:
+                from src.image_generation.korean_image_policy import render_korean_image_policy
+                if hashlib.sha256(render_korean_image_policy(request).encode("utf-8")).hexdigest()!=owner["provider_prompt_sha256"]:
+                    raise ValueError
+        except (KeyError,TypeError,ValueError,sqlite3.Error):
+            raise LiveGateError("LIVE_DUAL_PROVIDER_RECEIPT_MISMATCH") from None
+
+    def live_dual_candidate_receipt(self,actor,job_id):
+        """Verify the persisted receipt without acquiring dispatch authority."""
+        job=self.state.get(actor,job_id)
+        parent_id=self.state.live_dual_membership(actor,job_id)
+        current=self.state.current_image_attempt(actor,job_id)
+        if not parent_id or current is None:
+            raise LiveGateError("LIVE_DUAL_PROVIDER_RECEIPT_REQUIRED")
+        try:
+            raw=(self.root/"outputs"/job_id/"owner_candidate_receipt.json").read_bytes()
+            binding=json.loads(raw)
+            if (hashlib.sha256(raw).hexdigest()!=current["candidate_receipt_sha"]
+                or binding["owner_receipt"]["attempt_id"]!=current["provider_attempt_id"]
+                or current["candidate_sha"]!=job["image_sha"]):
+                raise ValueError
+        except (OSError,KeyError,TypeError,ValueError):
+            raise LiveGateError("LIVE_DUAL_PROVIDER_RECEIPT_MISMATCH") from None
+        mode=json.loads(job["input_json"])["generation_mode"]
+        self._check_live_dual_candidate_receipt(job,parent_id,mode,binding,job["image_sha"])
+        return {**binding,"owner_candidate_receipt_sha":current["candidate_receipt_sha"]}
 
     def image_path(self,job_id):
         if not len(job_id)==32 or not all(x in "0123456789abcdef" for x in job_id):
@@ -575,6 +708,11 @@ class LivePipeline:
             except (OSError,ValueError):
                 raise LiveGateError("FINAL_ARTIFACT_INTEGRITY_FAILED") from None
         manifest=self.state.read_manifest(actor,job_id)
+        if self.state.live_dual_membership(actor,job_id):
+            binding=self.live_dual_candidate_receipt(actor,job_id)
+            if (not manifest or manifest["receipt"].get("owner_candidate_receipt_sha")
+                !=binding["owner_candidate_receipt_sha"]):
+                raise LiveGateError("LIVE_DUAL_PROVIDER_RECEIPT_MISMATCH")
         if manifest is not None:
             path=files/"receipt.json"
             try:
@@ -592,6 +730,7 @@ class LivePipeline:
         from .template_contract import canonical
         before=self.state.get(actor,job_id)
         dual=self.state.dual_membership(actor,job_id) is not None
+        live_dual=self.state.live_dual_membership(actor,job_id) is not None
         selected_mode=json.loads(before["input_json"]).get("generation_mode","composed")
         if selected_mode=="freeform" and layout is not None:
             raise LiveGateError("FREEFORM_MUST_NOT_COMPOSE_TEXT")
@@ -696,6 +835,12 @@ class LivePipeline:
                     if fixture_rendering!="QA_SYNTHETIC_KOREAN_FIXTURE":
                         raise LiveGateError("DUAL_FREEFORM_FIXTURE_PROVENANCE_REQUIRED")
                     receipt["fixture_rendering"]=fixture_rendering
+            if live_dual:
+                evidence=self.live_dual_candidate_receipt(actor,job_id)
+                receipt={**receipt,"provenance":"LIVE","generation_mode":selected_mode,
+                         "owner_candidate_receipt_sha":evidence["owner_candidate_receipt_sha"],
+                         "owner_attempt_id":evidence["owner_receipt"]["attempt_id"],
+                         "cost_attempt_id":evidence["cost_receipt"]["attempt_id"]}
             receipt_bytes=canonical(receipt).encode("utf-8")
             # All three are safely prepared; DB COMPLETED is only committed
             # AFTER files are fsync'ed and atomically moved into place.

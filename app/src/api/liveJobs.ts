@@ -1,5 +1,5 @@
 import { request } from './client'
-import { dualPath } from './dualArtifacts'
+import { dualPath, type DualProvenance } from './dualArtifacts'
 import type { Job } from '../types/draft'
 import type { ProductInput,AdCopyOutput } from '../types/textSchema'
 import type { Ratio } from '../config'
@@ -38,6 +38,9 @@ export function getTextCostEstimate(photoCount:number,revisionTarget?:'copy'|'im
   if(revisionTarget)q.set('revision_target',revisionTarget)
   return request<TextCostEstimate>(prefix+'/text-cost-estimate?'+q.toString())
 }
+export type LiveCapabilities = {live_enabled: boolean; live_dual_enabled?: boolean; live_dual_configured?: boolean; reason?: string; source_sha?: string}
+export const getLiveCapabilities = () => request<LiveCapabilities>(prefix+'/capabilities')
+
 const json=(v:unknown)=>({method:'POST',headers:{'Content-Type':'application/json'},
   body:JSON.stringify(v)})
 export const getLiveSnapshot=(id:string)=>request<LiveSnapshot>(url(id))
@@ -46,8 +49,8 @@ export async function getProductLiveJob(id:string):Promise<Job>{
   return asProductJob(snapshot,original)
 }
 // Owner #26: bind selected ratio at Live input, never submit it again on image queue.
-export function createLiveInput(b0:Job,product:ProductInput,imageSize:Ratio, generationMode:GenerationMode='composed',dual=false){
-  const input=(dual ? dualPath(b0.job_id) : url(b0.job_id))+'/input'
+export function createLiveInput(b0:Job,product:ProductInput,imageSize:Ratio, generationMode:GenerationMode='composed',dual: DualProvenance | false=false){
+  const input=(dual ? dualPath(b0.job_id,dual) : url(b0.job_id))+'/input'
   return request<LiveSnapshot>(input,
     json({customer_request_id:'product-live-'+b0.job_id,product,image_size:imageSize, generation_mode:dual?'composed':generationMode}))
 }

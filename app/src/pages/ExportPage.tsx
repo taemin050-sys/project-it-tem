@@ -11,7 +11,7 @@ import JobBadges from '../components/JobBadges'
 import DualModePage, { DualModeLoading } from '../components/DualModePage'
 import RunStatus from '../components/RunStatus'
 import StepPage from '../components/StepPage'
-import { CANVAS, DUAL_QA } from '../config'
+import { CANVAS } from '../config'
 import { download } from '../lib/download'
 import { useProjectStore } from '../store/projectStore'
 import type { Job } from '../types/draft'
@@ -25,7 +25,7 @@ export default function ExportPage() {
   const jobId = useProjectStore(s=>s.jobId)
   const snapshot = useLiveSnapshot()
   if (snapshot.data?.dual_requested) return <DualModePage snapshot={snapshot.data} stage="export" />
-  if (DUAL_QA && !mock && jobId && !snapshot.data)
+  if (!mock && jobId && !snapshot.data)
     return <DualModeLoading failed={snapshot.isError} retry={() => void snapshot.refetch()} />
   return <SingleExportPage live={snapshot.data} />
 }

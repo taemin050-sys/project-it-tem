@@ -86,6 +86,9 @@ export default function CopyPage() {
   const copyKey=mock?JSON.stringify(job?.copy_output??null):
     jobId && live?.copy_sha && live?.review_sha && Number.isSafeInteger(live?.generation)
       ? [jobId,live.generation,live.review_sha,live.copy_sha].join(':') : null
+  const [twoImagesAckKey,setTwoImagesAckKey]=useState<string|null>(null)
+  const liveDual=live?.dual_provenance==='LIVE_DUAL'
+  const twoImagesAck=!liveDual || Boolean(copyKey && twoImagesAckKey===copyKey)
   const [ackKey,setAckKey]=useState<string|null>(null)
   // Once a revision/restore is requested, a still-matching *old* pair
   // of React Query caches cannot expose the acknowledgement again.
@@ -164,7 +167,7 @@ export default function CopyPage() {
 
   function onApprove() {
     if(!mock){
-      if(!jobId || approvalInFlight.current || !canApprove || !evidenceAck || overs.length>0 || !liveReady)return
+      if(!jobId || approvalInFlight.current || !canApprove || !evidenceAck || !twoImagesAck || overs.length>0 || !liveReady)return
       approvalInFlight.current=true
       // Always read the current server review hash at the click boundary.
       // Stale React Query data cannot silently discard approval clicks.
@@ -173,7 +176,7 @@ export default function CopyPage() {
            current.generation!==live?.generation ||
            current.state!=='COPY_REVIEW_REQUIRED' || current.compliance?.passed!==true)
           throw Error('COPY_APPROVAL_SERVER_REVISION_CHANGED')
-        return approveCopyAndCreateImage(current,evidenceAck,()=>navigate('/create/draft'))
+        return approveCopyAndCreateImage(current,evidenceAck,()=>navigate('/create/draft'),twoImagesAck)
       }).catch(e=>useProjectStore.getState().setRun({
         error:e instanceof Error?e.message:'승인 상태 조회 실패. 재호출하지 마세요.'
       })).finally(()=>{approvalInFlight.current=false})
@@ -261,12 +264,17 @@ export default function CopyPage() {
           : (
             <div className="button-row">
               <button className="button secondary" disabled={!reviewing || busy || !liveReady || policyBlocked} onClick={openRevision}>수정 요청</button>
-              <button className="button" disabled={!canApprove || !evidenceAck || overs.length > 0 || busy || policyBlocked} onClick={onApprove}>
+              <button className="button" disabled={!canApprove || !evidenceAck || !twoImagesAck || overs.length > 0 || busy || policyBlocked} onClick={onApprove}>
                 {live?.dual_requested ? '이 카피로 두 시안 만들기' : '이 카피로 이미지 만들기'}
               </button>
             </div>
           )}
       actionsNote={<>
+        {liveDual && reviewing && <label className="consent-label">
+          <input type="checkbox" checked={twoImagesAck} disabled={!liveReady || busy}
+            onChange={event=>setTwoImagesAckKey(event.target.checked?copyKey:null)} />
+          <span>승인한 카피로 합성형과 자유형을 각 한 장씩 생성합니다. 이미지 모델 호출 기본 2건과 시안별 사용량 기록을 확인했습니다.</span>
+        </label>}
         {policyBlocked && <div className="notice notice-warning" role="alert">
           <strong>카피 검수 정책이 변경되었거나 정책 결속이 확인되지 않았습니다.</strong>
           <p>기존 승인·이미지 생성은 차단됩니다. 정책 재검수는 현재 원문 카피를 바꾸지 않고 새 검수 버전으로 시작하며, 이전 승인을 복구하지 않습니다.</p>

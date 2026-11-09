@@ -27,6 +27,8 @@ POLICY_KEYS = frozenset({
     "IT_TEM_TEXT_MODEL", "IT_TEM_VISION_MODEL", "IT_TEM_IMAGE_MODEL",
     "IT_TEM_IMAGE_QUALITY", "IT_TEM_IMAGE_COMPLEXITY",
 })
+DUAL_FLAG = "IT_TEM_BP18_LIVE_DUAL_ENABLED"
+OPTIONAL_POLICY_KEYS = frozenset({DUAL_FLAG})
 LIVE_FLAGS = (
     "IT_TEM_LIVE_ENABLED", "IT_TEM_LIVE_EXECUTION_APPROVED",
     "IT_TEM_LIVE_WEB_QUEUE_ENABLED", "IT_TEM_PROVIDER_READINESS_CONFIRMED",
@@ -80,11 +82,13 @@ def read_policy(root: Path) -> dict[str, str] | None:
         if not line.strip() or line.lstrip().startswith("#"):
             continue
         key, separator, value = line.partition("=")
-        if not separator or key not in POLICY_KEYS or key in policy:
+        if not separator or key not in POLICY_KEYS | OPTIONAL_POLICY_KEYS or key in policy:
             raise LaunchDenied("LIVE_POLICY_KEYS_INVALID")
         policy[key] = value
-    if set(policy) != POLICY_KEYS:
+    if not POLICY_KEYS.issubset(policy):
         raise LaunchDenied("LIVE_POLICY_FIELDS_REQUIRED")
+    if DUAL_FLAG in policy and policy[DUAL_FLAG] not in ("YES", "NO"):
+        raise LaunchDenied("LIVE_DUAL_POLICY_FLAG_INVALID")
     if not re.fullmatch(r"[a-f0-9]{40}", policy["IT_TEM_BP18_LIVE_RELEASE_SHA"]):
         raise LaunchDenied("LIVE_POLICY_RELEASE_INVALID")
     actors = policy["IT_TEM_LIVE_APPROVED_ACTORS"].split(",")
@@ -106,7 +110,7 @@ def read_policy(root: Path) -> dict[str, str] | None:
 
 def configure(root: Path, *, worker: bool) -> str | None:
     for name in list(os.environ):
-        if name.startswith("OPENAI_") or name in POLICY_KEYS:
+        if name.startswith("OPENAI_") or name in POLICY_KEYS | OPTIONAL_POLICY_KEYS:
             os.environ.pop(name)
     os.environ.update({name: "NO" for name in LIVE_FLAGS})
     os.environ.update({
@@ -118,6 +122,7 @@ def configure(root: Path, *, worker: bool) -> str | None:
         "PYTHON_DOTENV_DISABLED": "1",
         "IT_TEM_ENABLE_BILLABLE_TEXT_CALLS": "NO",
         "IT_TEM_BP18_F09_REQUIRED": "NO",
+        DUAL_FLAG: "NO",
         "IT_TEM_BP18_REVIEW_POLICY_ID": "bp18-f11-compliance-policy-v1",
     })
     sha = release_sha(root)
@@ -132,6 +137,9 @@ def configure(root: Path, *, worker: bool) -> str | None:
         raise LaunchDenied("LIVE_POLICY_REVIEW_CONTRACT_REQUIRED")
     if policy["IT_TEM_TEXT_MODEL"] != required_review["model"]:
         raise LaunchDenied("LIVE_POLICY_REVIEW_MODEL_MISMATCH")
+    if policy.get(DUAL_FLAG) == "YES":
+        from scripts.bp18_b5_release_prestart import required_dual_contract
+        required_dual_contract(root, sha, activating=True)
     if (os.environ.get("IT_TEM_TAILNET_AUTH_ENABLED") != "YES"
             or os.environ.get("IT_TEM_TAILNET_SSO_ONLY") != "YES"
             or os.environ.get("IT_TEM_TAILNET_EXPECTED_HOST") != HOST):
@@ -247,6 +255,7 @@ def main() -> int:
             os.environ["IT_TEM_LIVE_APPROVED_ACTORS"] = ""
             os.environ["IT_TEM_BP18_LIVE_POLICY_SHA"] = ""
             os.environ["IT_TEM_BP18_F09_REQUIRED"] = "NO"
+            os.environ[DUAL_FLAG] = "NO"
             os.environ["IT_TEM_BP18_REVIEW_POLICY_ID"] = "bp18-f11-compliance-policy-v1"
             os.environ["IT_TEM_ENABLE_BILLABLE_TEXT_CALLS"] = "NO"
             print("BP18_WEB_LIVE_POLICY_DISABLED", flush=True)

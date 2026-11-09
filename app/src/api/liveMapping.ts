@@ -25,6 +25,7 @@ export type LiveSnapshot={
   image_size?:'3:4'|'4:5'|'9:16'
   generation_mode?:'composed'|'freeform'
   dual_requested?:boolean
+  dual_provenance?:'LIVE_DUAL'
   image_attempt_version?:number
   output_size?:{width:number;height:number}
   product_protection_status?:'MANUAL_REVIEW_REQUIRED'|'NOT_REVIEWED'

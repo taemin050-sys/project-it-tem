@@ -7,13 +7,15 @@ from __future__ import annotations
 
 import os
 import json
+import sqlite3
 from pathlib import Path
 from contextlib import contextmanager
 from uuid import uuid5
 import fcntl
 
 from .pipeline import LivePipeline
-from .queue import LiveQueue
+from .queue import LIVE_DUAL_PROTOCOL, LiveQueue
+from . import dual_worker
 from .contracts import LiveGateError,digest
 from demo_staging.live_safety import LiveNotAuthorized
 from src.serving.job_store import JobStore
@@ -96,25 +98,43 @@ def run_once(root:Path)->str:
         queue=LiveQueue(root/"live"/"queue.sqlite")
         if _reconcile_locked(flow,queue):
             return "LIVE_STAGE_HELD_FOR_RECONCILIATION"
-        return _run_locked(root,flow,queue)
+        with dual_worker.live_dual_lease(root) as dual_profile:
+            return _run_locked(root,flow,queue,dual_profile=dual_profile)
 
 
 def _reconcile_locked(flow:LivePipeline,queue:LiveQueue)->bool:
     # The two ledgers are separate. Preserve ambiguous dispatch intent before
     # clearing RUNNING from the queue. A subsequent restart can finish either
     # update without resubmitting any provider request.
+    dual=dual_worker.reconcile_live_dual(flow,queue)
     provider=flow.cost.reconcile_crashed_dispatches()
     queued=queue.reconcile_restart()
-    return bool(provider or queued)
+    return bool(dual or provider or queued)
 
 
-def _run_locked(root:Path,flow:LivePipeline,queue:LiveQueue)->str:
-    item=queue.claim("LIVE")
+def _run_locked(root:Path,flow:LivePipeline,queue:LiveQueue,*,dual_profile=None)->str:
+    if queue.dual_billing_unknown():
+        return dual_worker.HOLD
+    if dual_profile is not None:
+        try:
+            dual_worker.project_intents(flow,queue)
+        except (LiveGateError,OSError,sqlite3.Error):
+            return "LIVE_DUAL_QUEUE_PROJECTION_PENDING"
+    item=queue.claim("LIVE",include_dual=dual_profile is not None)
     if not item:return "NO_LIVE_TASK"
     actor,jid=item["actor"],item["job_id"]
+    is_dual=item["mode"]==LIVE_DUAL_PROTOCOL
+    if is_dual and item["stage"] in dual_worker.POST_APPROVAL_STAGES:
+        return dual_worker.execute_live_dual(flow,queue,item,dual_profile,live_image_adapter)
     try:
         if actor not in flow.approved_actors:
             raise LiveGateError("LIVE_QUEUE_ACTOR_NOT_AUTHORIZED")
+        if is_dual:
+            if dual_worker.live_dual_profile()!=dual_profile:
+                raise LiveGateError("LIVE_DUAL_EXECUTION_PROFILE_CHANGED")
+            dual_worker.authorize_shared_text(flow,item)
+        elif flow.state.live_dual_membership(actor,jid):
+            raise LiveGateError("LIVE_DUAL_PROTOCOL_REQUIRED")
         job=flow.state.get(actor,jid)
         expected_mode="INPUT_ONLY" if item["stage"]=="analysis" else "LIVE"
         if job["mode"]!=expected_mode:
@@ -187,6 +207,10 @@ def _run_locked(root:Path,flow:LivePipeline,queue:LiveQueue)->str:
         queue.complete(item["id"],result_sha)
         return "LIVE_STAGE_COMMITTED"
     except BaseException as exc:
+        if is_dual:
+            if not isinstance(exc,Exception):
+                raise
+            return dual_worker.fail_live_dual(flow,queue,item,exc)
         code=exc.code if isinstance(exc,LiveGateError) else "WORKER_ATTEMPT_UNCERTAIN"
         queue.interrupt(item["id"],code)
         # No hidden retry, no provider traceback/secret in HTTP output.
@@ -201,17 +225,18 @@ def serve_loop(root:Path,interval:float=2.0,*,stop_requested=None):
         queue=LiveQueue(root/"live"/"queue.sqlite")
         if _reconcile_locked(flow,queue):
             return "LIVE_STAGE_HELD_FOR_RECONCILIATION"
-        while True:
-            if stop_requested is not None and stop_requested.is_set():
-                return "LIVE_WORKER_STOPPED"
-            status=_run_locked(root,flow,queue)
-            if status=="LIVE_STAGE_HELD_FOR_RECONCILIATION":
-                # A charged or ambiguous failure requires incident review.
-                return status
-            if stop_requested is None:
-                time.sleep(interval)
-            else:
-                stop_requested.wait(interval)
+        with dual_worker.live_dual_lease(root) as dual_profile:
+            while True:
+                if stop_requested is not None and stop_requested.is_set():
+                    return "LIVE_WORKER_STOPPED"
+                status=_run_locked(root,flow,queue,dual_profile=dual_profile)
+                if status=="LIVE_STAGE_HELD_FOR_RECONCILIATION":
+                    # A charged or ambiguous failure requires incident review.
+                    return status
+                if stop_requested is None:
+                    time.sleep(interval)
+                else:
+                    stop_requested.wait(interval)
 
 
 if __name__=="__main__":

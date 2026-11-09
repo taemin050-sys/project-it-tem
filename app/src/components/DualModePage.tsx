@@ -3,8 +3,9 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { dualArtifactPath, matchesDualImageSize, type DualArtifactKind } from '../api/dualArtifacts'
 import { canResumeDualJob, decideDualVariant, dualQueryKey, getDualJob, resumeDualJob, selectDualVariant,
-  type DualMode, type DualSnapshot, type DualVariant } from '../api/dualJobs'
+  snapshotDualProvenance, type DualMode, type DualSnapshot, type DualVariant, type DualCost } from '../api/dualJobs'
 import { getBlob, getJob } from '../api/jobs'
+import type { AdCopy } from '../types/textSchema'
 import type { LiveSnapshot } from '../api/liveMapping'
 import { queryClient } from '../api/queryClient'
 import { startNewAdLink } from '../api/useJob'
@@ -20,11 +21,11 @@ const MODES = ['composed', 'freeform'] as const
 const LABELS = {composed: '시안 A · 합성형 (Composed)', freeform: '시안 B · 자유형 (Freeform)'}
 const GROUP_STATUS: Record<DualSnapshot['state'], string> = {
   READY: '카피 승인 대기', GENERATING: '두 시안 준비 중', REVIEW_REQUIRED: '시안 검토 필요',
-  PARTIAL: '부분 완료', COMPLETED: '두 시안 완료', FAILED: '완성된 시안 없음',
+  HOLD: '안전 확인 보류', PARTIAL: '부분 완료', COMPLETED: '두 시안 완료', FAILED: '완성된 시안 없음',
 }
 const VARIANT_STATUS: Partial<Record<DualVariant['state'], string>> = {
   IMAGE_REVIEW_REQUIRED: '이미지 검토 필요', IMAGE_APPROVED: '이미지 승인됨 · 파일 준비 중',
-  IMAGE_REJECTED: '이미지 거절됨', COMPLETED: '완료 · QA 검토 기록 있음', FAILED: '시안 준비 실패',
+  HOLD: '생성 안전 확인 보류', IMAGE_REJECTED: '이미지 거절됨', COMPLETED: '완료 · 이미지 검수 기록 있음', FAILED: '시안 준비 실패',
 }
 
 function useVerifiedArtifact(path: string | undefined, sha: string | null | undefined, readText = false) {
@@ -45,22 +46,29 @@ function useVerifiedArtifact(path: string | undefined, sha: string | null | unde
   return {query, url}
 }
 
-function VariantCard({group, mode, stage, variant, canMutate}: {
-  group: DualSnapshot; mode: DualMode; stage: Stage; variant: DualVariant | null; canMutate: boolean
+function VariantCard({group, mode, stage, variant, canMutate, approvedCopy}: {
+  group: DualSnapshot; mode: DualMode; stage: Stage; variant: DualVariant | null; canMutate: boolean; approvedCopy: AdCopy | undefined
 }) {
+  const live=group.provenance==='LIVE_DUAL'
+  const [checks,setChecks]=useState({product_matches:false,label_matches:false,cta_policy_matches:false,no_extra_text:false})
+  const [observedCopy,setObservedCopy]=useState({headline:'',subline:'',cta:''})
+  const observedMatches=Boolean(approvedCopy && Object.keys(observedCopy).every(
+    field=>observedCopy[field as keyof AdCopy]===approvedCopy[field as keyof AdCopy]))
+  const liveReviewReady=checks.product_matches && checks.label_matches && checks.cta_policy_matches &&
+    (mode==='composed' || (checks.no_extra_text && observedMatches))
   const [checked, setChecked] = useState(false)
   const [loaded, setLoaded] = useState<{url: string; width: number; height: number}>()
   const [pending, setPending] = useState(false)
   const [error, setError] = useState('')
   const inFlight = useRef(false)
   const title = LABELS[mode]
-  const complete = variant?.state === 'COMPLETED' && variant.verification_state === 'FIXTURE_REVIEWED'
+  const complete = variant?.state === 'COMPLETED' && variant.verification_state === (live ? 'LIVE_REVIEWED' : 'FIXTURE_REVIEWED')
   const reviewing = stage === 'draft' && variant?.state === 'IMAGE_REVIEW_REQUIRED'
-  const composing = variant?.state === 'IMAGE_APPROVED' && variant.verification_state === 'FIXTURE_REVIEWED'
+  const composing = variant?.state === 'IMAGE_APPROVED' && variant.verification_state === (live ? 'LIVE_REVIEWED' : 'FIXTURE_REVIEWED')
   const selected = group.preferred_variant === mode
   const target = RATIOS[group.image_size]
   const artifact = (kind: DualArtifactKind, sha: string | null | undefined) =>
-    dualArtifactPath(group.job_id, mode, kind, variant?.artifacts[kind], sha)
+    dualArtifactPath(group.job_id, mode, kind, variant?.artifacts[kind], sha, group.provenance)
   const imageKind = complete ? 'final' : 'candidate'
   const imageSha = complete ? variant.final_sha : reviewing ? variant.candidate_sha : undefined
   const image = useVerifiedArtifact(artifact(imageKind, imageSha), imageSha)
@@ -82,16 +90,19 @@ function VariantCard({group, mode, stage, variant, canMutate}: {
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : '시안 상태를 저장하지 못했습니다.')
     } finally {
-      await queryClient.invalidateQueries({queryKey: dualQueryKey(group.job_id)})
+      await queryClient.invalidateQueries({queryKey: dualQueryKey(group.job_id,group.provenance)})
       inFlight.current = false
       setPending(false)
     }
   }
 
   function decide(approve: boolean) {
-    if (!reviewing || !variant.candidate_sha || !candidateReady || (approve && !checked)) return
+    if (!reviewing || !variant.candidate_sha || !candidateReady || (approve && !(live?liveReviewReady:checked))) return
     const sha = variant.candidate_sha
-    void change(() => decideDualVariant(group.job_id, mode, sha, approve, approve && checked))
+    void change(() => decideDualVariant(group, mode, sha, approve,
+      live && approve ? {product_matches:checks.product_matches,label_matches:checks.label_matches,
+        cta_policy_matches:checks.cta_policy_matches,
+        ...(mode==='freeform'?{observed_copy:observedCopy,no_extra_text:checks.no_extra_text}:{})} : undefined))
   }
 
   const stem = `ad_${mode}_${target.width}x${target.height}`
@@ -118,20 +129,41 @@ function VariantCard({group, mode, stage, variant, canMutate}: {
       </figure> : <ArtifactStatus artifact={image} name="이미지" />}
     </>}
     {reviewing && <>
-      <label className="consent-label">
+      {live ? <fieldset className="stack">
+        <legend>원본과 후보의 시각 검수</legend>
+        {([
+          ['product_matches','용기 형태·색상·제품과 브랜드가 원본과 일치합니다.'],
+          ['label_matches','로고·라벨과 작은 표식의 문자를 확대해 원본과 대조했습니다. 판독 불가 항목이 없습니다.'],
+          ['cta_policy_matches',mode==='composed' ? '승인 CTA의 합성 위치가 제품을 가리지 않는지 확인했습니다.' : '승인 CTA가 이미지에 정확히 한 번 보이며 제품을 가리지 않습니다.'],
+          ...(mode==='freeform' ? [['no_extra_text','승인 외 문구·효능·가격·배지가 추가되지 않았고, 오탈자·누락·중복이 없습니다.']] : []),
+        ] as Array<[keyof typeof checks,string]>).map(([field,label])=><label className="consent-label" key={field}>
+          <input type="checkbox" checked={checks[field]} disabled={!canMutate || !candidateReady || pending}
+            onChange={event=>setChecks(previous=>({...previous,[field]:event.target.checked}))} />
+          <span>{label}</span>
+        </label>)}
+        {mode==='freeform' && <div className="stack">
+          <p className="field-hint">후보 이미지에서 직접 읽은 문구를 입력해 승인 원문과 대조하세요.</p>
+          {([['headline','헤드라인'],['subline','서브 문구'],['cta','CTA']] as const).map(([field,label])=><label key={field}>
+            {label}<textarea rows={field==='subline'?2:1} value={observedCopy[field]} disabled={!canMutate || !candidateReady || pending}
+              onChange={event=>setObservedCopy(previous=>({...previous,[field]:event.target.value}))}
+              autoComplete="off" spellCheck={false} />
+          </label>)}
+          {!observedMatches && <p className="field-hint">입력한 세 문구가 승인 원문과 정확히 일치해야 승인할 수 있습니다.</p>}
+        </div>}
+      </fieldset> : <label className="consent-label">
         <input type="checkbox" checked={checked} disabled={!canMutate || !candidateReady || pending}
           onChange={event => setChecked(event.target.checked)} />
         <span>{mode === 'composed'
           ? '원본 사진을 기준으로 용기, 브랜드, 라벨의 검토 항목을 확인했습니다.'
           : '원본 제품과 라벨, 승인 문구의 오탈자·누락·중복 검토 항목을 확인했습니다.'}</span>
-      </label>
+      </label>}
       <div className="button-row">
         <button className="button secondary" type="button" disabled={!canMutate || !candidateReady || pending} onClick={() => decide(false)}>이 시안 거절</button>
-        <button className="button" type="button" disabled={!canMutate || !candidateReady || pending || !checked} onClick={() => decide(true)}>이 시안 승인</button>
+        <button className="button" type="button" disabled={!canMutate || !candidateReady || pending || !(live?liveReviewReady:checked)} onClick={() => decide(true)}>이 시안 승인</button>
       </div>
     </>}
     {composing && variant.candidate_sha && <button className="button secondary" type="button" disabled={!canMutate || pending}
-      onClick={() => void change(() => decideDualVariant(group.job_id, mode, variant.candidate_sha!, true, true))}>
+      onClick={() => void change(() => decideDualVariant(group, mode, variant.candidate_sha!, true))}>
       승인된 이미지로 파일 준비 다시 시도
     </button>}
     {complete && <>
@@ -151,7 +183,7 @@ function VariantCard({group, mode, stage, variant, canMutate}: {
       </details>
       <button className="button secondary" type="button" aria-pressed={selected}
         disabled={!canMutate || pending || selected || !sizeOk || !caption.url || !receipt.url || !variant.final_sha}
-        onClick={() => void change(() => selectDualVariant(group.job_id, mode, variant.final_sha!))}>
+        onClick={() => void change(() => selectDualVariant(group, mode, variant.final_sha!))}>
         {selected ? '선택한 시안' : '이 시안 선택'}
       </button>
       <details className="dual-provenance">
@@ -167,10 +199,17 @@ function VariantCard({group, mode, stage, variant, canMutate}: {
           <dt>Caption SHA-256</dt><dd>{variant.caption_sha}</dd>
           <dt>Receipt SHA-256</dt><dd>{variant.receipt_sha}</dd>
           <dt>검수 범위</dt><dd>{variant.verification_state}</dd>
+          {variant.provider_evidence && <>
+            <dt>공통 기획 Prompt SHA-256</dt><dd>{variant.provider_evidence.shared_prompt_sha}</dd>
+            <dt>모드별 Provider Prompt SHA-256</dt><dd>{variant.provider_evidence.provider_prompt_sha}</dd>
+            <dt>모드별 Provider 요청 SHA-256</dt><dd>{variant.provider_evidence.provider_request_sha}</dd>
+            <dt>Owner Attempt ID</dt><dd>{variant.provider_evidence.owner_attempt_id}</dd>
+            <dt>비용 원장 Attempt ID</dt><dd>{variant.provider_evidence.cost_attempt_id}</dd>
+          </>}
         </dl>
       </details>
     </>}
-    {variant && <p className="field-hint">Provider 시도 {variant.cost.provider_attempt_count}건 · 실제 청구액 대사 대상 없음</p>}
+    {variant && <CostDetails cost={variant.cost} live={live} />}
     {pending && <p className="muted" role="status">시안 상태 저장 중…</p>}
     {error && <p className="field-error" role="alert">{error}</p>}
   </article>
@@ -201,16 +240,18 @@ export default function DualModePage({snapshot, stage}: {snapshot: LiveSnapshot;
   const [resuming, setResuming] = useState(false)
   const [resumeError, setResumeError] = useState('')
   const resumeInFlight = useRef(false)
-  const enabled = DUAL_QA && snapshot.mode === 'OFFLINE_FIXTURE'
+  const provenance=snapshotDualProvenance(snapshot)
+  const live=provenance==='LIVE_DUAL'
+  const enabled = live ? snapshot.mode==='LIVE' : DUAL_QA && snapshot.mode === 'OFFLINE_FIXTURE'
   const groupQuery = useQuery({
-    queryKey: dualQueryKey(jobId), queryFn: () => getDualJob(jobId), enabled, retry: false,
+    queryKey: dualQueryKey(jobId,provenance), queryFn: () => getDualJob(jobId,provenance), enabled, retry: false,
     refetchInterval: query => ['COMPLETED', 'FAILED'].includes(query.state.data?.state ?? '') ? false : 1800,
   })
   const originals = useQuery({
     queryKey: ['dual-originals', jobId], queryFn: () => getJob(jobId), enabled: enabled && stage === 'draft',
     staleTime: Infinity, retry: false,
   })
-  const group = groupQuery.data?.job_id === jobId && groupQuery.data.provenance === 'OFFLINE_FIXTURE' ? groupQuery.data : undefined
+  const group = groupQuery.data?.job_id === jobId && groupQuery.data.provenance === provenance ? groupQuery.data : undefined
   const complete = group?.state === 'COMPLETED'
   const canExport = group && MODES.some(mode => group.variants[mode]?.state === 'COMPLETED')
   const products = originals.data?.assets?.filter(asset => asset.role === 'product') ?? []
@@ -243,7 +284,7 @@ export default function DualModePage({snapshot, stage}: {snapshot: LiveSnapshot;
     actions={stage === 'draft'
       ? canExport && <Link className="button" to="/create/export">최종 시안 보기</Link>
       : complete && <Link className="button secondary" to="/create/product" onClick={startNewAdLink}>새 광고 만들기</Link>}>
-    {!enabled ? <p role="alert">이 두 시안 작업은 지정된 QA 환경에서만 열 수 있습니다.</p> : <>
+    {!enabled ? <p role="alert">이 두 시안 작업의 실행 환경을 확인해야 합니다.</p> : <>
       {groupQuery.isError && <div className="notice notice-danger" role="alert">
         <p>두 시안의 최신 상태를 확인하지 못했습니다.</p>
         <button className="button secondary small" type="button" disabled={groupQuery.isFetching}
@@ -255,6 +296,15 @@ export default function DualModePage({snapshot, stage}: {snapshot: LiveSnapshot;
           <strong>{GROUP_STATUS[group.state]}</strong> · {group.image_size}
           {group.state === 'PARTIAL' && ' · 완성된 시안은 계속 사용할 수 있습니다.'}
         </p>
+        {group.hold_code && <div className="notice notice-warning" role="alert">
+          <p>실행 결과 또는 과금 상태를 확인하고 있습니다. 기존에 완료된 시안은 계속 저장할 수 있습니다.</p>
+          <small>{group.hold_code}</small>
+        </div>}
+        {live && group.shared_text_cost && <section className="panel">
+          <h2 className="panel-title">공통 텍스트 사용량</h2>
+          <p className="field-hint">두 이미지 시안의 사용량과 별도로 한 번만 집계됩니다.</p>
+          <CostDetails cost={group.shared_text_cost} live />
+        </section>}
         {canResume && <button className="button secondary" type="button" disabled={resuming} onClick={() => void resume()}>
           {resuming ? '시안 준비 중…' : '승인된 카피로 시안 준비 이어가기'}
         </button>}
@@ -270,20 +320,39 @@ export default function DualModePage({snapshot, stage}: {snapshot: LiveSnapshot;
             {products.map((asset, index) => <AssetThumb key={asset.asset_id} jobId={jobId} asset={asset} index={index} openFull />)}
           </ul>}
           {originals.isError && <button className="button secondary small" type="button" onClick={() => void originals.refetch()}>원본 사진 다시 확인</button>}
-          <p className="field-hint">시험 이미지의 용기와 라벨은 예시입니다. 한글 가독성, 제품 충실도, 광고 매력도, 브랜드 적합성, CTA를 같은 기준으로 살펴보세요.</p>
+          <p className="field-hint">{live ? '원본 사진과 승인 카피를 두 시안에 각각 대조하세요. 확인하기 어려운 라벨이나 글자는 승인 전에 보완해야 합니다.' : '시험 이미지의 용기와 라벨은 예시입니다. 한글 가독성, 제품 충실도, 광고 매력도, 브랜드 적합성, CTA를 같은 기준으로 살펴보세요.'}</p>
         </section>}
         <div className="dual-grid">
           {MODES.map(mode => {
             const variant = group.variants[mode]
             return <VariantCard key={`${mode}:${variant?.candidate_sha}:${variant?.state}`}
-              group={group} mode={mode} stage={stage} variant={variant}
+              group={group} approvedCopy={copy} mode={mode} stage={stage} variant={variant}
               canMutate={!groupQuery.isError && (variant?.state !== 'IMAGE_REVIEW_REQUIRED' || Boolean(copy && products.length >= 2))} />
           })}
         </div>
         {stage === 'export' && canExport && <p className="field-hint">
-          선호 시안은 이 QA 작업에 기록됩니다. Owner·PM의 실제 광고 평가는 한글 가독성, 제품 충실도, 광고 매력도, 브랜드 적합성과 CTA를 기준으로 별도로 기록합니다.
+          선호 시안은 이 작업에 기록됩니다. Owner·PM의 실제 광고 평가는 한글 가독성, 제품 충실도, 광고 매력도, 브랜드 적합성과 CTA를 기준으로 별도로 기록합니다.
         </p>}
       </>}
     </>}
   </StepPage>
+}
+
+function CostDetails({cost,live}: {cost:DualCost;live:boolean}) {
+  return <div className="field-hint">
+    <p>Provider 시도 {cost.provider_attempt_count}건 · {live ? (
+      cost.status==='BILLING_UNKNOWN' ? '과금 상태 확인 필요 · 자동 재호출 차단' :
+      cost.status==='NOT_DISPATCHED' ? '전송 전' :
+      cost.status==='AWAITING_RECEIPT' ? '응답 사용량 확인 중' :
+      '실제 청구액 UNPRICED'
+    ) : '실제 청구액 대사 대상 없음'}</p>
+    {live && cost.attempts && cost.attempts.length>0 && <details>
+      <summary>모델 사용량과 Attempt</summary>
+      {cost.attempts.map(attempt=><p key={attempt.attempt_id}>
+        {attempt.stage} · {attempt.model || '모델 응답 대기'} · {attempt.state}
+        {attempt.usage?.total_tokens!==undefined && <> · {attempt.usage.total_tokens} tokens</>}
+        <br /><small>{attempt.attempt_id}</small>
+      </p>)}
+    </details>}
+  </div>
 }
