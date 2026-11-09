@@ -114,19 +114,28 @@ def strict_review(copy: dict, product: dict, analysis: dict) -> dict:
         if key not in existing:
             issues.append(issue)
             existing.add(key)
-    # Owner v0.10's field contract is type-specific, while its current
-    # rule_checker still branches solely on is_functional. Protect against
-    # unselected functional claims without changing any Owner source file.
-    # If the function-category reason cannot identify an approved type, fail
-    # closed rather than silently treating a non-selected claim as supported.
+    # Owner #27/v0.11 already evaluates specific functional types, but its
+    # explanation no longer contains the old "기능성(<type>)" marker.
+    # Re-evaluate the EXACT matched expression against the Owner rule
+    # taxonomy, never infer the type from the free-form explanation alone.
+    # Unknown or multi-category matches fail closed unless ALL types were
+    # selected; the legacy reason marker remains a compatibility fallback.
     selected=set(owner_product.functional_types)
     if selected:
         import re
+        from src.text_generation.compliance.rule_checker import load_rules
+        functional=load_rules().functional
         upgraded=[]
         for issue in issues:
             if issue.category=="기능성 오인" and issue.risk_level!="위반 의심":
-                m=re.search(r"기능성\(([^)]+)\)",issue.reason)
-                if m is None or m.group(1) not in selected:
+                types_for_claim={
+                    r["functional_type"] for r in functional
+                    if any(pattern.fullmatch(issue.text) for pattern in r["compiled"])
+                }
+                legacy=re.search(r"기능성\(([^)]+)\)",issue.reason)
+                if legacy:
+                    types_for_claim.add(legacy.group(1))
+                if not types_for_claim or not types_for_claim.issubset(selected):
                     issue=issue.model_copy(update={
                         "risk_level":"위반 의심",
                         "reason":"선택한 기능성 종류가 아닌 효능 표현입니다. "+

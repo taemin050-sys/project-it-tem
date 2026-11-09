@@ -20,7 +20,7 @@ from PIL import Image
 
 from src.text_generation.schemas import (
     ProductInput, ProductAnalysisResult, ResearchResult, AdCopyOutput,
-    ImagePromptOutput, AdPlan, CopyRevisionOutput
+    ImagePromptOutput, AdPlan, CopyRevisionOutput, ComplianceIssue, ComplianceReport
 )
 from src.serving.job_store import JobStore
 from demo_staging.live_safety import AttemptLedger,LiveNotAuthorized
@@ -34,7 +34,8 @@ class TextProvider(Protocol):
     def research(self, product: ProductInput, analysis): ...
     def generate_copy(self, product: ProductInput, analysis, research): ...
     def generate_prompt(self, plan, analysis): ...
-    def revise_copy(self,product,analysis,research,previous,instruction): ...
+    def revise_copy(self,product,analysis,research,previous,instruction,
+                    *,issues:list[ComplianceIssue]|None=None): ...
 
 
 class OfficialTextProvider:
@@ -58,10 +59,11 @@ class OfficialTextProvider:
         from src.text_generation.image_prompt_generator import generate_image_prompt
         return generate_image_prompt(plan,analysis,model=self.text_model)
 
-    def revise_copy(self,product,analysis,research,previous,instruction):
+    def revise_copy(self,product,analysis,research,previous,instruction,
+                    *,issues:list[ComplianceIssue]|None=None):
         from src.text_generation.copy_generator import revise_copy
         return revise_copy(product,analysis,research,previous,instruction,
-                           model=self.text_model)
+                           issues=issues,model=self.text_model)
 
 
 def atomic_write(path:Path,data:bytes):
@@ -275,6 +277,18 @@ class LivePipeline:
             actor,job_id,instruction,expected_generation,expected_review_sha,
             text_model=text_model)
         job=self.state.get(actor,job_id)
+        # Owner #27 issues must come from the CURRENT, SHA-verified review,
+        # not an untrusted browser DTO or old pre-revision review. Recheck
+        # after the context read to prevent a stale actor/job tuple being
+        # used for the paid one-shot revision.
+        report_payload=json.loads(job["compliance_json"])
+        if (job["generation"]!=context["generation"] or
+            job["review_sha"]!=context["review_sha"] or
+            job["copy_sha"]!=context["copy_sha"] or
+            digest(report_payload)!=context["compliance_report_sha"]):
+            raise LiveGateError("REVISION_REVIEW_CONTEXT_INTEGRITY_FAILED")
+        review_issues=ComplianceReport.model_validate(
+            report_payload,strict=True).issues
         if bool(offline)!=(job["mode"]=="OFFLINE_FIXTURE"):
             raise LiveGateError("COPY_REVISION_PROVENANCE_MISMATCH")
         if offline:
@@ -300,8 +314,16 @@ class LivePipeline:
         result=self.checkpoints.load(actor,job_id,"copy_revision",
                                      fingerprint,mode,CopyRevisionOutput)
         if result is None:
-            action=lambda:provider.revise_copy(
-                product,analysis.analysis,research,previous,instruction)
+            # Existing FakeOwners keep the 5-argument fixture interface.
+            # LIVE always constructs OfficialTextProvider, whose Owner #27
+            # signature explicitly accepts the structured ComplianceIssues.
+            if offline:
+                action=lambda:provider.revise_copy(
+                    product,analysis.analysis,research,previous,instruction)
+            else:
+                action=lambda:provider.revise_copy(
+                    product,analysis.analysis,research,previous,instruction,
+                    issues=review_issues)
             proposed=(action() if offline else
                 self._guarded(actor,job_id,"copy_revision",context,action))
             result=self.checkpoints.commit(

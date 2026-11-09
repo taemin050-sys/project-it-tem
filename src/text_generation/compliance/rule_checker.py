@@ -23,7 +23,9 @@ class _Rule:
     risk: str
     suggestion: str | None
     basis: str
+    basis_url: str | None
     reason: str
+    except_with: list[str]
 
 
 @dataclass
@@ -39,9 +41,22 @@ def _compile(patterns: list[str]) -> list[re.Pattern]:
     return [re.compile(p, re.IGNORECASE) for p in patterns]
 
 
+def _source_url(sources: dict, rule: dict) -> str | None:
+    """규칙의 source 이름 → 출처 URL (source가 null이면 None)"""
+    name = rule.get("source")
+    if name is None:
+        return None
+    if name not in sources:
+        raise ValueError(
+            f"rules.yaml : {rule.get('id', 'color_exceptions')}의 source '{name}'가 sources에 없음"
+        )
+    return sources[name]["url"]
+
+
 @lru_cache(maxsize=1)
 def load_rules() -> _Rules:
     data = yaml.safe_load(RULES_PATH.read_text(encoding="utf-8"))
+    sources = data["sources"]
     general = [
         _Rule(
             id=r["id"],
@@ -50,12 +65,18 @@ def load_rules() -> _Rules:
             risk=r["risk"],
             suggestion=r.get("suggestion"),
             basis=r["basis"],
-            reason=f"{r['category']} 우려 표현",
+            basis_url=_source_url(sources, r),
+            reason=r["reason"],
+            except_with=r.get("except_with", []),
         )
         for r in data["rules"]
     ]
-    functional = [{**r, "compiled": _compile(r["patterns"])} for r in data["functional_rules"]]
+    functional = [
+        {**r, "compiled": _compile(r["patterns"]), "basis_url": _source_url(sources, r)}
+        for r in data["functional_rules"]
+    ]
     color = data["color_exceptions"]
+    color = {**color, "basis_url": _source_url(sources, color)}
     return _Rules(
         general=general,
         functional=functional,
@@ -65,13 +86,27 @@ def load_rules() -> _Rules:
     )
 
 
-def _functional_rule(rule: dict, is_functional: bool) -> _Rule:
-    if is_functional:
+def _functional_rule(rule: dict, product: ProductInput) -> _Rule:
+    """기능성 규칙의 위험도 결정
+
+    - 일반 화장품 : 위반 의심
+    - 기능성 + 종류 미입력 : 근거 확인 필요 (종류를 모르므로 모두 허용 범위로 봄)
+    - 기능성 + 종류 입력 : 고른 종류는 근거 확인 필요, 고르지 않은 종류는 위반 의심
+    """
+    ftype = rule["functional_type"]
+    types = product.functional_types
+    if not product.is_functional:
+        risk = rule["not_functional_risk"]
+        reason = f"일반 화장품은 {ftype} 효능을 광고할 수 없습니다. 기능성 심사(보고)를 받은 제품만 사용할 수 있습니다."
+    elif not types or ftype in types:
         risk = rule["functional_risk"]
-        reason = f"기능성({rule['functional_type']}) 표현 : 심사(보고)받은 효능 범위인지 근거 확인 필요"
+        reason = f"심사(보고)받은 {ftype} 효능 범위 안에서만 사용할 수 있습니다."
     else:
         risk = rule["not_functional_risk"]
-        reason = f"일반 화장품에 기능성({rule['functional_type']}) 효능 표현 사용"
+        reason = (
+            f"이 제품이 심사(보고)받은 기능성({', '.join(types)})이 아니므로 "
+            f"{ftype} 효능을 광고할 수 없습니다."
+        )
     return _Rule(
         id=rule["id"],
         patterns=rule["compiled"],
@@ -79,7 +114,9 @@ def _functional_rule(rule: dict, is_functional: bool) -> _Rule:
         risk=risk,
         suggestion=rule.get("suggestion"),
         basis=rule["basis"],
+        basis_url=rule["basis_url"],
         reason=reason,
+        except_with=rule.get("except_with", []),
     )
 
 
@@ -122,13 +159,19 @@ def check_text(
     """문구 하나 검수 (start, end는 이 문구 안에서의 위치, end 미포함)"""
     rules = load_rules()
     protected = _protected_spans(text, product)
-    candidates = rules.general + [_functional_rule(r, product.is_functional) for r in rules.functional]
+    candidates = rules.general + [
+        _functional_rule(r, product) for r in rules.functional
+    ]
 
     issues: list[ComplianceIssue] = []
     for rule in candidates:
         for pattern in rule.patterns:
             for m in pattern.finditer(text):
                 if m.end() == m.start() or _inside(m.start(), m.end(), protected):
+                    continue
+                if rule.except_with and all(
+                    w in _sentence(text, m.start(), m.end()) for w in rule.except_with
+                ):
                     continue
                 issues.append(
                     ComplianceIssue(
@@ -141,6 +184,7 @@ def check_text(
                         reason=rule.reason,
                         suggestion=rule.suggestion,
                         basis=rule.basis,
+                        basis_url=rule.basis_url,
                         detected_by="rule",
                     )
                 )
@@ -151,7 +195,9 @@ def check_text(
             if _inside(m.start(), m.end(), protected):
                 continue
             sentence = _sentence(text, m.start(), m.end())
-            if analysis.product_type == "색조" and any(w in sentence for w in rules.color_allow):
+            if analysis.product_type == "색조" and any(
+                w in sentence for w in rules.color_allow
+            ):
                 continue
             issues.append(
                 ComplianceIssue(
@@ -161,9 +207,10 @@ def check_text(
                     end=m.end(),
                     category=color["category"],
                     risk_level=color["risk"],
-                    reason="의약품 오인 우려 표현 (색조 제품의 '가려준다·연출한다·채워준다'만 가능)",
+                    reason=color["reason"],
                     suggestion=None,
                     basis=color["basis"],
+                    basis_url=color["basis_url"],
                     detected_by="rule",
                 )
             )

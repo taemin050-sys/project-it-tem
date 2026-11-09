@@ -1,0 +1,30 @@
+{"id": 1, "text": "모낭충 걱정 없는 두피 샴푸", "expected": "위반 의심", "source": "지침 p.9"}
+{"id": 2, "text": "통증 완화에 좋은 쿨링 젤", "expected": "위반 의심", "source": "지침 p.9"}
+{"id": 3, "text": "상처 회복을 돕는 밤", "expected": "위반 의심", "source": "지침 p.10"}
+{"id": 4, "text": "속눈썹이 길게 자라는 영양제", "expected": "위반 의심", "source": "지침 p.10"}
+{"id": 5, "text": "의사가 개발한 안티트러블 라인", "expected": "위반 의심", "source": "지침 p.13"}
+{"id": 6, "text": "약국 전용 보습제", "expected": "위반 의심", "source": "지침 p.13"}
+{"id": 7, "text": "레이저 시술처럼 매끈하게", "expected": "위반 의심", "source": "지침 p.13"}
+{"id": 8, "text": "먹을 수 있을 만큼 순한 립밤", "expected": "위반 의심", "source": "지침 p.13"}
+{"id": 9, "text": "이너케어 전용 젤", "expected": "위반 의심", "source": "지침 p.14"}
+{"id": 10, "text": "No.1 선케어 브랜드", "expected": "위반 의심", "source": "별표5 2.바"}
+{"id": 11, "text": "근육 이완을 돕는 마사지 오일", "expected": "위반 의심", "source": "지침 p.9"}
+{"id": 12, "text": "하루 종일 무너짐 없는 쿠션", "expected": "근거 확인 필요", "source": "별표2 p.16", "product_type": "색조"}
+{"id": 13, "text": "임상으로 확인한 보습력", "expected": "근거 확인 필요", "source": "별표2 p.16"}
+{"id": 14, "text": "피지 조절에 도움을 주는 토너", "expected": "근거 확인 필요", "source": "별표2 p.15"}
+{"id": 15, "text": "유기농 원료로 만든 오일", "expected": "근거 확인 필요", "source": "별표1 p.14"}
+{"id": 16, "text": "탄력 개선 크림", "expected": "근거 확인 필요", "source": "별표2 p.15"}
+{"id": 17, "text": "가을 피부를 위한 촉촉한 보습 루틴", "expected": "정상", "source": "-"}
+{"id": 18, "text": "부드럽게 녹아드는 밤 제형", "expected": "정상", "source": "-"}
+{"id": 19, "text": "세안 후 물기가 남았을 때 바르세요", "expected": "정상", "source": "-"}
+{"id": 20, "text": "상쾌한 민트 향 바디워시", "expected": "정상", "source": "-"}
+{"id": 21, "text": "땀이 많은 여름에도 산뜻한 사용감", "expected": "정상", "source": "-"}
+{"id": 22, "text": "피로한 하루 끝, 향으로 기분 전환", "expected": "정상", "source": "-"}
+{"id": 23, "text": "림프 마사지하듯 부드럽게 쓸어 올려요", "expected": "위반 의심", "source": "지침 p.9 (림프)"}
+{"id": 24, "text": "관절 부위까지 꼼꼼히 발라 주세요", "expected": "정상", "source": "사용 부위 안내"}
+{"id": 25, "text": "최상의 컨디션으로 하루를 시작해요", "expected": "위반 의심", "source": "별표5 2.바"}
+{"id": 26, "text": "순한 성분이라 진정되는 느낌", "expected": "근거 확인 필요", "source": "뉴스레터 34호"}
+{"id": 27, "text": "진정으로 아끼는 사람에게 선물하세요", "expected": "정상", "source": "진정으로"}
+{"id": 28, "text": "빛나는 피부 결을 위한 하이라이터", "expected": "정상", "source": "색조", "product_type": "색조"}
+{"id": 29, "text": "화상 입은 듯 붉어진 피부에", "expected": "위반 의심", "source": "지침 p.9 (화상)"}
+{"id": 30, "text": "무향료 바디로션", "expected": "근거 확인 필요", "source": "별표2 p.16"}

@@ -1,6 +1,6 @@
 """Official Text Owner DTO and PR#10 Image offline bridge integration.
 
-This test was introduced with v0.8. It is re-pinned to Owner PR25 v0.10,
+This test was introduced with v0.8. It is re-pinned to merged Owner PR #27 v0.11,
 while all original fail-closed contract cases remain enforced.
 
 On dev alone, these integrations SKIP (never count as integrated PASS).
@@ -39,7 +39,8 @@ from src.serving.text_v08_mapper import (
 
 # Original v0.8 historical schema hash (not the current Owner source).
 LEGACY_V08_SCHEMA_SHA256 = "051aab8b02d461b4d8787053e6af6dfc1267acbd48fd0304ff0f4f090bac18f7"
-OWNER_SCHEMA_SHA256 = "93849c85a1bd155136f69a71ce22aa9371e7b48cfd5b432ce07a0617e1560235"
+# Official merged Text Owner #27 (33c46b76), source blob 19fdbe5a641d...
+OWNER_SCHEMA_SHA256 = "8ee6f48a8df0ad8d7c0ecd0ec9123cb12ce6752fccc524578c23827edd3c191b"
 FIX = Path(__file__).resolve().parents[1] / "docs/contracts/fixtures"
 
 
