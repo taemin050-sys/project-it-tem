@@ -77,7 +77,7 @@ Unpriced usage, declined/unknown attempts, delayed external billing and shared t
 
 ## 7. Validation evidence and remaining classifications
 
-- A3-1 BP17: **23/23 PASS**, 30 real 2-process races PASS on Mac Python 3.12; `996/996` Python PASS after isolated-spawn correction. Linux offline cached Python 3.13 container with `--network none` tested **30/30** atomic `renameat2(RENAME_NOREPLACE)` two-process races; **not** the full Pillow/SQLite application nor GCP Linux 3.12.
+- A3-1 BP17: **24/24 PASS** after `spawn` and `forkserver` parametrization, original `spawn` two-process race repeated **30/30 PASS**, subsequent 20 iterations × 2 methods = **40/40 PASS** on Mac Python 3.12; full Python **1010/1010 PASS**. Linux offline cached Python 3.13 container with `--network none` tested **30/30** atomic `renameat2(RENAME_NOREPLACE)` two-process races; **not** the full Pillow/SQLite application nor GCP Linux 3.12.
 - A3-2/A3-3: `scripts/a3_track_a_guarded_readiness.py` + `tests/demo_live/test_a3_guarded_readiness.py` **13/13 PASS**, checks source/dependency hashes and four independent issue classes including missing/corrupt ledger and no paid unlock. GCP current read-only check: **NOT_AUDITED** because `gcloud` requires reauthentication; C-A2 18:29 historical evidence is only a prior observation.
 - A2.1–A2.4 accepted source unchanged. Re-run all relevant regressions if A3 impacts tests or code.
 - Evidence levels: `CODE_IMPL`, `LOCAL_TEST_PASS`, `LINUX_PRIMITIVE_ONLY`, `CURRENT_GCP_NOT_AUDITED`, `SIGNED_SSO_NOT_AUDITED`, `REAL_PROVIDER_E2E_NOT_AUDITED`, `INVOICE_NOT_AUDITED`. Release Master F01–F20/V01–V08/S01–S10 is **not** declared accepted.
