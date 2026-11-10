@@ -11,20 +11,20 @@ export default function JobBadges({ job }: { job: Job }) {
   const mock = useProjectStore((s) => s.mock)
   const badges: Badge[] = []
   badges.push(mock || isMockJob(job)
-    ? { label: '생성', value: 'Mock · 실제 AI 아님', tone: 'warning' }
+    ? { label: '생성', value: 'Mock, 실제 AI 아님', tone: 'warning' }
     : { label: '생성', value: 'Live', tone: 'neutral' })
 
   const searched = job.research_result?.research_performed ?? job.plan?.research_performed
   if (searched !== undefined) {
     badges.push(searched
       ? { label: '조사', value: '검색 수행', tone: 'success' }
-      : { label: '조사', value: '검색 안 함 · AI 추론', tone: 'warning' })
+      : { label: '조사', value: '검색 없이 AI 추론', tone: 'warning' })
   }
 
   if (job.compliance_report) {
     badges.push(job.compliance_report.passed
       ? { label: '검수', value: '통과(참고용)', tone: 'success' }
-      : { label: '검수', value: '위반 의심 · 승인 불가', tone: 'danger' })
+      : { label: '검수', value: '위반 의심, 승인 불가', tone: 'danger' })
   } else if (job.copy_candidate) {
     badges.push({ label: '검수', value: '미실시', tone: 'warning' })
   }

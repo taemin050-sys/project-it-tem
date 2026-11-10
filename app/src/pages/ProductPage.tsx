@@ -1,18 +1,18 @@
 import { useState, type FormEvent } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import { isUnreachable } from '../api/client'
 import { createJob } from '../api/jobs'
-import { advance,hasUnfinishedJob,productPayload,recoverLiveInput,resetJob } from '../api/useJob'
-import Field from '../components/Field'
+import { advance, hasUnfinishedJob, productPayload, recoverLiveInput, resetJob, startNewAd } from '../api/useJob'
+import Icon from '../components/Icon'
 import MockFallback from '../components/MockFallback'
-import OptionGroup from '../components/OptionGroup'
 import PhotoDrop from '../components/PhotoDrop'
 import StepPage from '../components/StepPage'
+import { StepPills } from '../components/Steps'
 import { PRODUCT_PHOTOS, RATIOS, REFERENCE_PHOTOS, SHRINK, type Ratio } from '../config'
 import { shrinkImage } from '../lib/shrinkImage'
 import { validateProduct, type ProductErrors } from '../lib/validateProduct'
 import { useProjectStore } from '../store/projectStore'
-import { AD_PURPOSES, EMOJI_LEVELS, FUNCTIONAL_TYPES, PRODUCT_TYPES, type EmojiLevel, type FunctionalType } from '../types/textSchema'
+import { AD_PURPOSES, EMOJI_LEVELS, FUNCTIONAL_TYPES, PRODUCT_TYPES, type EmojiLevel, type FunctionalType, type ProductType } from '../types/textSchema'
 
 const LIMITS = { product: PRODUCT_PHOTOS, reference: REFERENCE_PHOTOS }
 
@@ -26,11 +26,19 @@ const FOCUS_ORDER: [keyof ProductErrors, string][] = [
   ['photo_verified', 'photo_verified'],
 ]
 
-// 텍스트 schemas.py emoji_level 설명과 같은 뜻
-const EMOJI_DESC: Record<EmojiLevel, string> = {
-  없음: '이모티콘 없이 차분하게',
-  보통: '문단마다 1~2개',
-  많이: '거의 모든 줄 + 친근한 말투',
+// 화면 표시 이름만 시안을 따르고, 서버로 보내는 값은 텍스트 스키마 값 그대로다
+const CATEGORY_LABEL: Partial<Record<ProductType, string>> = { 색조: '색조 립&아이', 바디: '바디케어', 헤어: '헤어케어' }
+const PURPOSE_TILE: Record<(typeof AD_PURPOSES)[number], { icon: string; desc: string }> = {
+  '신제품 홍보': { icon: 'campaign', desc: '첫인상 극대화' },
+  '할인 프로모션': { icon: 'shopping_cart', desc: '혜택/할인 강조' },
+  '효능 강조': { icon: 'science', desc: '성분/효과 강조' },
+  '감성 브랜딩': { icon: 'award_star', desc: '철학/비건스토리' },
+}
+const EMOJI_LABEL: Record<EmojiLevel, string> = { 없음: '없음', 보통: '보통 ✨🌿', 많이: '많이 🔥😍' }
+const RATIO_TILE: Record<Ratio, { label: string; w: number; h: number }> = {
+  '3:4': { label: '3:4 피드', w: 16, h: 20 },
+  '4:5': { label: '4:5 인스타 최적', w: 16, h: 20 },
+  '9:16': { label: '9:16 스토리/릴스', w: 14, h: 24 },
 }
 
 // 기능성 종류 목록 순서를 유지한 채 켜고 끈다
@@ -91,186 +99,229 @@ export default function ProductPage() {
   }
 
   const busy = uploading || run.busy
+  const complete = !Object.values(validateProduct(images, references, product, LIMITS)).some(Boolean)
 
   return (
     <StepPage
-      title="제품 정보"
-      description="광고에 사용할 제품 사진과 정보를 입력해 주세요."
-      back={{ to: '/', label: '처음으로' }}
-      actions={
-        <button className="button" type="submit" form="product-form" disabled={busy} aria-busy={uploading}>
-          {uploading ? '사진을 올리는 중…' : '다음: 기획·카피 만들기'}
-        </button>
-      }
-      actionsNote={
-        <>
-        {!import.meta.env.DEV && jobId && !run.busy &&
-          <button type="button" className="button secondary small"
-            onClick={()=>void recoverLiveInput().then(()=>navigate('/create/copy')).catch(()=>{})}>
-            기존 업로드 이어서 처리하기 (재업로드 없음)
-          </button>}
-        {uploadError
-          ? (
-            <>
-              <p className="field-error" role="alert">{uploadError.message}</p>
-              {import.meta.env.DEV && uploadError.offline && <MockFallback onSwitch={() => setUploadError(undefined)} />}
-            </>
-          )
-          : Object.values(errors).some(Boolean) && <p className="field-error">입력하지 않았거나 확인이 필요한 항목이 있습니다.</p>}
-        {run.error && <p className="field-error" role="alert">{run.error}</p>}
-        </>
-      }
-    >
-      {/* noValidate: 브라우저 기본 말풍선 대신 각 항목 아래에 한국어 오류를 보여준다 */}
-      <form id="product-form" className="stack" onSubmit={onSubmit} noValidate>
-        <PhotoDrop
-          id="photos"
-          title="제품 사진"
-          limits={PRODUCT_PHOTOS}
-          hint={`같은 제품을 정면·후면·측면 등 여러 각도에서 찍은 사진 ${PRODUCT_PHOTOS.minFiles}~${PRODUCT_PHOTOS.maxFiles}장. JPG·PNG·WEBP, 큰 사진은 자동으로 줄여서 올립니다.`}
-          files={images}
-          error={errors.images}
-          onChange={(files) => { setImages(files); setError('images') }}
-          onError={(m) => setError('images', m)}
-        />
-        <PhotoDrop
-          id="references"
-          title="배경 참고 사진"
-          limits={REFERENCE_PHOTOS}
-          hint={`원하는 배경·구도가 담긴 사진 최대 ${REFERENCE_PHOTOS.maxFiles}장. 없으면 비워 두세요.`}
-          files={references}
-          error={errors.references}
-          onChange={(files) => { setReferences(files); setError('references') }}
-          onError={(m) => setError('references', m)}
-        />
-
-        <section className="panel" aria-labelledby="basic-title">
-          <h2 id="basic-title" className="panel-title">기본 정보</h2>
-          <div className="field-grid">
-            <Field id="brand_name" label="브랜드명">
-              <input
-                id="brand_name"
-                placeholder="예: 라움"
-                autoComplete="off"
-                value={product.brand_name ?? ''}
-                onChange={(e) => setProduct({ brand_name: e.target.value || null })}
-              />
-            </Field>
-            <Field id="product_name" label="제품명" required error={errors.product_name}>
-              <input
-                id="product_name"
-                placeholder="예: 글로우 보습 세럼"
-                autoComplete="off"
-                value={product.product_name}
-                aria-invalid={Boolean(errors.product_name)}
-                aria-describedby={describedBy(errors.product_name && 'product_name-error')}
-                onChange={(e) => setProduct({ product_name: e.target.value })}
-              />
-            </Field>
-            {/* shortcut: v0.5 product_category는 자유 문자열·필수 여부 미정이라 ProductType 목록을 선택 항목으로 둔다 */}
-            <Field id="product_category" label="제품 카테고리">
-              <select
-                id="product_category"
-                value={product.product_category ?? ''}
-                onChange={(e) => setProduct({ product_category: e.target.value || null })}
-              >
-                <option value="">선택 안 함</option>
-                {PRODUCT_TYPES.map((t) => <option key={t}>{t}</option>)}
-              </select>
-            </Field>
-            <div className="span-2">
-              <Field id="features" label="제품 특징" required hint="성분, 사용감, 용량, 가격·혜택 등 광고에 담고 싶은 내용을 자유롭게 적어 주세요." error={errors.features}>
-                <textarea
-                  id="features"
-                  rows={5}
-                  placeholder="예: 히알루론산이 들어간 30ml 보습 세럼. 끈적임 없이 가볍게 스며듭니다."
-                  value={product.features}
-                  aria-invalid={Boolean(errors.features)}
-                  aria-describedby={describedBy('features-hint', errors.features && 'features-error')}
-                  onChange={(e) => setProduct({ features: e.target.value })}
-                />
-              </Field>
+      top={
+        <section className="pillbar">
+          <div className="pillbar-inner">
+            <StepPills />
+            <div className="button-row">
+              <span className="tag tag-primary"><Icon name="auto_awesome" />광고 문구 자체 검수 (참고용)</span>
+              <button type="button" className="button secondary small" disabled={run.busy}
+                onClick={() => { if (startNewAd()) navigate('/create/product') }}>
+                <Icon name="refresh" className="label-lg" />새 광고
+              </button>
             </div>
           </div>
         </section>
+      }
+    >
+      <div className="page-head">
+        <div>
+          <span className="tag tag-soft"><Icon name="verified" />1단계 · 제품 정보</span>
+          <h1 className="headline-lg">광고할 뷰티 제품 정보를 입력해 주세요</h1>
+          <p>입력한 정보와 사진으로 광고 카피와 이미지를 만듭니다. 카피는 자체 기준으로 표현을 검수하며, 결과는 참고용입니다.</p>
+        </div>
+      </div>
 
-        <section className="panel" aria-label="광고 목적">
-          <OptionGroup
-            legend="광고 목적"
-            name="ad_purpose"
-            value={product.ad_purpose}
-            options={AD_PURPOSES.map((p) => ({ value: p, label: p }))}
-            onChange={(v) => setProduct({ ad_purpose: v })}
+      {/* noValidate: 브라우저 기본 말풍선 대신 각 항목 아래에 한국어 오류를 보여준다 */}
+      <form id="product-form" className="product-grid" onSubmit={onSubmit} noValidate>
+        <div className="stack">
+          <PhotoDrop
+            id="photos"
+            variant="product"
+            title="제품 사진 업로드"
+            limits={PRODUCT_PHOTOS}
+            hint={`정면 누끼 컷, 45도 앵글, 제형 스와치 컷처럼 같은 제품을 여러 각도에서 찍은 사진 ${PRODUCT_PHOTOS.minFiles}~${PRODUCT_PHOTOS.maxFiles}장을 업로드해 주세요.`}
+            files={images}
+            error={errors.images}
+            onChange={(files) => { setImages(files); setError('images') }}
+            onError={(m) => setError('images', m)}
           />
-        </section>
+          <PhotoDrop
+            id="references"
+            variant="reference"
+            title="배경 레퍼런스 사진 업로드"
+            limits={REFERENCE_PHOTOS}
+            hint="원하시는 톤앤매너, 조명, 공간 인테리어 감성 이미지를 지정하시면 AI 모델이 조명 셋업을 모방합니다."
+            files={references}
+            error={errors.references}
+            onChange={(files) => { setReferences(files); setError('references') }}
+            onError={(m) => setError('references', m)}
+          />
+        </div>
 
-        <section className="panel" aria-label="이모티콘">
-          <OptionGroup
-            legend="게시글 이모티콘"
-            name="emoji_level"
-            value={product.emoji_level}
-            options={EMOJI_LEVELS.map((v) => ({ value: v, label: v, desc: EMOJI_DESC[v] }))}
-            onChange={(v) => setProduct({ emoji_level: v })}
-          />
-          <p className="field-hint panel-footnote">게시글 본문에만 들어갑니다. 이미지 위 문구·해시태그에는 넣지 않습니다.</p>
-        </section>
+        <div className="stack">
+          <div className="card form-card">
+            {/* 브랜드명 아래에 제품명: 한 줄 폭을 다 써서 예시 문구가 오른쪽 아이콘에 가리지 않는다 */}
+            <div className="name-fields">
+              <div className="field">
+                <label htmlFor="brand_name" className="field-label"><span>브랜드명</span><span className="field-tag">영문 병기 추천</span></label>
+                <div className="input-wrap">
+                  <input id="brand_name" placeholder="예: 로즈마리 코스메틱 (Rosemary Lab)" autoComplete="off"
+                    value={product.brand_name ?? ''} onChange={(e) => setProduct({ brand_name: e.target.value || null })} />
+                  <Icon name="domain" />
+                </div>
+              </div>
+              <div className="field">
+                <label htmlFor="product_name" className="field-label">
+                  <span>제품명 <span className="req" aria-hidden="true">*</span></span><span className="field-tag req-tag">필수</span>
+                </label>
+                <div className="input-wrap">
+                  <input id="product_name" placeholder="예: 트리플 히알루론산 딥 모이스처 비건 앰플" autoComplete="off"
+                    value={product.product_name} aria-invalid={Boolean(errors.product_name)}
+                    aria-describedby={describedBy(errors.product_name && 'product_name-error')}
+                    onChange={(e) => setProduct({ product_name: e.target.value })} />
+                  <Icon name="verified_user" className="text-primary" />
+                </div>
+                {errors.product_name && <p id="product_name-error" className="field-error">{errors.product_name}</p>}
+              </div>
+            </div>
 
-        <section className="panel" aria-label="화장품 구분">
-          <OptionGroup
-            legend="화장품 구분"
-            name="is_functional"
-            value={product.is_functional ? 'functional' : 'general'}
-            options={[
-              { value: 'general', label: '일반 화장품', desc: '기능성 인증을 받지 않은 제품' },
-              { value: 'functional', label: '기능성 화장품', desc: '식약처 심사·보고를 마친 기능성화장품' },
-            ]}
-            onChange={(v) => setProduct({ is_functional: v === 'functional', functional_types: [] })}
-          />
-          {product.is_functional && (
-            <fieldset id="functional_types" className="subgroup check-group" tabIndex={-1}
-              aria-describedby={describedBy('functional_types-hint', errors.functional_types && 'functional_types-error')}>
-              <legend className="group-label">기능성 종류</legend>
-              <p id="functional_types-hint" className="field-hint">심사·보고를 마친 기능성 효능을 모두 골라 주세요. 여드름완화는 인체세정용 제품만 해당합니다.</p>
-              <div className="check-grid">
-                {FUNCTIONAL_TYPES.map((t) => (
-                  <label key={t} className="check-item">
-                    <input type="checkbox" checked={product.functional_types.includes(t)}
-                      onChange={(e) => setProduct({ functional_types: toggle(product.functional_types, t, e.target.checked) })} />
-                    {t}
+            {/* shortcut: v0.5 product_category는 자유 문자열·필수 여부 미정이라 선택 항목으로 둔다. 다시 누르면 선택을 해제한다 */}
+            <fieldset id="product_category" className="chip-group">
+              <legend className="field-label"><span>제품 카테고리</span><span className="field-tag">정확한 카테고리 선택 시 특화 카피 추천</span></legend>
+              <div className="chips">
+                {PRODUCT_TYPES.map((t) => {
+                  const on = product.product_category === t
+                  return (
+                    <button key={t} type="button" className="chip" aria-pressed={on}
+                      onClick={() => setProduct({ product_category: on ? null : t })}>
+                      {on && <Icon name="check" />}{CATEGORY_LABEL[t] ?? t}
+                    </button>
+                  )
+                })}
+              </div>
+            </fieldset>
+
+            <div className="field">
+              <div className="field-label">
+                <label htmlFor="features">제품 핵심 특장점 &amp; 원료 USP <span className="req" aria-hidden="true">*</span></label>
+                <span className="field-tag">{product.features.length}자</span>
+              </div>
+              <textarea id="features" rows={4}
+                placeholder="예: 히알루론산이 들어간 30ml 보습 세럼. 끈적임 없이 가볍게 스며듭니다."
+                value={product.features} aria-invalid={Boolean(errors.features)}
+                aria-describedby={describedBy(errors.features && 'features-error')}
+                onChange={(e) => setProduct({ features: e.target.value })} />
+              {errors.features && <p id="features-error" className="field-error">{errors.features}</p>}
+            </div>
+
+            <fieldset className="chip-group">
+              <legend className="field-label">광고 캠페인 목표</legend>
+              <div className="tiles">
+                {AD_PURPOSES.map((p) => (
+                  <label key={p} className={product.ad_purpose === p ? 'tile is-on' : 'tile'}>
+                    <input type="radio" className="visually-hidden" name="ad_purpose" checked={product.ad_purpose === p}
+                      onChange={() => setProduct({ ad_purpose: p })} />
+                    <Icon name={PURPOSE_TILE[p].icon} />
+                    <b>{p}</b>
+                    <small>{PURPOSE_TILE[p].desc}</small>
                   </label>
                 ))}
               </div>
-              {errors.functional_types && <p id="functional_types-error" className="field-error">{errors.functional_types}</p>}
             </fieldset>
-          )}
-        </section>
 
-        <section className="panel" aria-label="이미지 비율">
-          <OptionGroup
-            legend="이미지 비율"
-            name="ratio"
-            value={ratio}
-            options={(Object.keys(RATIOS) as Ratio[]).map((r) => ({ value: r, label: RATIOS[r].label, desc: `${RATIOS[r].desc} · ${RATIOS[r].width}×${RATIOS[r].height}` }))}
-            onChange={setRatio}
-          />
-        </section>
+            <div className="func-box">
+              <div className="func-head">
+                <div className="func-title">
+                  <Icon name="health_and_safety" />
+                  <span>
+                    <b>기능성 화장품 심사 보고 품목인가요?</b>
+                    <span className="body-sm text-variant">식약처 심사·보고를 마친 기능성 효능만 광고에 표현할 수 있습니다.</span>
+                  </span>
+                </div>
+                <label className="switch">
+                  <input type="checkbox" role="switch" className="visually-hidden" checked={product.is_functional}
+                    onChange={(e) => setProduct({ is_functional: e.target.checked, functional_types: [] })} />
+                  <span className="switch-track" aria-hidden="true"><span className="switch-knob" /></span>
+                  {product.is_functional ? '여 (기능성 인정)' : '부 (일반 화장품)'}
+                </label>
+              </div>
+              {product.is_functional && (
+                <fieldset id="functional_types" className="func-pills" tabIndex={-1}
+                  aria-describedby={describedBy('functional_types-hint', errors.functional_types && 'functional_types-error')}>
+                  <legend className="visually-hidden">기능성 종류</legend>
+                  {FUNCTIONAL_TYPES.map((t) => {
+                    const on = product.functional_types.includes(t)
+                    return (
+                      <label key={t} className="func-pill">
+                        <input type="checkbox" checked={on}
+                          onChange={(e) => setProduct({ functional_types: toggle(product.functional_types, t, e.target.checked) })} />
+                        <span>{t}{on && ' (선택됨)'}</span>
+                      </label>
+                    )
+                  })}
+                  <p id="functional_types-hint" className="field-hint" style={{ width: '100%' }}>심사·보고를 마친 기능성 효능을 모두 골라 주세요. 여드름완화는 인체세정용 제품만 해당합니다.</p>
+                  {errors.functional_types && <p id="functional_types-error" className="field-error">{errors.functional_types}</p>}
+                </fieldset>
+              )}
+            </div>
 
-        <div className={errors.photo_verified ? 'consent has-error' : 'consent'}>
-          <label className="consent-label">
-            <input
-              id="photo_verified"
-              type="checkbox"
-              checked={product.photo_verified}
-              aria-invalid={Boolean(errors.photo_verified)}
-              aria-describedby={describedBy(errors.photo_verified && 'photo_verified-error')}
-              onChange={(e) => setProduct({ photo_verified: e.target.checked })}
-            />
-            <span>
-              <strong>사진 사용 권한을 확인했습니다</strong>
-              <span className="field-hint">직접 촬영했거나 광고에 사용할 권한이 있는 사진입니다.</span>
-            </span>
-          </label>
-          {errors.photo_verified && <p id="photo_verified-error" className="field-error">{errors.photo_verified}</p>}
+            <div className="two-col">
+              <fieldset className="chip-group">
+                <legend className="field-label">광고 카피 이모티콘 정도</legend>
+                <div className="seg">
+                  {EMOJI_LEVELS.map((v) => (
+                    <label key={v} className={product.emoji_level === v ? 'is-on' : undefined}>
+                      <input type="radio" className="visually-hidden" name="emoji_level" checked={product.emoji_level === v}
+                        onChange={() => setProduct({ emoji_level: v })} />
+                      {EMOJI_LABEL[v]}
+                    </label>
+                  ))}
+                </div>
+              </fieldset>
+              <fieldset className="chip-group">
+                <legend className="field-label">인스타그램 광고 규격 (비율)</legend>
+                <div className="ratios">
+                  {(Object.keys(RATIOS) as Ratio[]).map((r) => (
+                    <label key={r} className={ratio === r ? 'ratio is-on' : 'ratio'}>
+                      <input type="radio" className="visually-hidden" name="ratio" value={r} checked={ratio === r} onChange={() => setRatio(r)} />
+                      <span className="ratio-shape" style={{ width: RATIO_TILE[r].w, height: RATIO_TILE[r].h }} aria-hidden="true" />
+                      {RATIO_TILE[r].label}
+                    </label>
+                  ))}
+                </div>
+              </fieldset>
+            </div>
+
+            <div className={errors.photo_verified ? 'consent-box has-error' : 'consent-box'}>
+              <label>
+                <input id="photo_verified" type="checkbox" checked={product.photo_verified}
+                  aria-invalid={Boolean(errors.photo_verified)}
+                  aria-describedby={describedBy(errors.photo_verified && 'photo_verified-error')}
+                  onChange={(e) => setProduct({ photo_verified: e.target.checked })} />
+                <span><strong>[필수]</strong> 직접 촬영했거나 광고에 사용할 권한이 있는 사진임을 확인했습니다.</span>
+              </label>
+              {errors.photo_verified && <p id="photo_verified-error" className="field-error">{errors.photo_verified}</p>}
+              {complete && (
+                <p className="ok-line"><Icon name="check_circle" />필수 입력 항목(제품 사진 {images.length}장, 제품명, 특장점, 저작권 동의)이 모두 완벽히 충족되었습니다.</p>
+              )}
+            </div>
+          </div>
+
+          {!import.meta.env.DEV && jobId && !run.busy &&
+            <button type="button" className="button secondary small"
+              onClick={() => void recoverLiveInput().then(() => navigate('/create/copy')).catch(() => {})}>
+              기존 업로드 이어서 처리하기 (재업로드 없음)
+            </button>}
+          {uploadError
+            ? <>
+              <p className="field-error" role="alert">{uploadError.message}</p>
+              {import.meta.env.DEV && uploadError.offline && <MockFallback onSwitch={() => setUploadError(undefined)} />}
+            </>
+            : Object.values(errors).some(Boolean) && <p className="field-error">입력하지 않았거나 확인이 필요한 항목이 있습니다.</p>}
+          {run.error && <p className="field-error" role="alert">{run.error}</p>}
+
+          <div className="action-bar plain">
+            <Link className="button secondary" to="/"><Icon name="arrow_back" className="label-lg" />처음으로</Link>
+            <button className="button lg" type="submit" disabled={busy} aria-busy={uploading}>
+              {uploading ? '사진을 올리는 중…' : '다음: 기획·카피 검토하기'}
+              <Icon name="arrow_forward" className="icon-forward" />
+            </button>
+          </div>
         </div>
       </form>
     </StepPage>
