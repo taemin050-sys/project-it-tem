@@ -108,7 +108,7 @@ export default function ProductPage() {
           <div className="pillbar-inner">
             <StepPills />
             <div className="button-row">
-              <span className="tag tag-primary"><Icon name="auto_awesome" />AI 식약처 광고 가이드라인 자동 검증 활성</span>
+              <span className="tag tag-primary"><Icon name="auto_awesome" />광고 문구 자체 검수 (참고용)</span>
               <button type="button" className="button secondary small" disabled={run.busy}
                 onClick={() => { if (startNewAd()) navigate('/create/product') }}>
                 <Icon name="refresh" className="label-lg" />새 광고
@@ -120,9 +120,9 @@ export default function ProductPage() {
     >
       <div className="page-head">
         <div>
-          <span className="tag tag-soft"><Icon name="verified" />K-BEAUTY INGESTION PIPELINE</span>
+          <span className="tag tag-soft"><Icon name="verified" />1단계 · 제품 정보</span>
           <h1 className="headline-lg">광고할 뷰티 제품 정보를 입력해 주세요</h1>
-          <p>입력된 사양과 비주얼 컷을 기반으로 식약처 표시·광고 심의 법규를 준수하는 카피와 고화질 AI 씬을 조합합니다.</p>
+          <p>입력한 정보와 사진으로 광고 카피와 이미지를 만듭니다. 카피는 자체 기준으로 표현을 검수하며, 결과는 참고용입니다.</p>
         </div>
       </div>
 
@@ -230,7 +230,7 @@ export default function ProductPage() {
                   <Icon name="health_and_safety" />
                   <span>
                     <b>기능성 화장품 심사 보고 품목인가요?</b>
-                    <span className="body-sm text-variant">보고된 성분에 한해 식약처 공인 문구를 광고에 사용 가능합니다.</span>
+                    <span className="body-sm text-variant">식약처 심사·보고를 마친 기능성 효능만 광고에 표현할 수 있습니다.</span>
                   </span>
                 </div>
                 <label className="switch">
@@ -293,7 +293,7 @@ export default function ProductPage() {
                   aria-invalid={Boolean(errors.photo_verified)}
                   aria-describedby={describedBy(errors.photo_verified && 'photo_verified-error')}
                   onChange={(e) => setProduct({ photo_verified: e.target.checked })} />
-                <span><strong>[필수]</strong> 업로드한 제품 사진의 상표권·저작권 및 초상권 사용 권한을 확인하였으며, AI 생성 결과물에 대해 허위·과장 광고 법적 책임을 준수함에 동의합니다.</span>
+                <span><strong>[필수]</strong> 직접 촬영했거나 광고에 사용할 권한이 있는 사진임을 확인했습니다.</span>
               </label>
               {errors.photo_verified && <p id="photo_verified-error" className="field-error">{errors.photo_verified}</p>}
               {complete && (

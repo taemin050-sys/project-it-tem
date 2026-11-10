@@ -112,7 +112,7 @@ export default function ExportPage() {
         <div>
           <span className="tag tag-primary"><span className="ping" style={{ background: 'var(--primary)' }} aria-hidden="true" />{finished ? '생성 파이프라인 완료' : '생성 파이프라인 진행 중'}</span>
           <h1 className="display">최종 소재 검토 및 배포 {finished && <span aria-hidden="true">✨</span>}</h1>
-          {finished && <p>식약처 광고 가이드 준수 검수와 인스타그램 핏 최적화가 완료되었습니다. 소재를 즉시 다운로드하거나 팀원과 공유하세요.</p>}
+          {finished && <p>최종 광고가 완성됐습니다. 검수 결과는 참고용이니 게시 전 문구를 한 번 더 확인해 주세요.</p>}
         </div>
         {job && <JobBadges job={job} />}
       </section>
@@ -201,7 +201,7 @@ export default function ExportPage() {
                     ))}
                   </ul>
                 )}
-                <p className="legal"><Icon name="info" /><span><strong>식약처 화장품 표시·광고 법률 고지:</strong> {job.compliance_report.notice}</span></p>
+                <p className="legal"><Icon name="info" /><span><strong>검수 안내:</strong> {job.compliance_report.notice}</span></p>
               </section>
             )}
           </div>

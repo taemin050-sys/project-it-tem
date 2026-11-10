@@ -136,8 +136,8 @@ export default function DraftPage() {
           <div className="card-title">
             <span className="icon-tile secondary"><Icon name="verified" /></span>
             <span>
-              <h1 className="headline-md">3단계 : 인스타 비주얼 및 원본 정밀 검토</h1>
-              <p className="body-sm text-variant">생성된 인스타그램 피드용 비주얼과 등록 원본 간의 제품 왜곡·식약처 라벨 가독성을 1:1 대조합니다.</p>
+              <h1 className="headline-md">3단계 : 인스타 비주얼 및 원본 비교 검토</h1>
+              <p className="body-sm text-variant">생성 이미지와 원본 사진을 나란히 두고 제품 모양·라벨이 바뀌지 않았는지 확인합니다.</p>
             </span>
           </div>
           {job && <JobBadges job={job} />}
@@ -218,8 +218,8 @@ export default function DraftPage() {
                 </span>
               </div>
               <div className="verify-box">
-                <span className="verify-title"><Icon name="gavel" />식약처 규정 및 신뢰도 검증 체크</span>
-                <p>실제 화장품법 제13조(부당한 표시·광고 행위 등의 금지)에 의거하여, 실제 제품의 용기 형태, 펌프 뚜껑 색상, 라벨 한글 표기 텍스트가 인위적으로 왜곡되거나 훼손되지 않았는지 최종 검수해주세요.</p>
+                <span className="verify-title"><Icon name="gavel" />제품 왜곡 확인</span>
+                <p>용기 모양, 뚜껑 색, 라벨 글자가 실물과 다르게 바뀌지 않았는지 직접 확인해 주세요.</p>
                 {reviewing && (
                   <label className="agree">
                     <input type="checkbox" checked={verified} onChange={(e) => setVerifiedFor(e.target.checked ? imageUrl : undefined)} />

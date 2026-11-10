@@ -45,7 +45,7 @@ const SOURCE_BADGE: Record<SourceType, { label: string; tone: string }> = {
   'AI 추론': { label: 'AI 추론·의견', tone: 'warning' },
 }
 
-const QUICK_REQUESTS = ['친근한 인스타 말투', '올리브영 랭킹 강조', '비건 인증 성분 부각']
+const QUICK_REQUESTS = ['친근한 인스타 말투', '촉촉함 강조', '더 짧고 간결하게']
 
 const BACK = '/create/product'
 // 검수 리포트가 있으면 서버 notice를 그대로 쓴다. 이 문구는 리포트가 없는 레거시 mock 카피용 (텍스트 모듈 기본 notice와 같은 문장)
@@ -155,7 +155,7 @@ export default function CopyPage() {
         <div className="head-title">
           <span className="tag tag-primary tag-upper">Step 2 of 4</span>
           <h1 className="headline-sm">광고 기획 및 카피 심층 검토</h1>
-          {report && <span className="tag tag-tertiary"><Icon name="verified" />실시간 AI 정밀 진단 완결</span>}
+          {report && <span className="tag tag-tertiary"><Icon name="verified" />자체 검수 완료 (참고용)</span>}
         </div>
         {job && <JobBadges job={job} />}
       </div>
@@ -181,7 +181,7 @@ export default function CopyPage() {
       note={<>
         {reviewing && <label className="agree">
           <input type="checkbox" checked={evidenceAck} onChange={e=>setEvidenceAck(e.target.checked)}/>
-          <span><strong>[필수]</strong> 식약처 광고 규제 점검 결과 및 실증 근거를 모두 확인하였으며 승인합니다.</span>
+          <span><strong>[필수]</strong> 자체 검수 결과(참고용)와 표현 근거를 확인했으며, 최종 광고 책임은 판매자에게 있음을 이해하고 승인합니다.</span>
         </label>}
         {reviewing && job && <ApprovalNote job={job} />}
         {reviewing && overs.length > 0 && <p className="field-error" role="alert">
@@ -248,8 +248,8 @@ export default function CopyPage() {
                     <div className="fbox-head">
                       <span className="label-md"><Icon name={box.icon} className={box.tone} />{box.label}</span>
                       {issues.some((i) => i.risk_level === '위반 의심')
-                        ? <span className="fbox-warn" style={{ color: 'var(--error)' }}><Icon name="warning" />규정 위반 주의 문구 포함</span>
-                        : issues.length > 0 && <span className="fbox-warn text-secondary"><Icon name="info" />임상 근거 필요 문구 포함</span>}
+                        ? <span className="fbox-warn" style={{ color: 'var(--error)' }}><Icon name="warning" />위반 의심 표현 포함</span>
+                        : issues.length > 0 && <span className="fbox-warn text-secondary"><Icon name="info" />근거 확인 필요 표현 포함</span>}
                       {field === 'caption' && <span className="label-md">{countChars(text)} / {CAPTION_MAX.toLocaleString()}자</span>}
                     </div>
                     <p className={`fbox-body ${field}`}>
@@ -267,7 +267,7 @@ export default function CopyPage() {
             <section className="card md" aria-labelledby="review-title">
               <div className="card-title">
                 <span className="icon-tile error"><Icon name="find_replace" /></span>
-                <h2 id="review-title" className="headline-sm">식약처 규제 표현 정밀 검토 &amp; 대체 제안</h2>
+                <h2 id="review-title" className="headline-sm">검수에서 표시된 표현과 대체 제안</h2>
               </div>
               {report.issues.length > 0
                 ? <ul className="issues">{report.issues.map((r) => <IssueItem key={`${r.field}-${r.start}`} issue={r} />)}</ul>
@@ -309,7 +309,7 @@ export default function CopyPage() {
                 </div>
                 <div className="field">
                   <textarea className="revise-input" rows={4} aria-labelledby="revise-title" value={instruction}
-                    placeholder="예: 좀 더 20대 타깃의 친근한 말투로 바꿔줘, 올리브영 랭킹 키워드를 더 직관적으로 넣어줘, 인스타 숏폼 릴스용 첫 1초 후킹 멘트로 다듬어줘"
+                    placeholder="예: 좀 더 20대 타깃의 친근한 말투로 바꿔줘, 인스타 릴스용 첫 문장을 더 짧게 다듬어줘"
                     onChange={e=>setInstruction(e.target.value)}/>
                   <div className="quick-chips">
                     {quick.map((q, i) => (
@@ -341,21 +341,21 @@ function Diagnosis({ report }: { report: ComplianceReport }) {
     ? { title: '위반 표현 수정 필요', text: '위반 의심 표현이 있는 카피는 승인할 수 없습니다. 아래 대체 제안을 참고해 주세요.' }
     : warning > 0
       ? { title: '주의 표현 수정 권장', text: '표현을 뒷받침하는 근거가 있는지 확인한 뒤 승인해 주세요.' }
-      : { title: '규정 통과', text: '자동 검수는 모든 위험을 찾아내지 못할 수 있습니다.' }
+      : { title: '표시된 위험 표현 없음', text: '자동 검수는 모든 위험을 찾아내지 못할 수 있습니다.' }
   return (
     <section className="card md" aria-labelledby="diag-title">
       <div className="diag">
         <div className="diag-text">
-          <h2 id="diag-title" className="card-title headline-sm"><Icon name="gavel" className="text-primary" />식약처 화장품 표시·광고 가이드라인 정밀 진단</h2>
-          <p className="text-variant">식품의약품안전처 및 화장품법 제13조(부당한 표시·광고 행위 등의 금지) 가이드라인에 의거하여 카피의 의약품 오인성, 절대적 표현, 효능 과장 여부를 실시간 검사했습니다.</p>
+          <h2 id="diag-title" className="card-title headline-sm"><Icon name="gavel" className="text-primary" />광고 문구 자체 검수 결과</h2>
+          <p className="text-variant">화장품법 제13조 등을 참고한 자체 기준으로 의약품 오인, 절대적 표현, 효능 과장 표현을 찾습니다. 법적 판단이 아니며 모든 위험을 찾지는 못합니다.</p>
           <div className="diag-chips">
             <span className="count-chip danger"><i aria-hidden="true" />위반 의심 {danger}건</span>
             <span className="count-chip warning"><i aria-hidden="true" />근거 확인 필요 {warning}건</span>
-            <span className="count-chip ok"><Icon name="check_circle" />규정 통과 {clean}건</span>
+            <span className="count-chip ok"><Icon name="check_circle" />표시 없음 {clean}건</span>
           </div>
         </div>
         <div className="diag-status" role={report.passed ? 'status' : 'alert'}>
-          <span className="label-sm text-primary tag-upper">Safety Status</span>
+          <span className="label-sm text-primary tag-upper">검수 상태 (참고용)</span>
           <b className="headline-sm">{status.title}</b>
           <p className="body-sm text-variant">{status.text} {report.notice}</p>
         </div>
@@ -379,13 +379,13 @@ function IssueItem({ issue: r }: { issue: ComplianceIssue }) {
           <del>“{r.text}”</del>
         </div>
         <div>
-          <span className="compare-label after">AI 안전 대체 문구 (제안)</span>
+          <span className="compare-label after">대체 문구 제안</span>
           {r.suggestion ? <ins>“{r.suggestion}”</ins> : <span className="muted">삭제 권장</span>}
         </div>
       </div>
       <p className="issue-reason">
         <Icon name={danger ? 'policy' : 'verified_user'} />
-        <span><strong>{danger ? '법률 검토 사유:' : '실증 요건:'}</strong> {r.reason}{r.basis && ` (근거: ${r.basis})`}</span>
+        <span><strong>{danger ? '검수 사유:' : '실증 요건:'}</strong> {r.reason}{r.basis && ` (근거: ${r.basis})`}</span>
       </p>
     </li>
   )

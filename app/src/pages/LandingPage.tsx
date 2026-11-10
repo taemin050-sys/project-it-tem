@@ -23,31 +23,31 @@ const AUDIENCE = [
     desc: '비싼 촬영 스튜디오 렌탈, 모델 섭외비, 상세페이지 수정 비용을 아끼고 인스타 전환 최적화 소재를 직접 실험할 수 있습니다.',
   },
   {
-    icon: 'gavel', tone: 'tertiary', tag: '식약처 규제 점검',
+    icon: 'gavel', tone: 'tertiary', tag: '광고 문구 자체 검수',
     title: '과대광고·허위표현(식약처 화장품법) 위반이 두려운 초보 마케터',
-    desc: "'주름 삭제', '모공 박멸' 등 판매 정지 위험이 있는 금지 문구를 실시간 AI 필터가 걸러내고, 식약처 가이드에 부합하는 안전한 합법적 표현을 제안합니다.",
+    desc: "'주름 삭제', '모공 박멸'처럼 과장·의약품 오인이 의심되는 표현을 표시하고 대체 문구를 제안합니다. 검수 결과는 참고용입니다.",
   },
 ]
 
 const STEPS = [
   { icon: 'add_photo_alternate', title: '제품 등록', desc: '스마트폰으로 촬영한 누끼 컷 또는 흰 배경 제품 사진과 핵심 성분(병풀, 레티놀 등) 스펙을 간편 등록합니다.' },
-  { icon: 'edit_note', title: '기획·카피 검토', desc: '타깃층(2030 수부지 등)에 맞춘 인스타 훅 카피와 식약처 표시광고 규정 적합성 여부를 동시 검토합니다.' },
+  { icon: 'edit_note', title: '기획·카피 검토', desc: '타깃층(2030 수부지 등)에 맞춘 인스타 훅 카피와 표현 검수 결과(참고용)를 함께 확인합니다.' },
   { icon: 'magic_button', title: '이미지 검토', desc: '제품 실물 외관을 변형하지 않고, 자연광 무드나 럭셔리 욕실 배경과 자연스럽게 블렌딩된 이미지를 확인합니다.' },
-  { icon: 'file_download', title: '최종 결과 다운로드', desc: '인스타그램 피드(4:5), 릴스/스토리(9:16), 텍스트 오버레이 버전까지 바로 게재 가능한 규격 에셋 패키지를 다운로드합니다.' },
+  { icon: 'file_download', title: '최종 결과 다운로드', desc: '선택한 비율(피드 4:5·릴스/스토리 9:16 등)의 최종 광고 PNG와 캡션을 내려받습니다.' },
 ]
 
 const PROMISES = [
   {
     icon: 'lock_reset', title: '“제품은 그대로”', sub: 'AI 환각으로 인한 용기·라벨 왜곡 방지',
-    desc: '시중 AI 툴처럼 용기 모양이 휘어지거나 영문 브랜드 로고 철자가 뭉개지는 일이 없습니다. 고객이 업로드한 제품 원본 누끼 픽셀을 불변의 마스크 레이어로 완벽 보존합니다.',
+    desc: '생성 이미지를 업로드한 원본 사진과 나란히 비교해, 용기 모양이나 라벨 글자가 바뀌지 않았는지 확인한 뒤에만 다음 단계로 넘어갑니다.',
   },
   {
-    icon: 'format_quote', title: '“카피는 먼저”', sub: '이미지 생성 전 규제 통과된 고효율 후킹 카피 선확정',
-    desc: '그림을 먼저 그리고 문구를 억지로 끼워 맞추지 않습니다. 메타(Meta) 인스타그램 알고리즘이 선호하는 카피 구조를 먼저 확정한 후, 문구 분위기와 일치하는 배경 비주얼을 설계합니다.',
+    icon: 'format_quote', title: '“카피는 먼저”', sub: '이미지 생성 전에 검수를 거친 카피를 먼저 확정',
+    desc: '그림을 먼저 그리고 문구를 억지로 끼워 맞추지 않습니다. 카피를 먼저 확정한 후, 문구 분위기와 일치하는 배경 비주얼을 설계합니다.',
   },
   {
-    icon: 'policy', title: '“표현은 한 번 더”', sub: '식약처 화장품 표시·광고 가이드라인 정밀 진단',
-    desc: '화장품법 제13조 실증 규정과 식약처 최신 행정 처분 사례 데이터를 학습한 특화 엔진이 단어 하나하나를 심사하여, 신고나 과태료 걱정 없는 클린 광고를 보장합니다.',
+    icon: 'policy', title: '“표현은 한 번 더”', sub: '광고 표현 자체 검수 (참고용)',
+    desc: '화장품법 제13조 등을 참고한 자체 기준으로 위험 표현을 표시하고 대체 문구를 제안합니다. 법적 판단이 아니므로 최종 확인은 판매자가 합니다.',
   },
 ]
 
@@ -129,14 +129,14 @@ export default function LandingPage() {
 
           <section className="hero" aria-labelledby="hero-title">
             <div>
-              <span className="tag tag-soft"><Icon name="verified" />K-Beauty 소상공인 식약처 규제 안심 솔루션</span>
+              <span className="tag tag-soft"><Icon name="verified" />K-Beauty 소상공인 광고 제작 · 문구 자체 검수 포함</span>
               <h1 id="hero-title" className="hero-title">
                 <span>사진 몇 장으로 만드는</span>
                 <span className="grad-text">광고 한 편.</span>
               </h1>
               <p className="hero-lead">
                 화장품 1인 셀러 &amp; 스마트스토어 대표님을 위한 <strong>AI 인스타그램 광고 크리에이터</strong>.
-                식약처 화장품 표시광고 규제 사전 점검부터 고감도 피드·스토리 비주얼 완성까지 한 번에 끝냅니다.
+                광고 표현 자체 검수부터 피드·스토리 비주얼 완성까지 한 번에 진행합니다.
               </p>
               <div className="hero-actions">
                 <Link className="button lg" to="/create" onClick={continueOrStartNew}>
@@ -269,7 +269,7 @@ export default function LandingPage() {
         <section className="container" aria-labelledby="cta-title">
           <div className="cta-band">
             <h2 id="cta-title">지금 바로 내 화장품으로<br />첫 번째 인스타 광고를 제작해보세요.</h2>
-            <p>신용카드 등록 없이 사진만 올리면 끝납니다. 식약처 표시광고 가이드 통과 문구와 감각적인 비주얼을 바로 확인하세요.</p>
+            <p>신용카드 등록 없이 사진만 올리면 끝납니다. 검수 결과가 함께 표시된 카피와 비주얼을 바로 확인하세요.</p>
             <div className="cta-actions">
               <Link className="button white" to="/create" onClick={continueOrStartNew}><Icon name="auto_awesome" />지금 무료로 광고 만들기</Link>
               <a className="button glass" href="#how">자세한 기능 알아보기<Icon name="chevron_right" /></a>
@@ -289,8 +289,8 @@ export default function LandingPage() {
             </nav>
           </div>
           <div className="footer-note">
-            <b><Icon name="verified" />화장품 표시·광고 준수 및 책임 고지 가이드라인</b>
-            <p>본 서비스({SERVICE_NAME})에서 생성된 인스타그램 피드·스토리 소재와 카피는 화장품법 제13조(부당한 표시·광고 행위 등의 금지) 및 식품의약품안전처 화장품 표시·광고 실증에 관한 규정을 준수하도록 설계된 AI 검토 알고리즘을 거칩니다. 최종 광고 송출 전 의약품 오인 문구, 기능성 심사 번호 및 기능성화장품 기재 누락 여부를 대표자께서 필히 재확인하시기 바랍니다.</p>
+            <b><Icon name="verified" />검수 결과 이용 안내</b>
+            <p>{SERVICE_NAME}의 광고 문구 검수는 화장품법 제13조 등을 참고한 자체 기준의 참고용 검수이며, 식약처 심의나 법률 자문을 대신하지 않습니다. 모든 위험 표현을 찾아내지 못할 수 있으니 광고 게시 전 의약품 오인 문구, 기능성 심사 번호 및 기능성화장품 기재 누락 여부를 대표자께서 필히 재확인하시기 바랍니다.</p>
           </div>
           <p className="footer-copy">© 2026 {SERVICE_NAME}. 뷰티 소상공인 전용 인스타그램 AI 크리에이티브 파트너.</p>
         </div>

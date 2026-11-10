@@ -62,7 +62,7 @@ export default function CreateLayout() {
               <Link to="/" className="topbar-logo">{SERVICE_NAME}</Link>
               <span className="label-md text-variant hide-sm">K-Beauty AI Ad Studio</span>
               <span className="dot hide-sm" aria-hidden="true" />
-              <span className="label-sm text-primary">실시간 식약처 규정 검사 활성</span>
+              <span className="label-sm text-primary">광고 문구 자체 검수 (참고용)</span>
             </div>
             <button type="button" className="button small" disabled={busy} onClick={newAd}>
               <Icon name="add" className="label-lg" />신규 소재 제작
