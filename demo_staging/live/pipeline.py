@@ -30,6 +30,13 @@ from .store import LiveStore
 from .checkpoints import LiveCheckpoints
 
 
+DEFAULT_LIVE_PROJECT_ID = uuid5(UUID("00000000-0000-0000-0000-000000000001"),"ittem-live-isolated")
+
+
+def live_dual_owner_project(project_id: UUID, parent_job_id: str) -> UUID:
+    return uuid5(project_id, "live-dual/" + parent_job_id)
+
+
 class TextProvider(Protocol):
     def analyze(self, images: list[bytes]): ...
     def research(self, product: ProductInput, analysis): ...
@@ -114,7 +121,7 @@ class LivePipeline:
         self.pm_authorized=bool(pm_authorized)
         self.text_reservation=float(text_reservation_usd)
         self.image_reservation=float(image_reservation_usd)
-        self.project_id=project_id or uuid5(UUID("00000000-0000-0000-0000-000000000001"),"ittem-live-isolated")
+        self.project_id=project_id or DEFAULT_LIVE_PROJECT_ID
 
     def _photos(self,job_id,expected_hashes):
         assets=self.jobs.get_job(job_id)["assets"]
@@ -636,7 +643,7 @@ class LivePipeline:
                 raise ValueError
             # Read the Owner's independent immutable binding and saved result.
             # This does not instantiate a processor or acquire dispatch rights.
-            project=str(uuid5(self.project_id,"live-dual/"+parent_id))
+            project=str(live_dual_owner_project(self.project_id,parent_id))
             native_root=self.root/"owner_image"
             with sqlite3.connect((native_root/"image_bindings.sqlite").resolve().as_uri()
                                  +"?mode=ro",uri=True) as c:

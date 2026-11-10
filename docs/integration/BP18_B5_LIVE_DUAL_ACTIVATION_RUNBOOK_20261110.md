@@ -31,6 +31,8 @@ python3 -m scripts.bp18_b5_dual_contract \
 3. 승인 및 보호 대상 확인 후 기존 `config/.b5_operator_control.lock`을 획득한다. 동일한 보호 `config` 디렉터리에서 임시 `0600` 파일에 준비 계약을 복사한다. 실제 B 루트를 `--staging-root`로 지정하고 임시 파일을 `verify`한다. 이전 계약이 있다면 SHA와 사본을 보호 증거 위치에 남긴다. 검증된 임시 파일을 동일 파일시스템의 `config/bp18_required_dual_contract.json`으로 원자 이동한다. 설치 파일을 다시 `verify`하고 B5 prestart의 `--target "$FORWARD"`와 `--target "$ROLLBACK"`를 `--mode web --port 0`으로 각각 검증한다. 이 과정을 마친 뒤 운영 잠금을 해제한다.
 4. Worker 종료와 미해결 RUNNING 행 부재를 확인하고 공식 `control/bp18_release_control.sh "$FORWARD"`에 위임한다. 기존 B5는 SQLite 6개를 백업해 `PRAGMA integrity_check`와 SHA를 기록한 뒤 소스 링크를 교체한다. 전진 시작 실패 시 호환 복귀 소스와 그 SHA의 정책만 선택한다. 기존 런타임 Job·Queue·CostLedger·Artifact는 현재 데이터로 읽는다. `BILLING_UNKNOWN`은 별도 대사에서 처리한다.
 
+승인된 Dual Intent는 생성 시점의 Release와 실행 정책에 결속된다. 전환 전에 기존 소스에서 실행할 수 있는 대기 작업이 정리됐는지 확인한다. 격리한 사고 행은 원장에 남긴다. 남은 실행 의도를 새 Release 정책으로 자동 재승인하거나 DB 스냅샷을 덮어써 옮기지 않는다. [과금 미확정 대사](BP18_LIVE_DUAL_BILLING_RECONCILIATION_20261110.md)
+
 ## 격리 재현
 
 ```bash

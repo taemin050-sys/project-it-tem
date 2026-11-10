@@ -10,10 +10,10 @@ from pathlib import Path
 import re
 import sqlite3
 import stat
-from uuid import uuid5
 
 from .contracts import LiveGateError, digest
 from .image_runtime_profile import effective_image_profile
+from .pipeline import live_dual_owner_project
 from .queue import LIVE_DUAL_PROTOCOL
 from demo_staging.live_safety import LiveNotAuthorized
 
@@ -111,6 +111,12 @@ def authorize_shared_text(flow, item):
         raise LiveGateError("LIVE_DUAL_SHARED_TEXT_NOT_AUTHORIZED")
 
 
+def image_cost_fingerprint(context_sha, wire_mode, profile):
+    return {"dual_protocol": LIVE_DUAL_PROTOCOL, "context_sha": context_sha,
+            "mode": wire_mode, "image_size": profile["image_size"],
+            "image_profile": profile["image_profile"]}
+
+
 def execute_live_dual(flow, queue, item, profile, image_adapter):
     try:
         actor, job_id = item["actor"], item["job_id"]
@@ -131,10 +137,8 @@ def execute_live_dual(flow, queue, item, profile, image_adapter):
             expected = profile["image_profile"]
             if {key: getattr(adapter, key) for key in expected} != expected:
                 raise LiveGateError("LIVE_DUAL_IMAGE_PROFILE_CHANGED")
-            fingerprint = {"dual_protocol": LIVE_DUAL_PROTOCOL,
-                           "context_sha": item["context_sha"], "mode": request.generation_mode,
-                           "image_size": profile["image_size"], "image_profile": expected}
-            project = uuid5(flow.project_id, "live-dual/" + parent)
+            fingerprint = image_cost_fingerprint(item["context_sha"], request.generation_mode, profile)
+            project = live_dual_owner_project(flow.project_id, parent)
             output, receipt = flow._guarded(actor, job_id, "image", fingerprint,
                 lambda: adapter.generate(request, project_id=project, include_provider_prompt_sha=True),
                 image=True, include_receipt=True)

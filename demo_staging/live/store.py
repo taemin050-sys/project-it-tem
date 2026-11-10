@@ -354,6 +354,8 @@ class LiveStore:
                 if result["execution_profile"]!=execution_profile:
                     raise LiveGateError("LIVE_DUAL_EXECUTION_PROFILE_CHANGED")
                 return result
+            if group["hold_code"]:
+                raise LiveGateError("LIVE_DUAL_GROUP_HELD")
             source=json.loads(parent["input_json"])
             if (source.get("generation_mode")!="composed" or source.get("image_size")!="4:5"
                     or digest(source)!=parent["input_sha"]

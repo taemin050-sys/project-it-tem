@@ -83,7 +83,7 @@ def mock_owner_adapter(root, profile, calls, *, outcome=None):
 @pytest.fixture
 def dual_runtime(signed_env, monkeypatch):
     tmp, dist, registry, key, _ = signed_env
-    root = tmp / "b-runtime"
+    root = tmp / "b-deployment" / "runtime"
     host = http_api.B_TAILNET_HOST
     monkeypatch.setattr(http_api, "B_RUNTIME_ROOT", root)
     for name in ("IT_TEM_LIVE_WEB_QUEUE_ENABLED", "IT_TEM_LIVE_ENABLED",
