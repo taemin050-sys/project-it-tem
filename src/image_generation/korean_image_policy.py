@@ -78,7 +78,16 @@ def render_korean_image_policy(request: ExternalImageRequest) -> str:
             if "cta" not in dict(profile.text):
                 parts.append("CTA는 인스타그램 플랫폼 버튼을 사용한다. 이미지 안에 CTA를 추가하지 않는다.")
         else:
-            parts.append(render_layout_instruction(profile))
+            if request.composed_layout_profile is not None:
+                from .layout_profiles_v3 import (
+                    OWNER_A5_PROFILE_MARKER_PREFIX,
+                    render_v3_generation_instruction,
+                )
+                name=request.composed_layout_profile.removeprefix(
+                    OWNER_A5_PROFILE_MARKER_PREFIX)
+                parts.append(render_v3_generation_instruction(name))
+            else:
+                parts.append(render_layout_instruction(profile))
     return "\n\n".join(parts)
 
 

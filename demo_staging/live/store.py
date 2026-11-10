@@ -134,6 +134,12 @@ class LiveStore:
             raise LiveGateError("OWNER_SIZE_REQUIRES_VERSIONED_PROFILE")
         a_policy=(owner_size_policy(new_size) if new_size is not None
                   else owner_a_policy()) if template_profile=="A" else None
+        # A5-1 development selector is SERVER-ONLY, explicit, isolated and
+        # NEW-JOB-ONLY. Historical v2 rows are never migrated or rewritten.
+        from .a5_beta_profile_v3 import selected_dev_profile, build_proposal
+        v3_candidate=selected_dev_profile(snapshot,template_profile=template_profile)
+        if v3_candidate is not None:
+            a_policy=build_proposal(v3_candidate)
         with self.db() as c:
             c.execute("BEGIN IMMEDIATE")
             existing=c.execute("SELECT * FROM live_jobs WHERE job_id=?",(job_id,)).fetchone()
@@ -159,7 +165,8 @@ class LiveStore:
             if template_profile=="A":
                 # Owner Image size v2 and frozen A v1 use distinct immutable
                 # marker events. Neither may be silently imported into the other.
-                self._event(c,r,("template_owner_size_ingress_v2" if new_size
+                self._event(c,r,("template_a5_v3_beta_ingress" if v3_candidate is not None
+                    else "template_owner_size_ingress_v2" if new_size
                     else "template_a_ingress_contract_v1"),r["state"],digest({
                     "profile_id":a_policy["profile_id"],
                     "profile_version":a_policy["profile_version"],
@@ -684,6 +691,28 @@ class LiveStore:
                     raise LiveGateError("OWNER_IMAGE_SIZE_CONTEXT_CONFLICT")
                 selection,_=resolve_size_choice(size)
                 metadata["layout_selection"]=selection.model_dump(mode="json")
+            elif policy is not None and policy["profile_id"].startswith(
+                    "OWNER_COMPOSED_4X5_V3_BETA_"):
+                # Fail closed BEFORE returning an Owner request usable by
+                # any paid worker. An unsigned proposal is strictly offline,
+                # even if the host flags are changed after Job creation.
+                if (job["mode"]!="OFFLINE_FIXTURE"
+                    or os.environ.get("IT_TEM_LIVE_ENABLED")=="YES"
+                    or os.environ.get("IT_TEM_LIVE_EXECUTION_APPROVED")=="YES"
+                    or os.environ.get("IT_TEM_A5_V3_OFFLINE_DEV_ALLOWED")!="YES"):
+                    raise LiveGateError("A5_V3_PROVIDER_NOT_AUTHORIZED")
+                # Owner Image DTO supports selection only; it must not
+                # receive our v3 governance metadata as a safe-zone DTO.
+                from src.image_generation.size_selection import resolve_size_choice
+                selection,_=resolve_size_choice("4:5")
+                metadata["layout_selection"]=selection.model_dump(mode="json")
+                metadata["generation_mode"]="composed"
+                from src.image_generation.layout_profiles_v3 import (
+                    OWNER_A5_PROFILE_MARKER_PREFIX,
+                )
+                selected=policy["profile_id"][-1]  # frozen A or C
+                metadata["composed_layout_profile"]=(
+                    OWNER_A5_PROFILE_MARKER_PREFIX+selected)
             elif policy is not None:
                 metadata["safe_zone"]=policy["safe_zone"]
             saved=json.loads(job["input_json"])

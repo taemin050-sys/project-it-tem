@@ -597,6 +597,15 @@ class LivePipeline:
             except (OSError,AttributeError):
                 raise LiveGateError("COMPOSITION_FONT_UNAVAILABLE") from None
         directory=self.root/"outputs"/job_id
+        # An unsigned proposal may be exercised with synthetic offline data
+        # but can NEVER consume a real Provider image or go LIVE.
+        prior_template=self.state.template(actor,job_id)
+        from .a5_beta_profile_v3 import PROFILE_PREFIX
+        if prior_template and prior_template["profile_id"].startswith(PROFILE_PREFIX):
+            from .a5_beta_profile_v3 import PRETENDARD_139_SHA
+            if (before["mode"]!="OFFLINE_FIXTURE" or self.live_enabled
+                    or font_hash!=PRETENDARD_139_SHA):
+                raise LiveGateError("A5_V3_PROPOSAL_LIVE_OR_FONT_NOT_APPROVED")
         plan=self.state.plan_compose(actor,job_id,layout,font_hash,has_prior_files=any(
             (directory/name).exists() for name in ("final.png","caption.txt","receipt.json")))
         # Only this Job may complete while the SQLite write transaction is held.
@@ -665,6 +674,10 @@ class LivePipeline:
                 except (GatewayError,ValueError):
                     raise LiveGateError("COMPOSITION_RENDER_FAILED") from None
             receipt=result.receipt
+            if plan["profile_id"].startswith(PROFILE_PREFIX):
+                from .a5_beta_profile_v3 import verify_receipt_for_v3
+                receipt=verify_receipt_for_v3(receipt,plan=plan,
+                                               font_sha=font_hash,copy_json=cp)
             expected_size=(tuple(snapshot["safe_zone"]["final_size"])
                if snapshot and snapshot["profile_id"].startswith("OWNER_IMAGE_SIZE_")
                else (1080,1350))

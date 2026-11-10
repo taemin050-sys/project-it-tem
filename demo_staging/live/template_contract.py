@@ -101,6 +101,11 @@ def verify_policy(row):
         elif row["profile_id"]==LEGACY_ID:
             if zone is not None:
                 raise ValueError("legacy profile cannot carry a new size")
+        elif row["profile_id"].startswith("OWNER_COMPOSED_4X5_V3_BETA_"):
+            # Explicit only; verify immutable beta proposal metadata/layout.
+            # No automatic promotion of any historical v2 snapshot.
+            from .a5_beta_profile_v3 import validate_frozen
+            validate_frozen(row,zone,layout)
         elif row["profile_id"].startswith(SIZE_PREFIX):
             # Snapshot-bound v2 image geometry is independent of the mutable
             # current Owner factory; only the original stored hash is authority.

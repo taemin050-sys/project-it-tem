@@ -75,6 +75,9 @@ class BackendImageInput(Contract):
     generation_mode: Literal["composed", "freeform"] | None = None
     copy_output: dict[str, JsonValue] | None = Field(default=None, repr=False)
     layout_selection: LayoutSelection | None = None
+    # Owner first: separate from FE's fixed mode/ratio. Versioned additive
+    # Image-only background layout for beta Composed 4:5.
+    composed_layout_profile: Literal["a5-v3-beta-A","a5-v3-beta-C"] | None = None
     job_id: Annotated[str, Field(strict=True, pattern=r"^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$")]
     copy_revision: CopyRevision
     # Opaque server approval identity. This library does not authenticate it or
@@ -97,6 +100,13 @@ class BackendImageInput(Contract):
                 raise ValueError("Freeform requires a complete copy snapshot and no fixed copy safe_zone")
         if self.layout_selection is not None and self.safe_zone is not None:
             raise ValueError("Use layout_selection or legacy copy safe_zone, not both")
+        if self.composed_layout_profile is not None and (
+            self.generation_mode!="composed"
+            or self.layout_selection is None
+            or self.layout_selection.aspect_ratio!="4:5"
+            or self.layout_selection.placement!="feed"
+            or self.safe_zone is not None):
+            raise ValueError("A5 beta profile only belongs to Composed feed 4:5")
         return self
 
     @field_validator("image_prompt")
@@ -212,7 +222,9 @@ class BackendImageAdapter:
         return ImagePrompt(
             positive=positive,
             language="ko",
-            prompt_version=("backend-freeform-ko-v1" if body.generation_mode == "freeform"
+            prompt_version=("backend-composed-a5-v3-beta1"
+                            if body.composed_layout_profile is not None
+                            else "backend-freeform-ko-v1" if body.generation_mode == "freeform"
                             else "backend-v02-ko-v3" if body.safe_zone else version),
             source_revision=body.copy_revision)
 
@@ -222,7 +234,7 @@ class BackendImageAdapter:
         legacy = body.image_prompt.concept is not None and type(body.copy_revision) is int
         version = "backend-v02-ko-v1" if legacy else "backend-v02-ko-v2"
         metadata = body.model_dump(mode="json", exclude={"product_images", "reference_images"})
-        for name in ("generation_mode", "copy_output"):
+        for name in ("generation_mode", "copy_output","composed_layout_profile"):
             if getattr(body, name) is None:
                 metadata.pop(name, None)  # Keep legacy fingerprints byte-for-byte.
         if body.layout_selection is None:
@@ -261,6 +273,7 @@ class BackendImageAdapter:
                     selected = dict(layout_selection=body.layout_selection, width=profile.native[0], height=profile.native[1])
                 request = ExternalImageRequest(**selected, operation="edit", pipeline_revision="2",
                     text_rendering="freeform-v1" if body.generation_mode == "freeform" else None,
+                    composed_layout_profile=body.composed_layout_profile,
                     model=self.model, quality=self.quality, complexity=self.complexity, prompt=prompt,
                     product_images=products, reference_images=references,
                     watermark_policy="exclude-v1", cosmetics_policy_version="ko-v1")
@@ -282,6 +295,11 @@ class BackendImageAdapter:
             snapshot["product_analysis"]["error"] = body.product_analysis.error
         body = BackendImageInput.model_validate(snapshot)
         # Guard before binding, asset writes, reservations and network activity.
+        # Beta v3 is UNSIGNED, so no paid Owner Image provider may consume it.
+        if (body.composed_layout_profile is not None and
+                not self.processor.adapter.offline):
+            raise GatewayError("A5_V3_PAID_PROVIDER_NOT_AUTHORIZED",
+                               "Unsigned beta profile cannot call a paid provider.")
         # A failed text analysis may contain is_cosmetic=True as a default.
         if (not body.product_analysis.analysis_succeeded
                 or body.product_analysis.error is not None):

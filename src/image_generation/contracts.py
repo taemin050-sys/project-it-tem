@@ -97,6 +97,9 @@ class ExternalImageRequest(Contract):
     """One Korean API operation; input order is part of the snapshot hash."""
     layout_selection: LayoutSelection | None = None
     text_rendering: Literal["freeform-v1"] | None = None
+    # Additive, unsigned offline-only A5 v3 proposal. None is omitted on
+    # historical serialized requests to preserve Provider Attempt SHA.
+    composed_layout_profile: Literal["a5-v3-beta-A","a5-v3-beta-C"] | None = None
     kind: Literal["api_image"] = "api_image"
     operation: ImageOperation
     pipeline_profile_id: Literal["openai-images"] = "openai-images"
@@ -117,6 +120,8 @@ class ExternalImageRequest(Contract):
         data = handler(self)
         if self.text_rendering is None:
             data.pop("text_rendering", None)
+        if self.composed_layout_profile is None:
+            data.pop("composed_layout_profile", None)
         if self.layout_selection is None:
             data.pop("layout_selection", None)  # Keep pre-layout saved bytes/hashes.
         if self.complexity is None:
@@ -128,6 +133,12 @@ class ExternalImageRequest(Contract):
         self.complexity = resolve_image_complexity(self.model, self.complexity)
         if self.text_rendering is not None and self.operation != "edit":
             raise ValueError("Freeform ads require editing product photographs")
+        if self.composed_layout_profile is not None:
+            if (self.operation!="edit" or self.text_rendering is not None
+                or self.layout_selection is None
+                or self.layout_selection.aspect_ratio!="4:5"
+                or self.layout_selection.placement!="feed"):
+                raise ValueError("A5 v3 beta is only for composed feed-4:5")
         if self.layout_selection is not None:
             from .layout_profiles import get_layout
             profile = get_layout(self.layout_selection.aspect_ratio, self.layout_selection.placement)
