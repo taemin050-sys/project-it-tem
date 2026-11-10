@@ -1,0 +1,10 @@
+decision_id,decision_topic,required_approver_roles,status,review_evidence_required,selected_mock_sha256,exact_profile_json_sha256,approved_font_sha256,font_license_evidence_sha256,effective_policy_epoch,owner_commit_sha,image_owner_signoff_ref,pm_signoff_ref,approval_timestamp,decision_rationale
+D50-01,4:5 composed on-image CTA once,Image Owner+PM,ALREADY_DECIDED_POLICY,C-A4 CTA P1 and original PM policy,,,,,,,,,,
+D50-02,A/C priority and B editorial profile selection,Image Owner+PM,PENDING,A50 4-up screenshot and 360/390 mobile assets,,,,,,,,,,
+D50-03,"exact regions, profile ID/version, canonical JSON SHA",Image Owner+PM,PENDING,"A50 proposal geometry, revised safe inset review",,,,,,,,,,
+D50-04,"production font and weight, font SHA and OFL notice",Image Owner+PM/Legal,HOLD,"upstream font license, exact binary hash and distribution scope",,,,,,,,,,
+D50-05,"actual brand, package, model and label segmentation",Image Owner+PM,NOT_AUDITED,representative permitted real product images and protected masks,,,,,,,,,,
+D50-06,mobile CTA font/spacing/contrast/crop/overflow,Image Owner+PM,PENDING,"360/390 and mixed long-Korean strings, A50D preflight",,,,,,,,,,
+D50-07,"visual scorecard, weighting and human acceptance rubric",PM+Image Owner,PENDING,blinded review with actual brand/product examples,,,,,,,,,,
+D50-08,9:16 CTA platform versus image policy,PM+Image Owner,DECISION_PENDING_PM_OWNER,separate 9:16 product policy,,,,,,,,,,
+D50-09,"new job-only version binding, v2 rollback and no migration",Serving+PM+Image Owner,A5_1_IMPLEMENTATION_HOLD,"immutable job schema, historical receipt and rollback tests",,,,,,,,,,
