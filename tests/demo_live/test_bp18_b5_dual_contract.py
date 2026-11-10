@@ -36,6 +36,7 @@ def staged_pair(tmp_path, capsys):
         destination = repo / name
         destination.parent.mkdir(parents=True, exist_ok=True)
         shutil.copyfile(SOURCE_ROOT / name, destination)
+    (repo / "app/package-lock.json").write_text('{"name":"synthetic-frontend","lockfileVersion":3}\n')
     git(repo, "add", ".")
     git(repo, *identity, "commit", "-qm", "Compatible fallback fixture")
     rollback = git(repo, "rev-parse", "HEAD")
@@ -201,6 +202,8 @@ root = Path(ROOT)
 command = Path(sys.argv[0]).name
 args = sys.argv[1:]
 state = root / "unit-state"
+with (root / "control-calls").open("a") as calls:
+    calls.write(command + " " + " ".join(args) + "\\n")
 if command == "systemctl":
     action = args[1]
     if action == "is-active":
@@ -266,3 +269,311 @@ def test_b5_control_preserves_protected_runtime_across_approved_swap(staged_pair
         assert hashlib.sha256(path.read_bytes()).hexdigest() == saved["sha256"]
         with sqlite3.connect(path) as cx:
             assert cx.execute("PRAGMA integrity_check").fetchone()[0] == "ok"
+
+
+def _install_dual_contract(root, args, approval, capsys):
+    assert contract.main([*args, "prepare", "--approval", str(approval)]) == 0
+    raw = capsys.readouterr().out
+    path = root / guard.DUAL_CONTRACT_FILE
+    path.write_text(raw)
+    path.chmod(0o600)
+    return json.loads(raw)
+
+
+INVENTORY_MUTATIONS = (
+    "extra_python", "extra_native", "extra_pth", "executable_script",
+    "symlink_file", "symlink_directory", "unknown_frontend_js", "deleted_file",
+    "chmod_user_execute", "chmod_group_execute", "chmod_other_execute",
+)
+
+
+def _mutate_release(release, mutation):
+    if mutation in {"extra_python", "extra_native", "extra_pth", "executable_script"}:
+        relative, raw = {
+            "extra_python": ("sitecustomize.py", b"raise RuntimeError('unexpected code')\n"),
+            "extra_native": ("injected.so", b"synthetic native library\n"),
+            "extra_pth": ("injected.pth", b"import injected\n"),
+            "executable_script": ("injected-helper", b"#!/bin/sh\nexit 1\n"),
+        }[mutation]
+        target = release / relative
+        target.write_bytes(raw)
+        if mutation == "executable_script":
+            target.chmod(0o755)
+    elif mutation == "symlink_file":
+        (release / "injected.py").symlink_to("README.md")
+    elif mutation == "symlink_directory":
+        (release / "injected-directory").symlink_to("demo_staging", target_is_directory=True)
+    elif mutation == "unknown_frontend_js":
+        target = release / "app/dist/assets/unreviewed.js"
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text("window.unreviewed = true;\n")
+    elif mutation == "deleted_file":
+        (release / "README.md").unlink()
+    else:
+        execute = {"chmod_user_execute": 0o100, "chmod_group_execute": 0o010,
+                   "chmod_other_execute": 0o001}[mutation]
+        (release / "README.md").chmod(0o644 | execute)
+
+
+@pytest.mark.parametrize("mutation", INVENTORY_MUTATIONS)
+def test_complete_inventory_rejects_unreviewed_release_changes_at_every_gate(
+        staged_pair, capsys, mutation):
+    root, args, approval, forward, rollback, _ = staged_pair
+    document = _install_dual_contract(root, args, approval, capsys)
+    assert document["version"] == 2
+    assert set(document["release_inventories"]) == {forward, rollback}
+    _install_synthetic_auth_and_review_contracts(root, (forward, rollback))
+    _seed_runtime(root)
+    before = _runtime_digests(root)
+    _mutate_release(root / "releases" / forward, mutation)
+
+    for command in (
+        ["inspect", "--forward", forward, "--rollback", rollback],
+        ["prepare", "--approval", str(approval)],
+        ["verify", "--approval", str(approval)],
+    ):
+        assert contract.main([*args, *command]) == guard.EXIT_DENY
+        result = capsys.readouterr()
+        assert not result.out
+        assert "BP18_DUAL_CONTRACT_DENIED:" in result.err
+    with pytest.raises(guard.ReleaseUnsafe):
+        guard.validate(root, mode="web", port=0, target_override=forward)
+    assert _runtime_digests(root) == before
+
+
+def _record_frontend(root, args, sha, capsys, *, private=False):
+    release = root / "releases" / sha
+    for relative, raw in {
+        "app/dist/index.html": '<script src="/assets/index.js"></script>\n',
+        "app/dist/assets/index.js": "window.syntheticBuild = true;\n",
+        "app/dist/assets/index.css": "body { color: black; }\n",
+    }.items():
+        destination = release / relative
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        destination.write_text(raw)
+        destination.chmod(0o600 if private else 0o644)
+    assert contract.main([*args, "record-frontend", "--release", sha,
+                          "--build-reference", "SYNTHETIC_LOCAL_BUILD_LOG"]) == 0
+    raw = capsys.readouterr().out
+    path = root.parent / ("frontend-build-" + sha + ".json")
+    path.write_text(raw)
+    path.chmod(0o600)
+    return path
+
+
+def _approve_frontend(root, args, approval, forward, rollback, record, capsys):
+    build_args = [*args, "--frontend-build", str(record)]
+    assert contract.main([*build_args, "inspect", "--forward", forward,
+                          "--rollback", rollback]) == 0
+    evidence = json.loads(capsys.readouterr().out)
+    assert evidence.pop("evidence_only") is True
+    approval.write_text(json.dumps({**evidence, "approval_reference": "SYNTHETIC_BUILD_REVIEW"}))
+    return build_args, _install_dual_contract(root, build_args, approval, capsys)
+
+
+@pytest.mark.parametrize("private", [False, True], ids=["public-assets", "private-assets"])
+def test_frontend_build_requires_external_record_and_pins_exact_inventory(
+        staged_pair, capsys, private):
+    root, args, approval, forward, rollback, _ = staged_pair
+    record = _record_frontend(root, args, forward, capsys, private=private)
+    assert record.is_relative_to(root.parent) and not record.is_relative_to(root / "releases")
+    build = json.loads(record.read_text())
+    assert "approval_reference" not in build and "evidence_only" not in build
+    assert build["command"] == "npm run build"
+    assert contract.main([*args, "inspect", "--forward", forward,
+                          "--rollback", rollback]) == guard.EXIT_DENY
+    assert "DUAL_STAGED_UNEXPECTED_FILES" in capsys.readouterr().err
+    build_args, document = _approve_frontend(root, args, approval, forward, rollback,
+                                             record, capsys)
+    inventory = document["release_inventories"][forward]
+    assert inventory["frontend_build"] == build
+    assert inventory["files"] == guard.release_inventory(root / "releases" / forward)
+    assert json.loads(approval.read_text())["forward"]["inventory_sha256"] == guard.canonical_sha(inventory)
+    assert contract.main([*build_args, "verify", "--approval", str(approval)]) == 0
+    capsys.readouterr()
+    _install_synthetic_auth_and_review_contracts(root, (forward, rollback))
+    _seed_runtime(root)
+    assert guard.validate(root, mode="web", port=0, target_override=forward)["required_dual"] == guard.DUAL_PROTOCOL
+
+
+def test_frontend_record_requires_a_tracked_package_lock(staged_pair, capsys):
+    root, args, _, forward, _, _ = staged_pair
+    repo = Path(args[1])
+    git(repo, "rm", "app/package-lock.json")
+    git(repo, "-c", "user.name=B5 test", "-c", "user.email=b5-test@example.invalid",
+        "commit", "-qm", "Frontend without tracked dependency lock")
+    sha = git(repo, "rev-parse", "HEAD")
+    release = root / "releases" / sha
+    shutil.copytree(root / "releases" / forward, release)
+    (release / "app/package-lock.json").unlink()
+    (release / "SOURCE_SHA.txt").write_text(sha + "\n")
+    (release / "app/dist").mkdir()
+    (release / "app/dist/index.html").write_text("synthetic build\n")
+    for untracked_lock in (False, True):
+        if untracked_lock:
+            (release / "app/package-lock.json").write_text('{"lockfileVersion":3}\n')
+        assert contract.main([*args, "record-frontend", "--release", sha,
+                              "--build-reference", "SYNTHETIC_BUILD"]) == guard.EXIT_DENY
+        assert not capsys.readouterr().out
+
+
+@pytest.mark.parametrize("mutation", ["extra_python", "extra_native", "extra_pth",
+                                     "executable_script", "symlink_file", "symlink_directory",
+                                     "frontend_native", "frontend_executable"])
+def test_frontend_record_cannot_authorize_runtime_code(staged_pair, capsys, mutation):
+    root, args, _, forward, _, _ = staged_pair
+    _record_frontend(root, args, forward, capsys)
+    release = root / "releases" / forward
+    if mutation == "frontend_native":
+        (release / "app/dist/assets/native.so").write_bytes(b"synthetic native library\n")
+    elif mutation == "frontend_executable":
+        (release / "app/dist/assets/index.js").chmod(0o755)
+    else:
+        _mutate_release(release, mutation)
+    assert contract.main([*args, "record-frontend", "--release", forward,
+                          "--build-reference", "SYNTHETIC_BUILD"]) == guard.EXIT_DENY
+    result = capsys.readouterr()
+    assert not result.out and "BP18_DUAL_CONTRACT_DENIED:" in result.err
+
+
+@pytest.mark.parametrize("mutation", ["tree_sha", "package_lock_sha256", "command",
+                                     "file_sha256", "file_mode", "duplicate_key"])
+def test_frontend_build_provenance_tampering_is_denied(staged_pair, capsys, mutation):
+    root, args, approval, forward, rollback, _ = staged_pair
+    record = _record_frontend(root, args, forward, capsys)
+    build_args, _ = _approve_frontend(root, args, approval, forward, rollback, record, capsys)
+    build = json.loads(record.read_text())
+    if mutation in {"tree_sha", "package_lock_sha256"}:
+        build[mutation] = "0" * (40 if mutation == "tree_sha" else 64)
+    elif mutation == "command":
+        build["command"] = "npm run unreviewed-command"
+    elif mutation == "file_sha256":
+        build["files"]["app/dist/assets/index.js"]["sha256"] = "0" * 64
+    elif mutation == "file_mode":
+        build["files"]["app/dist/assets/index.js"]["mode"] = "0755"
+    raw = json.dumps(build)
+    if mutation == "duplicate_key":
+        raw = '{"version":1,' + raw[1:]
+    record.write_text(raw)
+    for command in (["inspect", "--forward", forward, "--rollback", rollback],
+                    ["prepare", "--approval", str(approval)],
+                    ["verify", "--approval", str(approval)]):
+        assert contract.main([*build_args, *command]) == guard.EXIT_DENY
+        result = capsys.readouterr()
+        assert not result.out and "BP18_DUAL_CONTRACT_DENIED:" in result.err
+
+
+@pytest.mark.parametrize("mutation", ["bytes", "new_file", "deleted_file", "build_reference"])
+def test_frontend_changes_need_new_inventory_approval(staged_pair, capsys, mutation):
+    root, args, approval, forward, rollback, _ = staged_pair
+    record = _record_frontend(root, args, forward, capsys)
+    build_args, _ = _approve_frontend(root, args, approval, forward, rollback, record, capsys)
+    release = root / "releases" / forward
+    build = json.loads(record.read_text())
+    if mutation == "bytes":
+        (release / "app/dist/assets/index.js").write_text("window.changedAfterReview = true;\n")
+    elif mutation == "new_file":
+        (release / "app/dist/assets/unreviewed.js").write_text("window.unreviewed = true;\n")
+    elif mutation == "deleted_file":
+        (release / "app/dist/assets/index.css").unlink()
+    else:
+        build["build_reference"] = "DIFFERENT_BUILD_ENVIRONMENT"
+    # Even a freshly generated, internally matching record cannot replace approval.
+    build["files"] = {name: metadata for name, metadata in guard.release_inventory(release).items()
+                      if name.startswith("app/dist/")}
+    record.write_text(json.dumps(build))
+    for command in (["prepare", "--approval", str(approval)],
+                    ["verify", "--approval", str(approval)]):
+        assert contract.main([*build_args, *command]) == guard.EXIT_DENY
+        assert "DUAL_APPROVED_SOURCE_EVIDENCE_MISMATCH" in capsys.readouterr().err
+    if mutation != "build_reference":
+        with pytest.raises(guard.ReleaseUnsafe):
+            guard.required_dual_contract(root, forward, activating=True)
+
+
+@pytest.mark.parametrize("mutation", ["command", "release_sha", "package_lock_sha256", "files"])
+def test_prestart_rejects_malformed_installed_frontend_provenance(staged_pair, capsys, mutation):
+    root, args, approval, forward, rollback, _ = staged_pair
+    record = _record_frontend(root, args, forward, capsys)
+    _, document = _approve_frontend(root, args, approval, forward, rollback, record, capsys)
+    build = document["release_inventories"][forward]["frontend_build"]
+    if mutation == "command":
+        build["command"] = "npm run unreviewed-command"
+    elif mutation == "release_sha":
+        build["release_sha"] = rollback
+    elif mutation == "package_lock_sha256":
+        build["package_lock_sha256"] = "0" * 64
+    else:
+        build["files"]["app/dist/assets/index.js"]["sha256"] = "0" * 64
+    (root / guard.DUAL_CONTRACT_FILE).write_text(json.dumps(document))
+    with pytest.raises(guard.ReleaseUnsafe):
+        guard.required_dual_contract(root, forward, activating=True)
+
+
+def test_prestart_and_verifier_reject_duplicate_installed_contract_keys(staged_pair, capsys):
+    root, args, approval, forward, _, _ = staged_pair
+    _install_dual_contract(root, args, approval, capsys)
+    path = root / guard.DUAL_CONTRACT_FILE
+    path.write_text('{"version":2,' + path.read_text()[1:])
+    assert contract.main([*args, "verify", "--approval", str(approval)]) == guard.EXIT_DENY
+    assert "DUAL_OPERATOR_FILE_DUPLICATE_KEYS" in capsys.readouterr().err
+    with pytest.raises(guard.ReleaseUnsafe):
+        guard.required_dual_contract(root, forward, activating=True)
+
+
+@pytest.mark.parametrize("ancestor", ["releases", "release"])
+def test_inventory_verification_rejects_symlinked_release_ancestors(staged_pair, capsys, ancestor):
+    root, args, approval, forward, rollback, _ = staged_pair
+    _install_dual_contract(root, args, approval, capsys)
+    source = root / "releases" if ancestor == "releases" else root / "releases" / forward
+    saved = root.parent / ("saved-" + ancestor)
+    source.rename(saved)
+    source.symlink_to(saved, target_is_directory=True)
+    for command in (["inspect", "--forward", forward, "--rollback", rollback],
+                    ["prepare", "--approval", str(approval)],
+                    ["verify", "--approval", str(approval)]):
+        assert contract.main([*args, *command]) == guard.EXIT_DENY
+        assert "DUAL_STAGED_DIRECTORY_INVALID" in capsys.readouterr().err
+    with pytest.raises(guard.ReleaseUnsafe, match="DUAL_STAGED_DIRECTORY_INVALID"):
+        guard.required_dual_contract(root, forward, activating=True)
+
+
+@pytest.mark.parametrize("mutation", ["version_one", "sources_list", "inventories_list"])
+def test_prestart_requires_version_two_full_inventory_contract(staged_pair, capsys, mutation):
+    root, args, approval, forward, _, _ = staged_pair
+    document = _install_dual_contract(root, args, approval, capsys)
+    if mutation == "version_one":
+        document["version"] = 1
+        document.pop("release_inventories")
+    elif mutation == "sources_list":
+        document["verified_sources"] = []
+    else:
+        document["release_inventories"] = []
+    (root / guard.DUAL_CONTRACT_FILE).write_text(json.dumps(document))
+    with pytest.raises(guard.ReleaseUnsafe):
+        guard.required_dual_contract(root, forward, activating=True)
+
+
+@pytest.mark.parametrize("role", ["forward", "rollback"])
+@pytest.mark.parametrize("mutation", ["extra_python", "extra_native", "extra_pth",
+                                     "executable_script", "symlink_file", "symlink_directory",
+                                     "unknown_frontend_js", "deleted_file", "chmod_user_execute"])
+def test_control_rejects_changed_candidate_or_fallback_before_stop(
+        staged_pair, capsys, role, mutation):
+    root, args, approval, forward, rollback, _ = staged_pair
+    _install_dual_contract(root, args, approval, capsys)
+    _install_synthetic_auth_and_review_contracts(root, (forward, rollback))
+    _seed_runtime(root)
+    before = _runtime_digests(root)
+    entry, env = _control_harness(root, forward)
+    target = forward if role == "forward" else rollback
+    _mutate_release(root / "releases" / target, mutation)
+    result = subprocess.run(["bash", str(entry), forward], env=env, capture_output=True, text=True)
+    assert result.returncode == guard.EXIT_DENY, result.stdout + result.stderr
+    assert "BP18_RELEASE_PRESTART_DENIED:" in result.stdout
+    assert (root / "repo").readlink() == Path("releases") / rollback
+    assert (root / "unit-state").read_text() == "active\n"
+    assert "systemctl --user stop" not in (root / "control-calls").read_text()
+    assert "BP18_B5_SQLITE_SIX_BACKUPS_VERIFIED" not in result.stdout
+    assert _runtime_digests(root) == before
+    assert not (root / "backups").exists()

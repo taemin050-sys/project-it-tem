@@ -29,7 +29,7 @@ Environment=IT_TEM_BP18_F11_ENABLED=YES
 Environment=IT_TEM_BP18_REVIEW_POLICY_ID=bp18-f11-compliance-policy-v1
 Environment=IT_TEM_QA_ALLOWED_ACTORS=bp18_b_evaluator
 Environment=IT_TEM_LIVE_KOREAN_FONT=/usr/share/fonts/truetype/nanum/NanumGothic.ttf
-ExecStartPre=/usr/bin/python3 /home/macstudio/ittem-bp18-product-completion-20261111/control/bp18_release_prestart.py --mode web --port 18100
+ExecStartPre=/usr/bin/python3 -I -S /home/macstudio/ittem-bp18-product-completion-20261111/control/bp18_release_prestart.py --mode web --port 18100
 ExecStart=/usr/bin/bash /home/macstudio/ittem-bp18-product-completion-20261111/control/bp18_web_exec.sh
 Restart=on-failure
 RestartSec=3s

@@ -26,6 +26,9 @@ AUTH_CONTRACT_FILE = "config/bp18_required_auth_contract.json"
 REVIEW_CONTRACT_FILE = "config/bp18_required_review_contract.json"
 DUAL_CONTRACT_FILE = "config/bp18_required_dual_contract.json"
 DUAL_PROTOCOL = "LIVE_DUAL_V1"
+FRONTEND_EXTENSIONS = frozenset({".html", ".js", ".css", ".json", ".map", ".txt",
+    ".webmanifest", ".woff", ".woff2", ".ttf", ".otf", ".eot", ".svg", ".png",
+    ".jpg", ".jpeg", ".gif", ".webp", ".avif", ".ico"})
 DUAL_SOURCE_MARKERS = {
     "demo_staging/live/store.py": (b"live_paid_dual_groups", b"live_dual_f09_parent"),
     "demo_staging/live/pipeline.py": (b"live_dual_candidate_receipt", b"verify_live_dual_f09"),
@@ -66,6 +69,86 @@ class ReleaseUnsafe(RuntimeError):
     def __init__(self, code: str):
         super().__init__(code)
         self.code = code
+
+
+def canonical_sha(document: object) -> str:
+    return hashlib.sha256(json.dumps(document, sort_keys=True,
+                                     separators=(",", ":")).encode()).hexdigest()
+
+
+def unique_json_keys(pairs: list[tuple]) -> dict:
+    result = dict(pairs)
+    if len(result) != len(pairs):
+        raise ValueError("duplicate JSON keys")
+    return result
+
+
+def release_inventory(release: Path) -> dict:
+    """Read the complete release, including ignored files. Never follow links.
+
+    Dependencies and mutable caches belong outside releases. No extension,
+    dot-directory or ignored-file exception is made here.
+    """
+    files, directories = {}, set()
+
+    def walk(directory: Path) -> None:
+        info = directory.lstat()
+        if (not stat.S_ISDIR(info.st_mode) or info.st_mode & 0o022):
+            raise ReleaseUnsafe("DUAL_INVENTORY_DIRECTORY_INVALID")
+        for child in directory.iterdir():
+            relative = child.relative_to(release).as_posix()
+            info = child.lstat()
+            if stat.S_ISDIR(info.st_mode):
+                directories.add(relative)
+                walk(child)
+            elif (stat.S_ISREG(info.st_mode) and info.st_nlink == 1
+                  and not info.st_mode & 0o7022):
+                files[relative] = {"sha256": hashlib.sha256(child.read_bytes()).hexdigest(),
+                                   "mode": f"{stat.S_IMODE(info.st_mode):04o}"}
+            else:
+                raise ReleaseUnsafe("DUAL_INVENTORY_FILE_TYPE_INVALID")
+
+    walk(release)
+    parents = {parent.as_posix() for name in files for parent in Path(name).parents
+               if parent != Path(".")}
+    if directories != parents:
+        raise ReleaseUnsafe("DUAL_INVENTORY_UNEXPECTED_DIRECTORY")
+    return files
+
+
+def verify_frontend_build(build: object, files: dict, target: str, tree: str) -> None:
+    generated = {name: record for name, record in files.items() if name.startswith("app/dist/")}
+    if build is None and not generated:
+        return
+    if (not isinstance(build, dict) or set(build) != {"version", "release_sha", "tree_sha",
+            "package_lock_sha256", "command", "build_reference", "files"}
+            or type(build["version"]) is not int or build["version"] != 1
+            or build["release_sha"] != target or build["tree_sha"] != tree
+            or build["command"] != "npm run build"
+            or not isinstance(build["build_reference"], str)
+            or not build["build_reference"].strip() or len(build["build_reference"]) > 200
+            or build["package_lock_sha256"] != files.get("app/package-lock.json", {}).get("sha256")
+            or "app/dist/index.html" not in generated or build["files"] != generated
+            or any(Path(name).suffix.lower() not in FRONTEND_EXTENSIONS or
+                   int(record["mode"], 8) & 0o111 for name, record in generated.items())):
+        raise ReleaseUnsafe("DUAL_FRONTEND_BUILD_PROVENANCE_MISMATCH")
+
+
+def verify_release_inventory(release: Path, manifest: object, target: str) -> None:
+    if (not isinstance(manifest, dict) or set(manifest) !=
+            {"version", "release_sha", "tree_sha", "files", "frontend_build"}
+            or type(manifest["version"]) is not int or manifest["version"] != 1
+            or manifest["release_sha"] != target
+            or not isinstance(manifest["tree_sha"], str)
+            or not SHA_RE.fullmatch(manifest["tree_sha"])
+            or not isinstance(manifest["files"], dict) or not manifest["files"]):
+        raise ReleaseUnsafe("LIVE_DUAL_INVENTORY_INVALID")
+    # Contract file is operator-owned; exact equality checks every path, byte
+    # digest and permission. An in-release manifest cannot authorize itself.
+    actual = release_inventory(release)
+    if actual != manifest["files"]:
+        raise ReleaseUnsafe("LIVE_DUAL_INVENTORY_MISMATCH")
+    verify_frontend_build(manifest["frontend_build"], actual, target, manifest["tree_sha"])
 
 
 def _regular(path: Path, *, trusted: bool = False) -> Path:
@@ -234,17 +317,26 @@ def required_dual_contract(root: Path, target: str, *, activating: bool = False)
     if not activating and not path.exists() and not _dual_history(root):
         return None
     try:
-        document = json.loads(_regular(path, trusted=True).read_text())
+        document = json.loads(_regular(path, trusted=True).read_text(),
+                              object_pairs_hook=unique_json_keys)
     except (OSError, ValueError, UnicodeError, ReleaseUnsafe) as error:
         raise ReleaseUnsafe("LIVE_DUAL_REQUIRED_CONTRACT_INVALID") from error
+    if (isinstance(document, dict) and document.get("version") == 1):
+        raise ReleaseUnsafe("LIVE_DUAL_FULL_INVENTORY_REQUIRED")
     if (not isinstance(document, dict) or set(document) !=
-            {"version", "required_mode", "verified_sources"} or
-            document["version"] != 1 or document["required_mode"] != DUAL_PROTOCOL or
-            not isinstance(document["verified_sources"], dict)):
+            {"version", "required_mode", "verified_sources", "release_inventories"} or
+            type(document["version"]) is not int or document["version"] != 2 or
+            document["required_mode"] != DUAL_PROTOCOL or
+            not isinstance(document["release_inventories"], dict) or
+            not isinstance(document["verified_sources"], dict) or
+            set(document["release_inventories"]) != set(document["verified_sources"])):
         raise ReleaseUnsafe("LIVE_DUAL_REQUIRED_CONTRACT_INVALID")
     verified = document["verified_sources"].get(target)
     if not isinstance(verified, dict) or set(verified) != set(DUAL_SOURCE_FILES):
         raise ReleaseUnsafe("LIVE_DUAL_INCOMPATIBLE_RELEASE_DENIED")
+    for directory in (root, root / "releases", root / "releases" / target):
+        if directory.is_symlink() or not directory.is_dir():
+            raise ReleaseUnsafe("DUAL_STAGED_DIRECTORY_INVALID")
     for name in DUAL_SOURCE_FILES:
         expected = verified[name]
         try:
@@ -256,6 +348,8 @@ def required_dual_contract(root: Path, target: str, *, activating: bool = False)
             raise ReleaseUnsafe("LIVE_DUAL_SOURCE_PROVENANCE_INVALID")
         if any(marker not in source for marker in DUAL_SOURCE_MARKERS[name]):
             raise ReleaseUnsafe("LIVE_DUAL_REQUIRED_PROTOCOL_CODE_MISSING")
+    verify_release_inventory(root / "releases" / target,
+                             document["release_inventories"][target], target)
     return document
 
 

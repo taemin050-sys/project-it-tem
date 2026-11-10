@@ -22,8 +22,8 @@ test "$(cat "$ROOT/releases/$TARGET/SOURCE_SHA.txt")" = "$TARGET"
 
 # Both candidate AND fallback must be epoch compatible with the *current* DB.
 # Runs BEFORE stopping the live service. Port 0 skips active current port.
-python3 "$CONTROL/bp18_release_prestart.py" --mode web --port 0 --target "$TARGET"
-python3 "$CONTROL/bp18_release_prestart.py" --mode web --port 0 --target "$FROM"
+python3 -I -S "$CONTROL/bp18_release_prestart.py" --mode web --port 0 --target "$TARGET"
+python3 -I -S "$CONTROL/bp18_release_prestart.py" --mode web --port 0 --target "$FROM"
 
 test "$(systemctl --user is-active "$UNIT")" = active || {
  echo "DENY_CURRENT_UNIT_NOT_ACTIVE";exit 78;
@@ -38,7 +38,7 @@ test "$(cat "$ROOT/web.pid")" = "$PID"
 
 # Immutable six-database online backup before any stop/symlink change.
 STAMP="$(date -u +%Y%m%dT%H%M%SZ)"
-python3 "$CONTROL/bp18_backup_runtime.py" "$STAMP"
+python3 -I -S "$CONTROL/bp18_backup_runtime.py" "$STAMP"
 
 systemctl --user stop "$UNIT"
 for i in 1 2 3 4 5 6 7 8 9;do
@@ -57,7 +57,7 @@ restore(){
  mv -Tf "$ROOT/.b5-restore-$FROM" "$ROOT/repo"
  # Operator precheck has no systemd Environment; systemd ExecStartPre
  # validates the active unit SSO env at actual port 18100.
- if python3 "$CONTROL/bp18_release_prestart.py" --mode web --port 0;then
+ if python3 -I -S "$CONTROL/bp18_release_prestart.py" --mode web --port 0;then
   systemctl --user start "$UNIT"
   echo "ROLLBACK_TO_VERIFIED_OLD_RELEASE=$FROM"
  else

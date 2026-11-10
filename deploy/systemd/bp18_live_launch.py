@@ -19,6 +19,10 @@ import subprocess
 import sys
 from threading import Event
 
+# Release folders are sealed inventories. Keep interpreter-generated caches out
+# of both this process and the exec'd web process; mutable data lives in runtime.
+sys.dont_write_bytecode = True
+
 
 ROOT = Path("/home/macstudio/ittem-bp18-product-completion-20261111")
 HOST = "macstudio-macstudio.tail17dfff.ts.net:10500"
@@ -236,7 +240,7 @@ def launch_worker(root: Path) -> int:
         fingerprint = configure(root, worker=True)
         require_web_policy(root, fingerprint)
         checked = subprocess.run([
-            "/usr/bin/python3", str(root / "control/bp18_release_prestart.py"),
+            "/usr/bin/python3", "-I", "-S", str(root / "control/bp18_release_prestart.py"),
             "--mode", "worker", "--port", "0",
         ], check=False)
         if checked.returncode:
@@ -255,6 +259,7 @@ def launch_worker(root: Path) -> int:
 
 
 def main() -> int:
+    os.environ["PYTHONDONTWRITEBYTECODE"] = "1"
     try:
         mode = sys.argv[1] if len(sys.argv) > 1 else ""
         if mode == "worker" and len(sys.argv) == 2:

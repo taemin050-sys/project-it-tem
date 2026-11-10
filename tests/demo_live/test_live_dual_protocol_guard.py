@@ -41,8 +41,11 @@ def dual_contract(root, sha):
         sources[name] = hashlib.sha256(raw).hexdigest()
     contract = root / guard.DUAL_CONTRACT_FILE
     contract.write_text(json.dumps({
-        "version": 1, "required_mode": LIVE_DUAL_PROTOCOL,
+        "version": 2, "required_mode": LIVE_DUAL_PROTOCOL,
         "verified_sources": {sha: sources},
+        "release_inventories": {sha: {"version": 1, "release_sha": sha,
+            "tree_sha": "d" * 40, "frontend_build": None,
+            "files": guard.release_inventory(root / "releases" / sha)}},
     }))
     contract.chmod(0o600)
     return contract

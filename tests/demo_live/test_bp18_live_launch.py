@@ -286,6 +286,13 @@ def test_b5_forward_and_rollback_select_their_own_reviewed_policy(root):
              required_mode="RULES_AND_LLM", model="gpt-6-luna")
     contract(guard.DUAL_CONTRACT_FILE, guard.DUAL_SOURCE_FILES,
              required_mode=guard.DUAL_PROTOCOL)
+    dual_path = root / guard.DUAL_CONTRACT_FILE
+    dual = json.loads(dual_path.read_text())
+    dual["version"] = 2
+    dual["release_inventories"] = {sha: {"version": 1, "release_sha": sha,
+        "tree_sha": "d" * 40, "frontend_build": None,
+        "files": guard.release_inventory(root / "releases" / sha)} for sha in release_shas}
+    dual_path.write_text(json.dumps(dual))
     private_file(root / "config/epoch_capable_shas.txt", "\n".join(release_shas) + "\n")
 
     live = root / "runtime/live"
