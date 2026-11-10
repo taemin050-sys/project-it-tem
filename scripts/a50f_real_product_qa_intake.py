@@ -13,6 +13,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import re
 from pathlib import Path
 
 from PIL import Image
@@ -24,6 +25,14 @@ SCENARIOS={
  "C_REFLOW_CONTRAST_ACTION",
 }
 TEXT_FIELDS=("headline","subline","cta")
+# A user-supplied case identifier is not a privacy-safe output identifier.
+# Accept only short opaque ASCII IDs for lookup/duplicate checks. Use a
+# deterministic index token in every exported case record (success or HOLD).
+CASE_ID_FORMAT=re.compile(r"[A-Za-z0-9][A-Za-z0-9_-]{0,79}", re.ASCII)
+
+
+def safe_report_case_id(index:int)->str:
+    return f"CASE_{index:06d}"
 
 
 def digest(path:Path)->str:
@@ -94,8 +103,7 @@ def load_reference()->dict:
 
 def evaluate_case(case:dict,reference:dict)->dict:
     cid=case.get("case_id")
-    if not isinstance(cid,str) or not cid or len(cid)>80 or not all(
-            ch.isalnum() or ch in "_-" for ch in cid):
+    if not isinstance(cid,str) or CASE_ID_FORMAT.fullmatch(cid) is None:
         fail("CASE_ID_INVALID")
     design=case.get("design_id")
     if design not in SCENARIOS:
@@ -158,21 +166,33 @@ def make_report(manifest:dict)->dict:
     items=manifest.get("cases")
     if not isinstance(items,list):
         fail("CASES_LIST_MISSING")
-    ids=[x.get("case_id") for x in items if isinstance(x,dict)]
-    if len(ids)!=len(items) or len(ids)!=len(set(ids)):
+    # Reject duplicate valid source keys without exposing raw case metadata.
+    # Invalid metadata is handled as a blocked case, not echoed in reports.
+    ids=[x.get("case_id") for x in items if isinstance(x,dict)
+         and isinstance(x.get("case_id"),str)
+         and CASE_ID_FORMAT.fullmatch(x["case_id"]) is not None]
+    if len(ids)!=len(set(ids)):
         fail("CASE_ID_DUPLICATE_OR_INVALID")
     ref=load_reference()
     completed=[]
     blocked=[]
-    for record in items:
+    for index,record in enumerate(items, start=1):
+        external_id=safe_report_case_id(index)
         try:
-            completed.append(evaluate_case(record,ref))
+            # Require a dictionary; malformed entries become safe HOLD rows.
+            if not isinstance(record,dict):
+                fail("CASE_SCHEMA_OR_INPUT_INVALID")
+            checked=evaluate_case(record,ref)
+            # Even syntactically valid raw IDs may be personal names/handles.
+            # Never export the caller-supplied identifier, including on PASS.
+            checked["case_id"]=external_id
+            completed.append(checked)
         except (KeyError,TypeError,ValueError,AssertionError) as exc:
             reason=str(exc)
             # Hide private source paths in outward-facing report.
             if not reason.startswith("A50F_"):
                 reason="A50F_CASE_SCHEMA_OR_INPUT_INVALID"
-            blocked.append({"case_id":record.get("case_id","UNREADABLE"),
+            blocked.append({"case_id":external_id,
                             "evidence_gate":"HOLD","reason_code":reason})
     return {
         "contract":"IT_TEM_P03_A50F_RIGHTS_MASK_READONLY_PREFLIGHT_V1",

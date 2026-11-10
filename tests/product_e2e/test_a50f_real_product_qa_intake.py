@@ -215,3 +215,89 @@ def test_a50f_unsigned_human_scorecard_has_no_fake_scores_or_signatures():
         assert row["human_acceptance"]=="PENDING"
         assert row["mask_protection_check"]=="NOT_AUDITED"
         assert row["rights_check"]=="NOT_AUDITED"
+
+
+
+@pytest.mark.parametrize("raw_case", [
+    "SYNTHETIC_ONLY_PRIVATE_PATH:/private/tmp/SECRET_RIGHTS_FOLDER",
+    "/private/customer/rights/photo.png",
+    r"C:\\private\\customer\\record.txt",
+    "user@example.com",
+    "홍길동_고객사",
+    "CASE-01\nAuthorization: Bearer SECRET_TOKEN",
+    "CASE_01\x00PRIVATE",
+    "A"*81,
+    1234,
+    {"path":"/Users/private/customer"},
+    ["SECRET_CUSTOMER"],
+])
+def test_a50f_p2_invalid_id_never_echoes_sensitive_metadata(lib,sample,raw_case):
+    sample={**sample,"case_id":raw_case}
+    report=lib.make_report({
+        "contract":"IT_TEM_P03_A50F_REAL_ASSET_INTAKE_V1","cases":[sample]})
+    assert report["evidence_present_cases"]==0
+    assert report["blocked_cases"]==1
+    assert report["blocked"][0]=={
+        "case_id":"CASE_000001",
+        "evidence_gate":"HOLD",
+        "reason_code":"A50F_CASE_ID_INVALID",
+    }
+    emitted=json.dumps(report,ensure_ascii=False)
+    assert str(raw_case) not in emitted
+    for forbidden in ("PRIVATE_PATH","SECRET_RIGHTS_FOLDER",
+                      "user@example.com","고객사","Authorization",
+                      "SECRET_TOKEN","/private/customer"):
+        assert forbidden not in emitted
+    assert report["d50_05_d50_06_gate"]=="HOLD"
+    assert report["a5_1_implementation_authorized"] is False
+
+
+def test_a50f_p2_blocked_opaque_id_and_success_both_export_safe_tokens(lib,sample):
+    raw_valid="CUSTOMER_JANE_DOE_PRIVATE"  # syntactically valid but potentially PII
+    good={**sample,"case_id":raw_valid}
+    bad={**sample,"case_id":"PRIVATE_INVOICE_ID_23983",
+         "rights_review_evidence_ref":""}
+    out=lib.make_report({
+        "contract":"IT_TEM_P03_A50F_REAL_ASSET_INTAKE_V1",
+        "cases":[good,bad]})
+    assert out["reports"][0]["case_id"]=="CASE_000001"
+    assert out["blocked"][0]["case_id"]=="CASE_000002"
+    assert out["blocked"][0]["reason_code"]=="A50F_RIGHTS_REVIEW_PROVENANCE_MISSING"
+    serialized=json.dumps(out)
+    assert raw_valid not in serialized
+    assert bad["case_id"] not in serialized
+    assert out["authentic_rights_clearance"]=="NOT_AUDITED"
+
+
+def test_a50f_p2_malformed_non_object_case_safe_hold(lib):
+    out=lib.make_report({
+        "contract":"IT_TEM_P03_A50F_REAL_ASSET_INTAKE_V1",
+        "cases":[None,["/private/sensitive/customer"],"PII_PRIVATE"]})
+    assert out["cases_total"]==3
+    assert out["blocked_cases"]==3
+    assert [r["case_id"] for r in out["blocked"]]==[
+        "CASE_000001","CASE_000002","CASE_000003"]
+    assert all(r["reason_code"]=="A50F_CASE_SCHEMA_OR_INPUT_INVALID"
+               for r in out["blocked"])
+    assert "/private/sensitive" not in json.dumps(out)
+
+
+def test_a50f_p2_cli_attack_private_identifier_no_path_or_pii(tmp_path,sample):
+    raw="customer@example.com:/private/tmp/RIGHTS_PRIVATE_JOHN"
+    sample={**sample,"case_id":raw}
+    private=tmp_path/"PRIVATE_MANIFEST.json"
+    private.write_text(json.dumps({"contract":"IT_TEM_P03_A50F_REAL_ASSET_INTAKE_V1",
+                                   "cases":[sample]},ensure_ascii=False))
+    out=tmp_path/"review.json"
+    cmd=[sys.executable,"-B",str(ROOT/"scripts/a50f_real_product_qa_intake.py"),
+         "--manifest",str(private),"--out",str(out)]
+    proc=subprocess.run(cmd,cwd=ROOT,text=True,capture_output=True,timeout=20)
+    assert proc.returncode==0,proc.stdout+proc.stderr
+    data=json.loads(out.read_text())
+    assert data["blocked"][0]["case_id"]=="CASE_000001"
+    assert data["blocked"][0]["reason_code"]=="A50F_CASE_ID_INVALID"
+    full=out.read_text()+proc.stdout+proc.stderr
+    assert raw not in full
+    assert "RIGHTS_PRIVATE_JOHN" not in full
+    assert sample["source_image_path"] not in full
+    assert sample["rights_file_path"] not in full
