@@ -1,0 +1,65 @@
+{
+  "actor": "alice",
+  "approval_sha": "0f73a509df3a71d05da05106aae352aa7f04975e0ca83d097e27b6bace67dc2c",
+  "browser_actual_application": "OFFICIAL_REACT_FE",
+  "browser_flow_gate": "PASS",
+  "browser_screenshot_count": 12,
+  "browser_trace_sha256": "3a57892a20909b34073fa71b3e1a5f24b74eb6c5d820659480a6b70f89f74220",
+  "caption_sha256": "a2269c826e49dd43406c281935c1fc411e720c278ef24b14f6f9c10ab109c839",
+  "composition_receipt_sha256": "d045a8765c13f6aae9a121d06d91046fc0088fba3107460aabb82ff65fb77ba9",
+  "contract": "IT_TEM_A51_V3_OFFLINE_FIXTURE_EVIDENCE_VERIFICATION_V1",
+  "copy_policy_bindings": 1,
+  "copy_sha": "50c1dc6eba5029c8cb8355951aacf8dacd2012351447e198fa7efd5eeee2a98c",
+  "cost_attempt_rows": 0,
+  "download_verified": true,
+  "final_png_pixels": [
+    1080,
+    1350
+  ],
+  "final_png_sha256": "f49fc2947d893c4d44bb141553192e02e2813b135cc88ef88536670367e96c22",
+  "gcp_qa_gate": "HOLD",
+  "generation": 3,
+  "human_pm_visual_acceptance": "PENDING",
+  "image_attempt_ids": [
+    "c616f18953f2489a869b64d8e6a83e05",
+    "37f871048c78437f97a33de77bcd3b61"
+  ],
+  "image_attempt_shas": [
+    "57e7aaf5a2a7b6e9f778278408ee421a158f478101ed207416bee349297868b3",
+    "2189010b94ed8ffaec7f2d66d61b0f3345b6396ed326f564fc70413ec07e9282"
+  ],
+  "image_attempt_states": [
+    "REJECTED",
+    "COMPLETED"
+  ],
+  "image_attempt_versions": [
+    1,
+    2
+  ],
+  "input_sha": "2b3b333e77361f5ec110caec7ca05fa3088aeacfd6e2b80c006cc28d10c5679a",
+  "job_id": "6e82503cbd0444dd93913f99c03c0428",
+  "job_state": "COMPLETED",
+  "mode": "OFFLINE_FIXTURE",
+  "paid_worker": "HOLD",
+  "policy_epoch": "a5-v3-beta-unsigned-20261110",
+  "product_quality": {
+    "4x5_composed_image_cta_required": true,
+    "4x5_image_cta_present": true,
+    "actual_owner_layout": "cta_placement=image",
+    "finding": "A51_V3_ACTUAL_COMPOSITION_RUNTIMECOPY_SHA_PASS",
+    "gate": "ON_IMAGE_CTA_FIXTURE_PASS_REAL_PRODUCT_FIDELITY_HOLD",
+    "reason": "On-image CTA actually rendered in approved offline fixture. No real product mask or signed owner/PM commercial visual acceptance.",
+    "receipt_omitted_image_fields": []
+  },
+  "profile_id": "OWNER_COMPOSED_4X5_V3_BETA_C",
+  "prompt_context_bindings": 1,
+  "prompt_sha": "615868424014d2e6cb47b397978e42aff7932f6cac480406dc630f6a96937c57",
+  "provider_calls": 0,
+  "provider_e2e": "NOT_AUDITED",
+  "queue_rows": 0,
+  "real_product_protection": "NOT_AUDITED",
+  "release": "NOT_RELEASE_READY",
+  "review_sha": "aa3bba90d502cc49ae1d13a2a94fdd4217f8fc0d8d1cf8ce9080d2a621fa3e35",
+  "scenario": "A5-S01_COMPOSED_4_5_PROFILE_C",
+  "source_commit": "3db1c124e0c9e56844d249a480f0cbf60aec5fb1"
+}

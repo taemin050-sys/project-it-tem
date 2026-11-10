@@ -1,0 +1,52 @@
+{
+  "code_commit_sha": "3db1c124e0c9e56844d249a480f0cbf60aec5fb1",
+  "code_tree_sha": "55315f45e5876b074ede64d9832eebae764a6487",
+  "contract": "IT_TEM_P03_A51_VERSIONED_COMPOSED45_A_C_OFFLINE_CHROME_AGGREGATE_V1",
+  "customer_real_asset_rights_verified": 0,
+  "full_feature_beta_ready_for_team_uat": false,
+  "gcp_a_deployment_performed": false,
+  "human_owner_pm_approval": "PENDING",
+  "installed_commercial_font_license_final_signoff": "PENDING",
+  "paid_provider_calls": 0,
+  "product_release": "NOT_RELEASE_READY",
+  "profiles": {
+    "A": {
+      "caption_sha256": "a2269c826e49dd43406c281935c1fc411e720c278ef24b14f6f9c10ab109c839",
+      "cost_rows": 0,
+      "final_png_sha256": "52b05579276f65b1d142bb04e7bf53b3ab8be21f33370275af75bb32d8f329e2",
+      "image_attempt_version": 2,
+      "job_id": "26cc2d72c0824dcd8457be04e01196d7",
+      "on_image_cta": true,
+      "profile_epoch": "a5-v3-beta-unsigned-20261110",
+      "profile_id": "OWNER_COMPOSED_4X5_V3_BETA_A",
+      "provider_calls": 0,
+      "queue_rows": 0,
+      "real_product_label_and_brand_fidelity": "NOT_AUDITED",
+      "receipt_sha256": "295e72fe6ce329c6d5b14ee97c6252d635f3d59c46bf1b63847c5fcd971c19f1",
+      "screenshots": 12,
+      "source_commit": "3db1c124e0c9e56844d249a480f0cbf60aec5fb1",
+      "steps": 15
+    },
+    "C": {
+      "caption_sha256": "a2269c826e49dd43406c281935c1fc411e720c278ef24b14f6f9c10ab109c839",
+      "cost_rows": 0,
+      "final_png_sha256": "f49fc2947d893c4d44bb141553192e02e2813b135cc88ef88536670367e96c22",
+      "image_attempt_version": 2,
+      "job_id": "6e82503cbd0444dd93913f99c03c0428",
+      "on_image_cta": true,
+      "profile_epoch": "a5-v3-beta-unsigned-20261110",
+      "profile_id": "OWNER_COMPOSED_4X5_V3_BETA_C",
+      "provider_calls": 0,
+      "queue_rows": 0,
+      "real_product_label_and_brand_fidelity": "NOT_AUDITED",
+      "receipt_sha256": "d045a8765c13f6aae9a121d06d91046fc0088fba3107460aabb82ff65fb77ba9",
+      "screenshots": 12,
+      "source_commit": "3db1c124e0c9e56844d249a480f0cbf60aec5fb1",
+      "steps": 15
+    }
+  },
+  "real_provider_e2e_count": 0,
+  "signed_tailnet_sso": "NOT_AUDITED",
+  "six_real_provider_e2e": "NOT_AUDITED",
+  "status": "DEVELOPER_FIXTURE_BROWSER_E2E_PASS_C_A_INDEPENDENT_PENDING"
+}
