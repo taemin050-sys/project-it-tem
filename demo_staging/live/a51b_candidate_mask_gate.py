@@ -11,11 +11,12 @@ from __future__ import annotations
 
 import hashlib
 import json
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from PIL import Image, ImageChops
 
+from .contracts import LiveGateError
 from .a51b_signed_beta_contract import (
     BETA_PREFIX, KEYS, HEX, IDENTIFIER, _blocked, _regular, _sealed_dir,
     _verify_signature, _verify_trust_anchor,
@@ -24,6 +25,38 @@ from src.image_generation.composition import resize_ad_png
 
 CONTRACT="IT_TEM_P03_A51B_SIGNED_CANDIDATE_MASK_V1"
 IMAGE_SIZE=(1080,1350)
+# Bound signed review UTC dates in BOTH directions. Review time is not an
+# authorization to pre-date future product acceptance. Skew is for limited
+# clock synchronization only, never a 30-day look-ahead.
+MAX_FUTURE_REVIEW_SKEW=timedelta(seconds=30)
+MAX_REVIEW_AGE=timedelta(days=90)
+
+
+def validate_review_time(review_utc:str, *, now_utc:datetime|None=None)->None:
+    """Strict UTC/timezone and asymmetric age checks (inclusive boundaries).
+
+    All malformed or non-UTC timestamps fail closed. Injection of a fixed
+    aware UTC clock is only for deterministic boundary testing.
+    """
+    if not isinstance(review_utc,str):
+        _blocked("MASK_REVIEW_TIME_INVALID")
+    try:
+        review=datetime.fromisoformat(review_utc.replace("Z","+00:00"))
+        current=now_utc if now_utc is not None else datetime.now(timezone.utc)
+        if (review.tzinfo is None or review.utcoffset()!=timedelta(0)
+            or current.tzinfo is None or current.utcoffset()!=timedelta(0)):
+            _blocked("MASK_REVIEW_TIME_INVALID")
+    except (TypeError,ValueError,AttributeError,OverflowError) as exc:
+        # LiveGateError inherits ValueError: never swallow an explicit
+        # rejection code and reclassify it as merely malformed input.
+        if isinstance(exc,LiveGateError):
+            raise
+        _blocked("MASK_REVIEW_TIME_INVALID")
+    if review > current + MAX_FUTURE_REVIEW_SKEW:
+        _blocked("MASK_REVIEW_TIME_IN_FUTURE")
+    if current - review > MAX_REVIEW_AGE:
+        _blocked("MASK_REVIEW_TIME_STALE")
+
 
 
 def sha(data:bytes)->str:
@@ -86,13 +119,7 @@ def validate_candidate_review(*, root:Path|str, trust_root:Path|str,
             "RIGHTS_DECLARED_PENDING_INDEPENDENT_LEGAL_REVIEW",
         )):
         _blocked("MASK_RECORD_CONTEXT_OR_RIGHTS_MISMATCH")
-    try:
-        review=datetime.fromisoformat(decision["review_time_utc"].replace("Z","+00:00"))
-        if (review.tzinfo is None
-            or abs((datetime.now(timezone.utc)-review).total_seconds())>90*24*3600):
-            _blocked("MASK_REVIEW_TIME_STALE")
-    except (TypeError,ValueError,AttributeError):
-        _blocked("MASK_REVIEW_TIME_INVALID")
+    validate_review_time(decision["review_time_utc"])
     for role,key in pub.items():
         signature=_regular(private,jid+"."+role+".sig")
         _verify_signature(raw,signature,key,decision_file)

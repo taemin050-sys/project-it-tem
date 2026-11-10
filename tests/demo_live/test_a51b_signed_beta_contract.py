@@ -238,3 +238,38 @@ def test_a51b_beta_signed_job_initiation_refuses_any_billable_flag(
     with pytest.raises(LiveGateError,match="A51B_BETA_PAID_RUNTIME_NOT_ACTIVATED"):
         select_signed_beta({"image_size":"4:5","generation_mode":"composed"},
                            template_profile="A")
+
+@pytest.mark.parametrize("extra_seconds,permitted",[
+    (0, True), (1, False), (23*3600, False),
+])
+def test_a51b_r1_profile_exact_90d_max_authentic_double_signature(
+        signed_beta,extra_seconds,permitted):
+    # A true detached Ed25519 signature over exact mutated bytes is
+    # necessary, but never sufficient to bypass the signed policy duration.
+    fixed=datetime(2026,11,10,10,0,0,tzinfo=timezone.utc)
+    start=fixed-timedelta(days=45)
+    end=start+timedelta(days=90,seconds=extra_seconds)
+    record=signed_beta["record"]
+    blob=json.loads(record.read_text())
+    blob["valid_from_utc"]=start.isoformat()
+    blob["expires_utc"]=end.isoformat()
+    record.write_text(json.dumps(blob,sort_keys=True,ensure_ascii=False,
+                                 separators=(",",":")))
+    for role, key in signed_beta["keys"].items():
+        signature=signed_beta["policy"]/(role+".sig")
+        openssl("pkeyutl","-sign","-inkey",key["private"],"-rawin",
+                "-in",record,"-out",signature)
+    arguments={
+        "choice":"A","policy_root":str(signed_beta["policy"]),
+        "trust_root":str(signed_beta["trust"]),
+        "trusted_sha":{
+            role:k["sha"] for role,k in signed_beta["keys"].items()
+        },
+        "now":fixed,
+    }
+    if permitted:
+        verified=verify_activation(**arguments)
+        assert verified["profile_id"]==BETA_PREFIX+"A"
+    else:
+        with pytest.raises(LiveGateError,match="A51B_DECISION_EXPIRED_OR_NOT_YET_VALID"):
+            verify_activation(**arguments)

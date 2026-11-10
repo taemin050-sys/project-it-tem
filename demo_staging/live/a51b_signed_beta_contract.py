@@ -12,7 +12,7 @@ import json
 import os
 import re
 import subprocess
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from .a5_beta_profile_v3 import (
@@ -173,12 +173,18 @@ def verify_activation(*, choice:str, policy_root:str, trust_root:str,
     try:
         start=datetime.fromisoformat(decision["valid_from_utc"].replace("Z","+00:00"))
         end=datetime.fromisoformat(decision["expires_utc"].replace("Z","+00:00"))
-        instant=now or datetime.now(timezone.utc)
+        instant=now if now is not None else datetime.now(timezone.utc)
         if (start.tzinfo is None or end.tzinfo is None
-            or not start<=instant<=end or (end-start).days>90):
-            _blocked("DECISION_EXPIRED_OR_NOT_YET_VALID")
-    except (TypeError,ValueError,AttributeError):
+            or start.utcoffset()!=timedelta(0)
+            or end.utcoffset()!=timedelta(0)
+            or instant.tzinfo is None or instant.utcoffset()!=timedelta(0)):
+            _blocked("DECISION_TIME_INVALID")
+    except (TypeError,ValueError,AttributeError) as exc:
+        if isinstance(exc,LiveGateError):
+            raise
         _blocked("DECISION_TIME_INVALID")
+    if not start<=instant<=end or end-start>timedelta(days=90):
+        _blocked("DECISION_EXPIRED_OR_NOT_YET_VALID")
     for role,key in pub.items():
         _verify_signature(decision_bytes,_regular(policy,role+".sig"),key,
                           decision_path)

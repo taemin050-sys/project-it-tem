@@ -8,7 +8,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import pytest
@@ -17,7 +17,7 @@ from fastapi.testclient import TestClient
 
 from demo_staging.live.contracts import LiveGateError
 from demo_staging.live.a51b_candidate_mask_gate import (
-    CONTRACT, validate_candidate_review,
+    CONTRACT, validate_candidate_review, validate_review_time,
 )
 from demo_staging.live.a51b_signed_beta_contract import BETA_PREFIX
 from tests.demo_live.test_a51b_signed_beta_contract import signed_beta, openssl
@@ -197,6 +197,59 @@ def test_a51b_mask_or_provenance_tamper_blocks_without_final_artifact(
         assert resp.status_code in (409,422),resp.text
         assert "A51B_" in resp.text
         assert app.state.live_pipeline.state.get("alice",job["job_id"])["state"]=="IMAGE_APPROVED"
+        assert not (app.state.live_pipeline.root/"outputs"/job["job_id"]/"final.png").exists()
+    finally:
+        client.__exit__(None,None,None)
+
+@pytest.mark.parametrize("seconds_delta,permitted",[
+    (0,True), (30,True), (31,False),
+    (5*60,False), (30*24*3600,False),
+    (-90*24*3600,True),(-90*24*3600-1,False),
+])
+def test_a51b_r1_asymmetric_utc_review_age_boundaries(seconds_delta,permitted):
+    # Freeze both the review-time record and acceptance clock: no flaky
+    # integration sleep or tolerance that shifts the 90-day boundary.
+    fixed=datetime(2026,11,10,10,0,0,tzinfo=timezone.utc)
+    value=(fixed+timedelta(seconds=seconds_delta)).isoformat()
+    if permitted:
+        assert validate_review_time(value,now_utc=fixed) is None
+    else:
+        with pytest.raises(LiveGateError,match=(
+            "A51B_MASK_REVIEW_TIME_IN_FUTURE" if seconds_delta>30
+            else "A51B_MASK_REVIEW_TIME_STALE"
+        )):
+            validate_review_time(value,now_utc=fixed)
+
+
+@pytest.mark.parametrize("invalid",[
+    "2026-11-10T10:00:00",                 # naive
+    "2026-11-10T19:00:00+09:00",          # same instant, not UTC
+    "2026-11-10T10:00:00+99:99",
+    "not-a-date", "", None, 174343,
+])
+def test_a51b_r1_review_timestamp_invalid_or_non_utc_blocked(invalid):
+    fixed=datetime(2026,11,10,10,0,0,tzinfo=timezone.utc)
+    with pytest.raises(LiveGateError,match="A51B_MASK_REVIEW_TIME_INVALID"):
+        validate_review_time(invalid,now_utc=fixed)
+
+
+@pytest.mark.parametrize("seconds_in_future", [300, 30*24*3600])
+def test_a51b_r1_valid_dual_signatures_cannot_authorize_future_mask_review(
+        tmp_path,monkeypatch,signed_beta,seconds_in_future):
+    # End-to-end: real test Ed25519 signatures cannot legalize an observation
+    # that has not occurred. Final files and Image Approval stay unmodified.
+    client,app,job,frozen,raw,root,live,qa=ready_to_compose(
+        tmp_path,monkeypatch,signed_beta)
+    try:
+        timestamp=(datetime.now(timezone.utc)+timedelta(
+            seconds=seconds_in_future)).isoformat()
+        sign_candidate_review(signed_beta,root,job,frozen,raw,
+                              mutate={"review_time_utc":timestamp})
+        response=client.post(qa+"/compose",json={},headers=ORIGIN)
+        assert response.status_code in (409,422),response.text
+        assert "A51B_MASK_REVIEW_TIME_IN_FUTURE" in response.text
+        assert app.state.live_pipeline.state.get(
+            "alice",job["job_id"])["state"]=="IMAGE_APPROVED"
         assert not (app.state.live_pipeline.root/"outputs"/job["job_id"]/"final.png").exists()
     finally:
         client.__exit__(None,None,None)
