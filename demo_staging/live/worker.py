@@ -20,6 +20,14 @@ from src.serving.job_store import JobStore
 
 
 def policy_from_env(root:Path):
+    # A5-1D isolated signed beta cannot silently switch back to legacy
+    # MONITOR_ONLY. This marker must be pinned in the audited deployment
+    # manifest and operator/systemd config; disabling that marker is a
+    # separate unapproved deployment change.
+    if (os.environ.get("IT_TEM_A51D_SIGNED_BETA_RUNTIME")=="YES" and (
+        os.environ.get("IT_TEM_A51C_HARD_CAP_ENABLE")!="YES" or
+        os.environ.get("IT_TEM_LIVE_COST_POLICY")!="HARD_CAP")):
+        raise LiveNotAuthorized("A51D_BETA_HARD_CAP_MANDATORY")
     # Deny even if the key exists; separate explicit PM gate required.
     approved=os.environ.get("IT_TEM_LIVE_EXECUTION_APPROVED")=="YES"
     live_enabled=os.environ.get("IT_TEM_LIVE_ENABLED")=="YES"
@@ -135,6 +143,9 @@ def authorize_worker_item(flow:LivePipeline,item:dict) -> dict:
     actor,jid,stage=item["actor"],item["job_id"],item["stage"]
     cost_mode=os.environ.get("IT_TEM_LIVE_COST_POLICY")
     beta_cap=(os.environ.get("IT_TEM_A51C_HARD_CAP_ENABLE")=="YES")
+    if os.environ.get("IT_TEM_A51D_SIGNED_BETA_RUNTIME")=="YES" and (
+            not beta_cap or cost_mode!="HARD_CAP"):
+        raise LiveGateError("A51D_BETA_HARD_CAP_MANDATORY")
     if (not flow.live_enabled or not flow.pm_authorized or
             actor not in flow.approved_actors or
             os.environ.get("IT_TEM_LIVE_ENABLED")!="YES" or

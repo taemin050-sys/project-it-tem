@@ -78,6 +78,10 @@ def web_queue_policy(root:Path|None=None) -> dict:
     Live remains entirely OFF unless all explicit controls agree. Worker
     independently validates the key and identical PM/cost configuration.
     """
+    if os.environ.get("IT_TEM_A51D_SIGNED_BETA_RUNTIME")=="YES" and (
+            os.environ.get("IT_TEM_A51C_HARD_CAP_ENABLE")!="YES" or
+            os.environ.get("IT_TEM_LIVE_COST_POLICY")!="HARD_CAP"):
+        return {"enabled":False,"actors":frozenset()}
     required=("IT_TEM_LIVE_WEB_QUEUE_ENABLED","IT_TEM_LIVE_ENABLED",
               "IT_TEM_LIVE_EXECUTION_APPROVED","IT_TEM_PROVIDER_READINESS_CONFIRMED")
     if any(os.environ.get(k)!="YES" for k in required):

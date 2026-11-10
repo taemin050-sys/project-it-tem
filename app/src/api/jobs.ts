@@ -3,6 +3,7 @@ import type { Step } from '../lib/pipeline'
 import type { Job } from '../types/draft'
 import type { ProductInput } from '../types/textSchema'
 import { request, send } from './client'
+import {A51D_MPO_FIXTURE,confirmedMpoChoice} from '../lib/a51dMpoSelection'
 
 const json = (body: unknown) => ({ headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
 
@@ -13,6 +14,25 @@ export function createJob(productImages: File[], referenceImages: File[], input:
   productImages.forEach((f) => form.append('product_images', f))
   referenceImages.forEach((f) => form.append('reference_images', f))
   form.append('product_input_json', JSON.stringify(input))
+  if(A51D_MPO_FIXTURE){
+    // Only explicit, visually confirmed MPO candidates use the provisional
+    // authenticated HTTP→B0 Job bridge. Legacy B0 jobs remain unchanged.
+    const choices=[
+      ...productImages.map((file,index)=>({file,index,category:'product'})),
+      ...referenceImages.map((file,index)=>({file,index,category:'reference'})),
+    ].flatMap(({file,index,category})=>{
+      const chosen=confirmedMpoChoice(file)
+      return chosen ? [{
+        category,index,token:chosen.token,
+        selected_frame_index:chosen.selected_frame_index,
+        selected_preview_sha256:chosen.selected_preview_sha256,
+      }] : []
+    })
+    if(choices.length){
+      form.append('mpo_choices_json',JSON.stringify(choices))
+      return request<Job>('/demo/api/a51d/mpo/jobs',{method:'POST',body:form})
+    }
+  }
   return request<Job>('/api/v1/jobs', { method: 'POST', body: form })
 }
 

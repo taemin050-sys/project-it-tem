@@ -228,6 +228,12 @@ class ReviewBody(BaseModel):
 def make_demo_app(root: Path, invite_file: Path, frontend: Path,
                   *, secure_cookie: bool = True, code_sha: str = "UNPINNED"):
     root = Path(root)
+    if os.environ.get("IT_TEM_A51D_SIGNED_BETA_RUNTIME")=="YES" and (
+            os.environ.get("IT_TEM_A51C_HARD_CAP_ENABLE")!="YES" or
+            os.environ.get("IT_TEM_LIVE_COST_POLICY")!="HARD_CAP" or
+            os.environ.get("IT_TEM_TAILNET_SSO_ONLY")!="YES" or
+            os.environ.get("IT_TEM_TAILNET_AUTH_ENABLED")!="YES"):
+        raise RuntimeError("A51D_SIGNED_BETA_STARTUP_MONITOR_ONLY_OR_SSO_BYPASS")
     # BP18 isolated A/B sessions: use per-track cookie audience rather than
     # a shared localhost cookie. Default keeps existing Live/QA unchanged.
     configured_cookie=os.environ.get("IT_TEM_DEMO_COOKIE_NAME")
@@ -466,6 +472,27 @@ def make_demo_app(root: Path, invite_file: Path, frontend: Path,
     # Provisional Live routes ONLY on independent staging. No official B0 routes edited.
     from .live.http_api import register_live_api
     register_live_api(app,ledger,root,cookie_name)
+
+    # A51D candidate HTTP bridge is strictly local, MOCK/OFFLINE and test-only.
+    # Future MPO approval requires Image Owner #24, FE #26 and PM authority,
+    # dedicated signed Beta policy, SSO and audited persistent anti-replay.
+    # The old B0 and v2 Owner routes remain unchanged by this opt-in branch.
+    if os.environ.get("IT_TEM_A51D_MPO_FIXTURE_BRIDGE")=="YES":
+        candidate_root=str(root.resolve())
+        if (not (candidate_root.startswith("/private/tmp/ittem-a41-a51d-")
+                    or "/pytest-" in candidate_root)
+            or os.environ.get("IT_TEM_QA_FIXTURE_ENABLED")!="YES"
+            or os.environ.get("IT_TEM_ENABLE_BILLABLE_TEXT_CALLS")=="YES"
+            or secure_cookie
+            or os.environ.get("IT_TEM_A51D_NONDEPLOYABLE_TEST_ONLY")!="YES"
+            or os.environ.get("IT_TEM_LIVE_ENABLED")=="YES"
+            or os.environ.get("IT_TEM_LIVE_EXECUTION_APPROVED")=="YES"
+            or os.environ.get("IT_TEM_A51C_HARD_CAP_ENABLE")=="YES"
+            or os.environ.get("IT_TEM_TAILNET_AUTH_ENABLED")=="YES"
+            or os.environ.get("IT_TEM_TAILNET_SSO_ONLY")=="YES"):
+            raise RuntimeError("A51D_MPO_FIXTURE_BRIDGE_NEVER_ACTIVATES_LIVE_OR_TAILNET")
+        from .live.a51d_mpo_fixture_bridge import register_fixture_mpo_bridge
+        register_fixture_mpo_bridge(app,ledger)
 
     frontend=Path(frontend)
     app.mount("/assets",StaticFiles(directory=frontend/"assets"),name="frontend-assets")

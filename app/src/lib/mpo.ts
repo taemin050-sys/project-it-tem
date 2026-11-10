@@ -5,6 +5,13 @@ export function isMpoFile(file:Pick<File,'name'>):boolean {
 }
 export async function hasMpoPrimarySignature(file:File):Promise<boolean> {
   if(!isMpoFile(file))return false
+  return hasEmbeddedMpoSignature(file)
+}
+
+// Beta fixture only: detect actual MPO despite .JPG/.JPEG extension. This
+// does not change the legacy v2 extension-only MPO branch or owner decoder.
+export async function hasEmbeddedMpoSignature(file:File):Promise<boolean> {
+  if(!/\.(?:jpe?g|mpo)$/i.test(file.name))return false
   if(file.size<20)return false
   const b=new Uint8Array(await file.slice(0,Math.min(file.size,256*1024)).arrayBuffer())
   if(b[0]!==255||b[1]!==216)return false
