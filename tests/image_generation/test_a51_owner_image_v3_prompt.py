@@ -114,3 +114,59 @@ def test_a51_backend_rejects_freeform_composed_selector():
         body(generation_mode="freeform",layout_selection={
             "aspect_ratio":"4:5","placement":"feed"},
             copy_output={},composed_layout_profile="a5-v3-beta-A")
+
+@pytest.mark.parametrize("which",("A","C"))
+def test_a51_v3_owner_adapter_mocktransport_one_bound_provider_attempt(
+        tmp_path,which):
+    import base64
+    from email import policy as email_policy
+    from email.parser import BytesParser
+    from pathlib import Path
+    import httpx
+    from src.image_generation.assets import LocalAssetStore
+    from src.image_generation.api_image_processor import ExternalImageProcessor
+    from src.image_generation.openai_images import OpenAIImagesAdapter, OpenAIImagesConfig
+    from src.image_generation.provider_attempts import ProviderAttemptStore
+    from tests.image_generation.test_backend_adapter import png
+    calls=[]
+    def handler(request):
+        message=BytesParser(policy=email_policy.default).parsebytes(
+            b"Content-Type: "+request.headers["content-type"].encode()+
+            b"\r\n\r\n"+request.read())
+        fields={
+            item.get_param("name",header="content-disposition"):item.get_payload(decode=True)
+            for item in message.iter_parts()
+            if item.get_param("name",header="content-disposition")!="image[]"
+        }
+        calls.append(fields)
+        return httpx.Response(200,json={
+            "data":[{"b64_json":base64.b64encode(png(size=(1152,1440))).decode()}],
+            "usage":{"input_tokens":12,"output_tokens":34,"total_tokens":46},
+        },headers={"x-request-id":"offline-a51-v3-no-paid"})
+    transport=httpx.MockTransport(handler)
+    provider=OpenAIImagesAdapter(OpenAIImagesConfig(live_calls=False),
+                                 transport=transport)
+    folder=tmp_path/"owner-image-offline"
+    processor=ExternalImageProcessor(
+        LocalAssetStore(folder/"assets"),provider,
+        ProviderAttemptStore(folder/"attempts.sqlite"),
+        budget_limit_usd="2",reservation_usd="1")
+    adapter=BackendImageAdapter(processor,folder/"bindings.sqlite")
+    params=body(copy_revision=3,generation_mode="composed",
+        layout_selection={"aspect_ratio":"4:5","placement":"feed"},
+        composed_layout_profile="a5-v3-beta-"+which)
+    proj=uuid4()
+    first=adapter.generate(params,project_id=proj)
+    second=adapter.generate(params,project_id=proj)
+    assert first==second
+    assert first.mock is True
+    assert len(calls)==1
+    assert first.receipt["usage"]["total_tokens"]==46
+    assert len(first.image_bytes)>0
+    assert (first.width,first.height)==(1152,1440)
+    prompt=calls[0]["prompt"].decode()
+    assert OWNER_A5_LAYOUT_VERSION in prompt
+    assert '"cta_placement":"image"' in prompt
+    assert '"source_design_sha256":"'+GEOMETRY[which]["proposal_sha"]+'"' in prompt
+    assert "NOT_BY_MODEL_SERVER_COMPOSITOR_ONLY" in prompt
+    assert "PRODUCT_TARGET" in prompt
