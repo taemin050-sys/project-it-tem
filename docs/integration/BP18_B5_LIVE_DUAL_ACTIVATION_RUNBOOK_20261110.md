@@ -48,6 +48,14 @@ v1 Dual 계약은 전체 인벤토리가 없어 새 guard에서 거부한다. �
 
 ## 운영 승인 후 설치 순서
 
+### 실제 cold-start 이후에도 source 경계를 확인한다
+
+2026-11-10 실제 `4baa67eb → c004873` 적용은 서비스·Signed SSO·보호 원장 검증을 통과했지만, v2 계약 준비가 cold boot가 만든 빈 `.runtime/jobs`로 차단됐다. 901개 승인 파일은 모두 일치했으며 추가 파일은 없었다. `f517fba`는 적용하지 않았고, 현재 운영은 c004·Worker 중지·Dual OFF·v2 미등록 HOLD로 보존했다. 원격 디렉터리 삭제나 inventory/승인 재생성으로 우회하지 않는다.
+
+원인은 Demo가 `src.serving.main`의 factory를 import하면서 전역 `app=create_app()`까지 실행한 것이다. 수정 후보는 부수효과 없는 `src.serving.app_factory.create_app`을 Demo에서 직접 사용하고, 기존 `src.serving.main:app`/factory re-export는 일반 B0 호환 entrypoint로 유지한다. B unit의 entrypoint는 계속 `demo_staging.serve:app`이며 명시한 B runtime만 사용해야 한다.
+
+새 후보는 새 SHA/Tree·전체 source+FE inventory와 차등 검증·C 검토·변경 소스의 운영 승인이 필요하다. 과거 f517/c004 exact-pair 승인을 자동 전용하지 않는다. 전진뿐 아니라 복귀 후보도 수정된 factory를 포함해야 한다. source 고정 검사 시점은 **전송 직후 → 실제 app cold start와 GET 확인 후 → v2 계약 등록 직전 → 최종 source 시작 후**다. 신뢰된 source 안에 런타임 폴더가 생기면 빈 폴더라도 HOLD하고 runtime 경계를 수정한다. unit tests/MockTransport 성공을 실제 Linux cold-start 수용으로 대신하지 않는다.
+
 1. 운영자는 B5 신뢰 경로의 `control/bp18_release_prestart.py`, B5 Release 제어 스크립트, B 전용 서비스 단위와 승인된 소스를 대조한다. 전진·복귀 SHA를 기존 Epoch 허용 목록과 SSO·F09 계약에 실제 승인 범위대로 등록한다. 현재 `repo` 링크와 `SOURCE_SHA.txt`는 승인된 복귀 후보를 가리켜야 한다. B5는 서비스를 중지하기 전에 전진·복귀 대상을 모두 검증한다. 현재 소스가 Dual 이전이고 Dual 이력도 없다면 호환 소스로 이동하는 별도 승인 전환을 먼저 준비한다. 이 전환에서는 Dual이 꺼져 있으며 Dual 계약을 등록하기 전이다. Dual 이력이 있는 DB에 구소스를 연결하는 경로는 차단 상태를 유지한다.
 2. 기존 F09 활성화 환경은 소스 SHA가 일치하는 정책으로 Web과 Worker를 시작한다. 정확한 소스별 `config/bp18_live_policies/<SHA>.env` 두 개를 미리 준비한다. `config`와 정책 하위 디렉터리는 운영 계정 소유의 owner-only 디렉터리, 정책은 `0600`이다. 파일 내부 `IT_TEM_BP18_LIVE_RELEASE_SHA`도 파일명의 SHA와 일치해야 한다. 먼저 Dual을 비활성 상태로 준비한다. 별도 승인으로 기능을 켤 때에도 Worker-only Provider credential과 실제 과금 권한은 독립 게이트다.
 3. 승인 및 보호 대상 확인 후 기존 `config/.b5_operator_control.lock`을 획득한다. 동일한 보호 `config` 디렉터리에서 임시 `0600` 파일에 준비 계약을 복사한다. 실제 B 루트를 `--staging-root`로 지정하고 임시 파일을 `verify`한다. 이전 계약이 있다면 SHA와 사본을 보호 증거 위치에 남긴다. 검증된 임시 파일을 동일 파일시스템의 `config/bp18_required_dual_contract.json`으로 원자 이동한다. 설치 파일을 다시 `verify`하고 B5 prestart의 `--target "$FORWARD"`와 `--target "$ROLLBACK"`를 `--mode web --port 0`으로 각각 검증한다. 이 과정을 마친 뒤 운영 잠금을 해제한다.
