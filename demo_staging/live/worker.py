@@ -29,12 +29,26 @@ def policy_from_env(root:Path):
         raise LiveNotAuthorized("PROVIDER_READINESS_NOT_CONFIRMED")
     if not os.environ.get("OPENAI_API_KEY"):
         raise LiveNotAuthorized("MODEL_CREDENTIAL_NOT_CONFIGURED")
-    if os.environ.get("IT_TEM_LIVE_COST_POLICY")!="MONITOR_ONLY":
-        raise LiveNotAuthorized("COST_POLICY_NOT_AUTHORIZED")
     actors=frozenset(x.strip() for x in
         os.environ.get("IT_TEM_LIVE_APPROVED_ACTORS","").split(",") if x.strip())
     if not actors or "*" in actors:
         raise LiveNotAuthorized("LIVE_ACTOR_ALLOWLIST_REQUIRED")
+    # New A-only hard-cap path is OFF by default and requires a genuine signed
+    # PM cost decision, pinned candidate SHA, Signed SSO and all preinitialized
+    # ledgers. Never fall back to the legacy MONITOR_ONLY path on failure.
+    if os.environ.get("IT_TEM_A51C_HARD_CAP_ENABLE")=="YES":
+        from .a51c_signed_cost_authority import (
+            signed_hard_cap_policy,require_preinitialized_candidate_ledgers)
+        signed=signed_hard_cap_policy(root)
+        require_preinitialized_candidate_ledgers(root)
+        return LivePipeline(root/"live",JobStore(root/"jobs"),live_enabled=True,
+            pm_authorized=True,approved_actors=signed["approved_actors"],
+            request_limit=signed["max_requests"],budget_limit_usd=signed["budget_usd"],
+            text_reservation_usd=signed["text_reservation_usd"],
+            image_reservation_usd=signed["image_reservation_usd"],
+            monitoring_only=False)
+    if os.environ.get("IT_TEM_LIVE_COST_POLICY")!="MONITOR_ONLY":
+        raise LiveNotAuthorized("COST_POLICY_NOT_AUTHORIZED")
     return LivePipeline(root/"live",JobStore(root/"jobs"),live_enabled=True,
         pm_authorized=True,approved_actors=actors,monitoring_only=True)
 
@@ -50,6 +64,16 @@ def live_image_adapter(runtime:Path,request):
 
     price_cap="0"
     reserve="0"
+    monitoring=True
+    if os.environ.get("IT_TEM_A51C_HARD_CAP_ENABLE")=="YES":
+        from .a51c_signed_cost_authority import (
+            signed_hard_cap_policy,require_preinitialized_candidate_ledgers)
+        candidate_root=runtime.parent.parent
+        signed=signed_hard_cap_policy(candidate_root)
+        require_preinitialized_candidate_ledgers(candidate_root)
+        price_cap=signed["budget_usd"]
+        reserve=signed["image_reservation_usd"]
+        monitoring=False
     from .image_runtime_profile import effective_image_profile
     profile=effective_image_profile()
     transport=OpenAIImagesAdapter(OpenAIImagesConfig(
@@ -57,7 +81,7 @@ def live_image_adapter(runtime:Path,request):
     processor=ExternalImageProcessor(
         LocalAssetStore(runtime/"image_assets"),transport,
         ProviderAttemptStore(runtime/"image_attempts.sqlite"),
-        budget_limit_usd=price_cap,reservation_usd=reserve,monitoring_only=True)
+        budget_limit_usd=price_cap,reservation_usd=reserve,monitoring_only=monitoring)
     return BackendImageAdapter(processor,runtime/"image_bindings.sqlite",
         model=profile["model"],quality=profile["quality"],
         complexity=profile["complexity"])
@@ -109,15 +133,29 @@ _STAGE_STATES={
 def authorize_worker_item(flow:LivePipeline,item:dict) -> dict:
     """Server-side last-mile auth; a queued Actor string is not authority."""
     actor,jid,stage=item["actor"],item["job_id"],item["stage"]
+    cost_mode=os.environ.get("IT_TEM_LIVE_COST_POLICY")
+    beta_cap=(os.environ.get("IT_TEM_A51C_HARD_CAP_ENABLE")=="YES")
     if (not flow.live_enabled or not flow.pm_authorized or
             actor not in flow.approved_actors or
             os.environ.get("IT_TEM_LIVE_ENABLED")!="YES" or
             os.environ.get("IT_TEM_LIVE_EXECUTION_APPROVED")!="YES" or
             os.environ.get("IT_TEM_PROVIDER_READINESS_CONFIRMED")!="YES" or
-            os.environ.get("IT_TEM_LIVE_COST_POLICY")!="MONITOR_ONLY" or
+            (cost_mode!="HARD_CAP" if beta_cap else cost_mode!="MONITOR_ONLY") or
+            (beta_cap and flow.monitoring_only) or
             actor not in {x.strip() for x in
                 os.environ.get("IT_TEM_LIVE_APPROVED_ACTORS","").split(",") if x.strip()}):
         raise LiveGateError("WORKER_ACTOR_REVOKED_OR_DISABLED")
+    if beta_cap:
+        from .a51c_signed_cost_authority import (
+            signed_hard_cap_policy, require_preinitialized_candidate_ledgers)
+        signed=signed_hard_cap_policy(flow.root.parent)
+        require_preinitialized_candidate_ledgers(flow.root.parent)
+        if (actor not in signed["approved_actors"]
+            or flow.cost.budget_usd!=round(float(signed["budget_usd"])*1_000_000)
+            or flow.cost.max_requests!=signed["max_requests"]
+            or flow.text_reservation!=float(signed["text_reservation_usd"])
+            or flow.image_reservation!=float(signed["image_reservation_usd"])):
+            raise LiveGateError("A51C_HARD_CAP_RUNTIME_CONFIG_DRIFT")
     if stage not in _STAGE_STATES or item.get("mode")!="LIVE":
         raise LiveGateError("WORKER_STAGE_NOT_AUTHORIZED")
     # The read-only application ledger is the Actor ownership SSOT, separate
@@ -137,6 +175,24 @@ def authorize_worker_item(flow:LivePipeline,item:dict) -> dict:
         raise LiveGateError("WORKER_IDENTITY_UNVERIFIABLE") from None
     except Exception:
         raise LiveGateError("WORKER_ORIGINAL_JOB_UNAVAILABLE") from None
+    if beta_cap:
+        from .a51b_signed_beta_contract import (
+            BETA_PREFIX,verify_frozen_runtime_activation)
+        frozen=flow.state.template(actor,jid)
+        if not frozen or not str(frozen.get("profile_id","")).startswith(BETA_PREFIX):
+            raise LiveGateError("A51C_HARD_CAP_SIGNED_BETA_JOB_REQUIRED")
+        zone=frozen.get("safe_zone")
+        # A5-1B layout signatures do NOT authorize customer-image rights,
+        # verified object/label masks or paid Provider submissions.
+        # In the currently accepted A51B contract all four are FALSE:
+        # consequently even a genuinely signed fixture cannot spend.
+        required=("real_provider_permitted","real_customer_assets_permitted",
+                  "candidate_mask_verified","rights_review_verified")
+        if type(zone) is not dict or any(zone.get(k) is not True for k in required):
+            raise LiveGateError("A51C_HARD_CAP_PRODUCT_RIGHTS_NOT_AUTHORIZED")
+        # Even an attacker-forged DB row with all four booleans True cannot
+        # substitute for a genuine reverified Owner+PM profile decision.
+        verify_frozen_runtime_activation(frozen)
     if job["state"] not in _STAGE_STATES[stage] or (
             job["mode"]!="LIVE" and
             not (stage=="analysis" and job["mode"]=="INPUT_ONLY")):

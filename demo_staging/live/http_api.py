@@ -72,7 +72,7 @@ class ComposeRequest(BaseModel):
     layout:dict|None=None
 
 
-def web_queue_policy() -> dict:
+def web_queue_policy(root:Path|None=None) -> dict:
     """Queue-only PM policy. Web must never possess API credentials.
 
     Live remains entirely OFF unless all explicit controls agree. Worker
@@ -84,22 +84,38 @@ def web_queue_policy() -> dict:
         return {"enabled":False,"actors":frozenset()}
     actors=frozenset(x.strip() for x in
         os.environ.get("IT_TEM_LIVE_APPROVED_ACTORS","").split(",") if x.strip())
-    if (os.environ.get("IT_TEM_LIVE_COST_POLICY")!="MONITOR_ONLY"
-            or not actors or "*" in actors
+    if (not actors or "*" in actors
             or any(not x.replace("_","").replace("-","").isalnum() for x in actors)):
         return {"enabled":False,"actors":frozenset()}
-    return {"enabled":True,"actors":actors}
+    if os.environ.get("IT_TEM_A51C_HARD_CAP_ENABLE")=="YES":
+        if root is None:
+            return {"enabled":False,"actors":frozenset()}
+        try:
+            from .a51c_signed_cost_authority import (
+                signed_hard_cap_policy,require_preinitialized_candidate_ledgers)
+            signed=signed_hard_cap_policy(Path(root))
+            require_preinitialized_candidate_ledgers(Path(root))
+            if signed["approved_actors"]!=actors:
+                return {"enabled":False,"actors":frozenset()}
+        except (LiveGateError,OSError,ValueError,KeyError):
+            return {"enabled":False,"actors":frozenset()}
+        return {"enabled":True,"actors":actors,"limit":signed["max_requests"],
+                "budget":signed["budget_usd"],"text":signed["text_reservation_usd"],
+                "image":signed["image_reservation_usd"],"monitoring_only":False}
+    if os.environ.get("IT_TEM_LIVE_COST_POLICY")!="MONITOR_ONLY":
+        return {"enabled":False,"actors":frozenset()}
+    return {"enabled":True,"actors":actors,"monitoring_only":True}
 
 
 def register_live_api(app:FastAPI, ledger, runtime_root:Path, cookie_name:str):
-    policy=web_queue_policy()
+    policy=web_queue_policy(runtime_root)
     flow=LivePipeline(Path(runtime_root)/"live",app.state.job_store,
         live_enabled=policy["enabled"],pm_authorized=policy["enabled"],
         approved_actors=policy["actors"],
         request_limit=policy.get("limit",0),budget_limit_usd=policy.get("budget",0),
         text_reservation_usd=policy.get("text",0),
         image_reservation_usd=policy.get("image",0),
-        monitoring_only=policy["enabled"])
+        monitoring_only=policy.get("monitoring_only",policy["enabled"]))
     queue=LiveQueue(Path(runtime_root)/"live"/"queue.sqlite")
     shares=LiveShares(Path(runtime_root)/"live"/"shares.sqlite")
     app.state.live_pipeline=flow
