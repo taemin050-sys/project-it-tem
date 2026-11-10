@@ -16,7 +16,7 @@ import pytest
 from demo_staging.live.contracts import LiveGateError
 from demo_staging.live.a51c_explicit_mpo_ingress import (
     inspect_source,preview_frame,normalize_selected_source,
-    CONTRACT,CONFIRM,FrameSelection,
+    CONTRACT,CONFIRM,FrameSelection,COLOR_NORMALIZATION,
 )
 from src.serving.job_store import JobStore,ValidatedUpload
 
@@ -196,3 +196,68 @@ def test_mpo_exif_rotation_and_icc_normalization_matches_preview_intent():
     assert normalized.provenance["source_icc_sha256"]==sha256(icc).hexdigest()
     assert normalized.provenance["exif_icc_private_metadata_removed"] is True
     assert b"PRIVATE_PHOTO_PHOTOGRAPHER" not in normalized.data
+
+@pytest.mark.parametrize("profile", [
+    "/System/Library/ColorSync/Profiles/AdobeRGB1998.icc",
+    "/System/Library/ColorSync/Profiles/Display P3.icc",
+])
+def test_a51cr1_non_srgb_preview_export_brand_color_parity(profile):
+    # Real chromatic ICC profile, not a no-op embedded sRGB ICC.
+    # Portable CI without MacOS vendor profiles still tests the sRGB/invalid
+    # paths; Mac reproduction probes both profiles with fixed pixels.
+    file=Path(profile)
+    if not file.exists():
+        pytest.skip("Optional non-sRGB ColorSync test profile unavailable")
+    data=file.read_bytes()
+    assert data
+    first=Image.new("RGB",(320,220),(154,80,45))
+    second=Image.new("RGB",(310,200),(15,162,194))
+    buf=BytesIO()
+    first.save(buf,format="MPO",save_all=True,append_images=[second],
+               quality=96,icc_profile=data)
+    raw=buf.getvalue()
+    info=inspect_source(raw,filename="color.jpg",mime="image/jpeg")
+    assert info["color_normalization_contract"]==COLOR_NORMALIZATION
+    assert info["candidate_frames"][0]["icc_sha256"]==sha256(data).hexdigest()
+    for index in range(2):
+        choice=selection(raw,i=index)
+        preview_data=preview_frame(raw,filename="color.jpg",mime="image/jpeg",index=index)
+        normalized=normalize_selected_source(
+            raw,filename="color.jpg",mime="image/jpeg",selected=choice,
+            expected_upload_request_sha256="a"*64)
+        assert normalized.provenance["color_normalization_contract"]==COLOR_NORMALIZATION
+        assert normalized.provenance["source_icc_sha256"]==sha256(data).hexdigest()
+        assert normalized.provenance["selected_frame"]==index
+        assert normalized.provenance["selected_frame_preview_png_sha256"]==sha256(preview_data).hexdigest()
+        with Image.open(BytesIO(preview_data)) as preview:
+            with Image.open(BytesIO(normalized.data)) as final:
+                assert preview.size==final.size
+                p=preview.convert("RGB").getpixel((preview.width//2,preview.height//2))
+                f=final.convert("RGB").getpixel((final.width//2,final.height//2))
+                delta=max(abs(a-b) for a,b in zip(p,f))
+                assert delta<=3,(profile,index,p,f,delta)
+                assert final.info.get("icc_profile") is None
+                assert not final.getexif()
+
+
+@pytest.mark.parametrize("index", [0,1])
+def test_a51cr1_invalid_embedded_icc_fails_closed_in_preview_and_export(index):
+    first=Image.new("RGB",(320,220),(154,80,45))
+    second=Image.new("RGB",(310,200),(55,80,145))
+    buf=BytesIO()
+    first.save(buf,format="MPO",save_all=True,append_images=[second],
+               quality=96,icc_profile=b"CORRUPTED_ICC_NOT_A_PROFILE")
+    raw=buf.getvalue()
+    with pytest.raises(LiveGateError,match="A51C_COLOR_MANAGEMENT_INVALID"):
+        inspect_source(raw,filename="broken.jpg",mime="image/jpeg")
+    with pytest.raises(LiveGateError,match="A51C_COLOR_MANAGEMENT_INVALID"):
+        preview_frame(raw,filename="broken.jpg",mime="image/jpeg",index=index)
+    # The real normalization API cannot accept invalid preview commitments.
+    with pytest.raises(LiveGateError,match="A51C_COLOR_MANAGEMENT_INVALID"):
+        normalize_selected_source(raw,filename="broken.jpg",mime="image/jpeg",
+            selected=FrameSelection(
+              contract=CONTRACT,original_sha256=sha256(raw).hexdigest(),
+              selected_frame_index=index,selected_preview_sha256="a"*64,
+              source_frame_count=2,confirmation=CONFIRM,
+              upload_request_sha256="b"*64),
+            expected_upload_request_sha256="b"*64)

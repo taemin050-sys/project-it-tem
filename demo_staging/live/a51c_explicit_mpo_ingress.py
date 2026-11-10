@@ -19,6 +19,7 @@ from src.serving.job_store import ValidatedUpload
 
 CONTRACT="IT_TEM_P03_A51C_MPO_EXPLICIT_USER_SELECTION_PROPOSAL_V1"
 CONFIRM="USER_VIEWED_AND_CONFIRMED_SELECTED_MPO_FRAME_V1"
+COLOR_NORMALIZATION="EXIF_UPRIGHT_ICC_TO_SRGB_V2"
 MAX_UPLOAD=10*1024*1024
 MAX_PIXELS=40_000_000
 FRAME_LIMIT=16
@@ -86,13 +87,38 @@ def _frames(raw:bytes):
         _block("MPO_DECODE_FAILED")
 
 
+def _to_srgb_upright(image:Image.Image)->Image.Image:
+    """One canonical, fail-closed color transform for both preview and JPEG.
+
+    Color-managed thumbnails must be generated from the same upright sRGB
+    pixels as the export, not the source profile's unconverted RGB channels.
+    The returned RGB pixels intentionally carry no EXIF or ICC metadata.
+    """
+    try:
+        upright=ImageOps.exif_transpose(image)
+        icc=image.info.get("icc_profile")
+        if icc:
+            converted=ImageCms.profileToProfile(
+                upright if upright.mode in ("RGB","CMYK","LAB") else upright.convert("RGB"),
+                ImageCms.ImageCmsProfile(BytesIO(icc)),
+                ImageCms.createProfile("sRGB"),outputMode="RGB",
+            )
+        else:
+            converted=upright.convert("RGB")
+        if converted.width*converted.height>MAX_PIXELS:
+            _block("NORMALIZED_PIXELS_OUT_OF_BOUNDS")
+        return Image.frombytes("RGB",converted.size,converted.tobytes())
+    except (OSError,ValueError,TypeError,ImageCms.PyCMSError) as exc:
+        if isinstance(exc,LiveGateError):
+            raise
+        _block("COLOR_MANAGEMENT_INVALID")
+
+
 def _preview(image:Image.Image)->bytes:
-    # The human confirmation must describe the same EXIF-upright frame the
-    # normalization step actually exports, not a sideways source thumbnail.
-    thumb=ImageOps.exif_transpose(image)
-    thumb.thumbnail((480,480),resample=Image.Resampling.LANCZOS)
+    clean=_to_srgb_upright(image)
+    clean.thumbnail((480,480),resample=Image.Resampling.LANCZOS)
     out=BytesIO()
-    thumb.convert("RGB").save(out,format="PNG")
+    clean.save(out,format="PNG")
     return out.getvalue()
 
 
@@ -108,6 +134,7 @@ def inspect_source(raw:bytes, *, filename:str, mime:str):
         "contract":CONTRACT,
         "original_sha256":_sha(raw),
         "source_frame_count":len(inspected),
+        "color_normalization_contract":COLOR_NORMALIZATION,
         "candidate_frames":[{
             "index":index,
             "width":image.width,
@@ -169,18 +196,7 @@ def normalize_selected_source(raw:bytes, *,
     try:
         orientation=image.getexif().get(274,1)
         icc=image.info.get("icc_profile")
-        upright=ImageOps.exif_transpose(image)
-        if icc:
-            rgb=ImageCms.profileToProfile(
-                upright if upright.mode in ("RGB","CMYK","LAB") else upright.convert("RGB"),
-                ImageCms.ImageCmsProfile(BytesIO(icc)),
-                ImageCms.createProfile("sRGB"),outputMode="RGB",
-            )
-        else:
-            rgb=upright.convert("RGB")
-        clean=Image.frombytes("RGB",rgb.size,rgb.tobytes())
-        if clean.width*clean.height>MAX_PIXELS:
-            _block("NORMALIZED_PIXELS_OUT_OF_BOUNDS")
+        clean=_to_srgb_upright(image)
         encoded=BytesIO()
         clean.save(encoded,format="JPEG",quality=94,subsampling=0)
         output=encoded.getvalue()
@@ -193,6 +209,7 @@ def normalize_selected_source(raw:bytes, *,
     converted_sha=_sha(output)
     result={
         "normalization_contract":CONTRACT,
+        "color_normalization_contract":COLOR_NORMALIZATION,
         "original_sha256":_sha(raw),
         "source_filename":filename,
         "source_container_format":"MPO",
@@ -200,6 +217,7 @@ def normalize_selected_source(raw:bytes, *,
         "selected_frame":selected.selected_frame_index,
         "selected_frame_preview_png_sha256":entry["preview_png_sha256"],
         "selected_frame_decoded_rgb_sha256":entry["decoded_rgb_sha256"],
+        "selected_frame_srgb_upright_sha256":_sha(_to_srgb_upright(image).tobytes()),
         "explicit_frame_selection_confirmation":CONFIRM,
         "upload_request_sha256":selected.upload_request_sha256,
         "source_exif_orientation":orientation,
