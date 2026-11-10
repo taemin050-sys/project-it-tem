@@ -116,6 +116,10 @@ def main() -> None:
     assert isinstance(receipt.get("font_sha256"),str)
     assert receipt.get("placements",{}).get("headline")
     assert receipt.get("placements",{}).get("subline")
+    assert receipt.get("beta_style")==ns.profile
+    assert receipt.get("cta_corner_radius")==GEOMETRY[ns.profile]["cta_corner_radius"]
+    assert receipt.get("typography_variable_weight")=={
+      "headline":700,"subline":500,"cta":700}
     assert receipt.get("profile_id")==PROFILE_PREFIX+ns.profile
     assert receipt.get("profile_version")==PROFILE_VERSION
     assert receipt.get("profile_policy_epoch")==PROPOSAL_EPOCH

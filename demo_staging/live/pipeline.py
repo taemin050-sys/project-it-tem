@@ -670,7 +670,10 @@ class LivePipeline:
                     copy_revision=job["generation"],copy_hash=job["copy_sha"],
                     copy_output=cp,layout=layout_obj)
                 try:
-                    result=compose_ad_png(input_obj,font_path=font)
+                    result=compose_ad_png(input_obj,font_path=font,
+                        beta_style=(plan["profile_id"][-1]
+                          if plan["profile_id"].startswith(PROFILE_PREFIX)
+                          else None))
                 except (GatewayError,ValueError):
                     raise LiveGateError("COMPOSITION_RENDER_FAILED") from None
             receipt=result.receipt

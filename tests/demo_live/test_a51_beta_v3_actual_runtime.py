@@ -92,9 +92,20 @@ def test_a51_new_job_frozen_v3_real_owner_composed_png_download(tmp_path,monkeyp
         assert hashlib.sha256(caption.content).hexdigest()==final["caption_sha"]
         with __import__("io").BytesIO(png.content) as fp, Image.open(fp) as im:
             assert im.format=="PNG" and im.size==(1080,1350)
+            # A round CTA corner shows source pixels, unlike a full
+            # rectangle's solid color. Center CTA uses the style fill.
+            corners=GEOMETRY[choice]["cta"]
+            source_color=(216,226,234)
+            assert im.convert("RGB").getpixel((corners[0]+1,corners[1]+1))==source_color
+            center=(corners[0]+15,(corners[1]+corners[3])//2)
+            assert im.convert("RGB").getpixel(center)!=source_color
         manifest=state.read_manifest("alice",jid)
         receipt=manifest["receipt"]
         assert receipt["renderer"]=="korean-composition-v1"
+        assert receipt["beta_style"]==choice
+        assert receipt["cta_corner_radius"]==GEOMETRY[choice]["cta_corner_radius"]
+        assert receipt["typography_variable_weight"]=={
+            "headline":700,"subline":500,"cta":700}
         assert receipt["cta_placement"]=="image"
         assert receipt["omitted_image_fields"]==[]
         assert set(receipt["placements"])=={"headline","subline","cta"}

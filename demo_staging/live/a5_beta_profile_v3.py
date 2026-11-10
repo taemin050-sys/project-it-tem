@@ -171,6 +171,11 @@ def verify_receipt_for_v3(receipt:dict, *, plan:dict, font_sha:str, copy_json:di
             raise LiveGateError("A5_V3_COPY_OVERFLOW_OR_MULTILINE")
         if field=="cta" and actual["font_size"]<48:
             raise LiveGateError("A5_V3_CTA_TOO_SMALL")
+    if (receipt.get("beta_style")!=profile
+        or receipt.get("cta_corner_radius")!=GEOMETRY[profile]["cta_corner_radius"]
+        or receipt.get("typography_variable_weight")!={
+            "headline":700,"subline":500,"cta":700}):
+        raise LiveGateError("A5_V3_STYLED_RENDERER_CONTRACT_MISMATCH")
     return {
         **receipt,
         "profile_id":plan["profile_id"],

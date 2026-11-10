@@ -22,6 +22,7 @@ GEOMETRY = {
         "cta": (218,1108,862,1238),
         "product": (436,410,644,1045),
         "cta_bg": "#253F55","cta_ink": "#FFFFFF",
+        "cta_corner_radius": 50,
         "headline_ink": "#263944","subline_ink": "#4C6470",
     },
     "C": {
@@ -31,6 +32,7 @@ GEOMETRY = {
         "cta": (80,1094,1000,1236),
         "product": (436,405,644,1035),
         "cta_bg": "#503B58","cta_ink": "#FFFFFF",
+        "cta_corner_radius": 24,
         "headline_ink": "#463447","subline_ink": "#6A526A",
     },
 }
