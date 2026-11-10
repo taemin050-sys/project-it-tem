@@ -4,6 +4,13 @@ from collections.abc import Iterable, Mapping
 from decimal import Decimal
 
 from .contracts import ImageProviderUsage
+from .cost_history import (
+    AD_PRODUCTION_HISTORY_STAGES,
+    ImageTrialStage,
+    PRESET_DEVELOPMENT_STAGES,
+    TRIAL_INVENTORY_VERSION,
+    UNMETERED_TOOL_STAGES,
+)
 from .provider_attempts import money_units
 
 
@@ -157,17 +164,113 @@ def summarize_image_costs(receipts: Iterable[Mapping[str, object]], *,
     }
 
 
+def summarize_preset_development(stages: Iterable[ImageTrialStage] | None = None) -> dict:
+    """Price the development inventory once, apart from per-ad savings.
+
+    Normalized totals price every attempt at the same reference. The separate
+    usage-plus-fallback total keeps known usage estimates and fills only missing
+    costs. These are alternative views, not amounts to add together. An empty
+    custom inventory explicitly declares no development trials in that scope.
+    """
+    reference, basis = _reference_basis()
+    unique: dict[str, ImageTrialStage] = {}
+    rows = []
+    observed = assumed = priced_count = known = 0
+    for stage in PRESET_DEVELOPMENT_STAGES if stages is None else stages:
+        if not isinstance(stage, ImageTrialStage):
+            raise ValueError("Expected ImageTrialStage records.")
+        if any(not isinstance(value, str) or not value.strip()
+               for value in (stage.stage_id, stage.label)):
+            raise ValueError("Stage id and label are required.")
+        for values in (stage.source_refs, stage.dimensions):
+            if not isinstance(values, tuple) or any(
+                not isinstance(value, str) or not value.strip() for value in values
+            ):
+                raise ValueError("Sources and dimensions must be tuples of nonempty strings.")
+        if not stage.source_refs:
+            raise ValueError("Stage sources are required.")
+        counts = (stage.observed_attempt_count, stage.assumed_attempt_count,
+                  stage.usage_priced_attempt_count)
+        if any(type(count) is not int or count < 0 for count in counts):
+            raise ValueError("Stage counts must be nonnegative integers.")
+        if stage.usage_priced_attempt_count > stage.observed_attempt_count:
+            raise ValueError("Usage-priced count cannot exceed observed attempts.")
+        if (stage.assumption is not None and (
+                not isinstance(stage.assumption, str) or not stage.assumption.strip())):
+            raise ValueError("An assumption must be nonempty text.")
+        if stage.assumed_attempt_count and stage.assumption is None:
+            raise ValueError("Assumed attempts require an explicit assumption.")
+        if (stage.usage_based_estimated_usd is not None) != bool(stage.usage_priced_attempt_count):
+            raise ValueError("Usage cost and usage-priced count must be supplied together.")
+        usage_cost = (money_units(stage.usage_based_estimated_usd)
+                      if stage.usage_based_estimated_usd is not None else 0)
+        if stage.stage_id in unique:
+            if unique[stage.stage_id] != stage:
+                raise ValueError("Conflicting trial stage records.")
+            continue
+        unique[stage.stage_id] = stage
+        count = stage.observed_attempt_count + stage.assumed_attempt_count
+        fallback = (count - stage.usage_priced_attempt_count) * reference
+        observed += stage.observed_attempt_count
+        assumed += stage.assumed_attempt_count
+        priced_count += stage.usage_priced_attempt_count
+        known += usage_cost
+        rows.append({
+            "stage_id": stage.stage_id, "label": stage.label,
+            "scope": "preset_development",
+            "observed_attempt_count": stage.observed_attempt_count,
+            "assumed_attempt_count": stage.assumed_attempt_count,
+            "attempt_count": count,
+            "count_is_estimated": bool(stage.assumed_attempt_count),
+            "usage_priced_attempt_count": stage.usage_priced_attempt_count,
+            "unpriced_attempt_count": count - stage.usage_priced_attempt_count,
+            "usage_based_known_estimate_usd": _usd(usage_cost) if stage.usage_priced_attempt_count else None,
+            "normalized_estimated_cost_usd": _usd(count * reference),
+            "fallback_estimated_cost_usd": _usd(fallback),
+            "usage_plus_fallback_estimated_cost_usd": _usd(usage_cost + fallback),
+            "dimensions": list(stage.dimensions), "source_refs": list(stage.source_refs),
+            "assumption": stage.assumption,
+        })
+    total = observed + assumed
+    fallback = (total - priced_count) * reference
+    return {
+        **basis,
+        "inventory_version": TRIAL_INVENTORY_VERSION if stages is None else "caller_supplied",
+        "comparison_unit": "reusable_preset_development",
+        "coverage": "listed_batches_only_not_account_lifetime",
+        "cost_scope": "image_api_only",
+        "included_in_per_ad_savings": False,
+        "stage_count": len(rows), "stages": rows,
+        "observed_attempt_count": observed, "assumed_attempt_count": assumed,
+        "attempt_count": total, "attempt_count_is_estimated": bool(assumed),
+        "usage_priced_attempt_count": priced_count,
+        "unpriced_attempt_count": total - priced_count,
+        "normalized_estimated_cost_usd": _usd(total * reference),
+        "usage_based_known_estimate_usd": _usd(known) if priced_count else None,
+        "fallback_estimated_cost_usd": _usd(fallback),
+        "usage_plus_fallback_estimated_cost_usd": _usd(known + fallback) if total else None,
+        "actual_cost_usd": None,
+        "unrecorded_http_retries": None,
+        "amortized_per_ad_usd": None,
+        "excluded_costs": ["human_labor", "text_api", "local_compute", "unrecorded_http_retries"],
+    }
+
+
 def estimate_image_savings(service_attempt_count: int, *,
                            direct_attempt_count: int | None = None,
                            service_attempt_count_is_estimated: bool = False,
                            direct_text_usd: USDInput | None = None,
-                           service_text_usd: USDInput | None = None) -> dict:
+                           service_text_usd: USDInput | None = None,
+                           preset_stages: Iterable[ImageTrialStage] | None = None) -> dict:
     """Compare completed ads at the same reference price per image attempt.
 
     The default direct comparison is one historical Romand scenario. For a
     different output scope, supply counts for both paths on the same basis.
     Include both paths' text costs for a finished-ad estimate. Negative
     savings means increased cost. This is a scenario, not measured savings.
+    Preset development is a separate inventory, never added to per-ad savings.
+    Its historical trials can underpin this scenario; do not add the two views
+    into a cumulative account expense.
     """
     default_direct = direct_attempt_count is None
     direct = len(_DIRECT_BASELINE_STAGES) if default_direct else direct_attempt_count
@@ -181,6 +284,32 @@ def estimate_image_savings(service_attempt_count: int, *,
     reference, basis = _reference_basis()
     direct_image, service_image = reference * direct, reference * service_attempt_count
     direct_total, service_total = direct_image + direct_text, service_image + service_text
+    # This recorded example is production history, not part of the direct/service
+    # scenario cost and not reusable preset R&D. Keep all three views distinct.
+    recorded_example = summarize_preset_development(AD_PRODUCTION_HISTORY_STAGES)
+    recorded_example["comparison_unit"] = "one_historical_ad_two_attempts"
+    recorded_example["inventory_version"] = TRIAL_INVENTORY_VERSION
+    for row in recorded_example["stages"]:
+        row["scope"] = "ad_production_history"
+    # Built-in image tools were not charged via the team's API. Only show the
+    # hypothetical equivalent at the common rate, never fallback API expenditure.
+    tool_trials = summarize_preset_development(UNMETERED_TOOL_STAGES)
+    unmetered_tools = {
+        "comparison_unit": "unmetered_image_tool_development",
+        "inventory_version": TRIAL_INVENTORY_VERSION,
+        "assumed_api_equivalent_attempt_count": tool_trials["attempt_count"],
+        "normalized_equivalent_cost_usd": tool_trials["normalized_estimated_cost_usd"],
+        "team_image_api_attempt_count": 0,
+        "team_image_api_cost_usd": "0.000000",
+        "actual_tool_cost_usd": None,
+        "included_in_per_ad_savings": False,
+        "stages": [{
+            "stage_id": row["stage_id"], "label": row["label"],
+            "assumed_api_equivalent_attempt_count": row["attempt_count"],
+            "normalized_equivalent_cost_usd": row["normalized_estimated_cost_usd"],
+            "source_refs": row["source_refs"], "assumption": row["assumption"],
+        } for row in tool_trials["stages"]],
+    }
     return {
         **basis,
         "direct_attempt_count": direct,
@@ -199,5 +328,21 @@ def estimate_image_savings(service_attempt_count: int, *,
         "service_estimated_cost_usd": _usd(service_total),
         "estimated_savings_usd": _usd(direct_total - service_total),
         "estimated_image_savings_tokens": _REFERENCE_USAGE["total_tokens"] * (direct - service_attempt_count),
+        "ad_production": {
+            "comparison_unit": "one_ad" if default_direct else "caller_supplied_same_output_scope",
+            "cost_basis": "normalized_reference_scenario_not_billed_savings",
+            "direct_attempt_count": direct,
+            "service_attempt_count": service_attempt_count,
+            "direct_estimated_cost_usd": _usd(direct_total),
+            "service_estimated_cost_usd": _usd(service_total),
+            "estimated_savings_usd": _usd(direct_total - service_total),
+            "cost_scope": "image_and_text" if compare_text else "image_only",
+            "includes_preset_development": False,
+            "actual_savings_usd": None,
+        },
+        "preset_development": summarize_preset_development(preset_stages),
+        "historical_ad_production": recorded_example,
+        "unmetered_tool_development": unmetered_tools,
+        # Compatibility detail only; these same runs appear once in the inventory.
         "separate_dimension_experiment": dict(_DIMENSION_EXPERIMENT),
     }
