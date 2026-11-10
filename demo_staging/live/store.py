@@ -140,6 +140,12 @@ class LiveStore:
         v3_candidate=selected_dev_profile(snapshot,template_profile=template_profile)
         if v3_candidate is not None:
             a_policy=build_proposal(v3_candidate)
+        from .a51b_signed_beta_contract import select_signed_beta
+        signed_beta=select_signed_beta(snapshot,template_profile=template_profile)
+        if signed_beta is not None:
+            if v3_candidate is not None:
+                raise LiveGateError("A51B_SIGNED_AND_UNSIGNED_SELECTOR_CONFLICT")
+            a_policy=signed_beta
         with self.db() as c:
             c.execute("BEGIN IMMEDIATE")
             existing=c.execute("SELECT * FROM live_jobs WHERE job_id=?",(job_id,)).fetchone()
@@ -165,7 +171,8 @@ class LiveStore:
             if template_profile=="A":
                 # Owner Image size v2 and frozen A v1 use distinct immutable
                 # marker events. Neither may be silently imported into the other.
-                self._event(c,r,("template_a5_v3_beta_ingress" if v3_candidate is not None
+                self._event(c,r,("template_a51b_signed_beta_ingress" if signed_beta is not None
+                    else "template_a5_v3_beta_ingress" if v3_candidate is not None
                     else "template_owner_size_ingress_v2" if new_size
                     else "template_a_ingress_contract_v1"),r["state"],digest({
                     "profile_id":a_policy["profile_id"],
@@ -691,6 +698,24 @@ class LiveStore:
                     raise LiveGateError("OWNER_IMAGE_SIZE_CONTEXT_CONFLICT")
                 selection,_=resolve_size_choice(size)
                 metadata["layout_selection"]=selection.model_dump(mode="json")
+            elif policy is not None and policy["profile_id"].startswith(
+                    "OWNER_COMPOSED_4X5_V3_SIGNED_BETA_"):
+                # Until real-product mask+rights and three-ledger cost
+                # reconciliation are integrated, even a signed Profile is
+                # offline-only. Do NOT convert a signed decision to a paid call.
+                from .a51b_signed_beta_contract import (
+                    BETA_PREFIX, verify_frozen_runtime_activation,
+                )
+                verify_frozen_runtime_activation(policy)
+                if (job["mode"]!="OFFLINE_FIXTURE"
+                    or os.environ.get("IT_TEM_LIVE_ENABLED")=="YES"
+                    or os.environ.get("IT_TEM_LIVE_EXECUTION_APPROVED")=="YES"):
+                    raise LiveGateError("A51B_PAID_PROVIDER_NOT_AUTHORIZED")
+                from src.image_generation.size_selection import resolve_size_choice
+                selection,_=resolve_size_choice("4:5")
+                metadata["layout_selection"]=selection.model_dump(mode="json")
+                metadata["generation_mode"]="composed"
+                metadata["composed_layout_profile"]="a5-v3-beta-"+policy["profile_id"][len(BETA_PREFIX):]
             elif policy is not None and policy["profile_id"].startswith(
                     "OWNER_COMPOSED_4X5_V3_BETA_"):
                 # Fail closed BEFORE returning an Owner request usable by

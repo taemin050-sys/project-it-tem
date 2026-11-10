@@ -601,6 +601,15 @@ class LivePipeline:
         # but can NEVER consume a real Provider image or go LIVE.
         prior_template=self.state.template(actor,job_id)
         from .a5_beta_profile_v3 import PROFILE_PREFIX
+        from .a51b_signed_beta_contract import (
+            BETA_PREFIX, verify_frozen_runtime_activation,
+        )
+        if prior_template and prior_template["profile_id"].startswith(BETA_PREFIX):
+            verify_frozen_runtime_activation(prior_template)
+            from .a5_beta_profile_v3 import PRETENDARD_139_SHA
+            if (before["mode"]!="OFFLINE_FIXTURE" or self.live_enabled
+                    or font_hash!=PRETENDARD_139_SHA):
+                raise LiveGateError("A51B_ACTUAL_BETA_RUNTIME_NOT_AUTHORIZED")
         if prior_template and prior_template["profile_id"].startswith(PROFILE_PREFIX):
             from .a5_beta_profile_v3 import PRETENDARD_139_SHA
             if (before["mode"]!="OFFLINE_FIXTURE" or self.live_enabled
@@ -670,8 +679,9 @@ class LivePipeline:
                     copy_revision=job["generation"],copy_hash=job["copy_sha"],
                     copy_output=cp,layout=layout_obj)
                 try:
-                    if plan["profile_id"].startswith(PROFILE_PREFIX):
-                        # Only v3 receives the additive style keyword.
+                    if plan["profile_id"].startswith((PROFILE_PREFIX,BETA_PREFIX)):
+                        # Both v3 proposals share the tested Owner renderer;
+                        # signed beta contract has separate authority checks.
                         result=compose_ad_png(input_obj,font_path=font,
                             beta_style=plan["profile_id"][-1])
                     else:
@@ -680,7 +690,31 @@ class LivePipeline:
                 except (GatewayError,ValueError):
                     raise LiveGateError("COMPOSITION_RENDER_FAILED") from None
             receipt=result.receipt
-            if plan["profile_id"].startswith(PROFILE_PREFIX):
+            if plan["profile_id"].startswith(BETA_PREFIX):
+                from .a51b_signed_beta_contract import verify_beta_composition_receipt
+                receipt=verify_beta_composition_receipt(receipt,plan={
+                    **plan,"frozen_profile":snapshot},
+                    font_sha=font_hash,copy_json=cp)
+                # Signed profile alone cannot legalize brand input or
+                # authorize a paid call. Require a second, per-candidate
+                # signed actual-mask review and byte-identical preservation,
+                # before atomic writes of final PNG, caption, or Receipt.
+                from .a51b_candidate_mask_gate import validate_candidate_review
+                try:
+                    import os
+                    authorization={
+                        role:os.environ["IT_TEM_A51B_"+role.upper()+"_PUB_SHA"]
+                        for role in ("image_owner","pm")}
+                    protected_root=os.environ["IT_TEM_A51B_MASK_REVIEW_ROOT"]
+                    trust_root=os.environ["IT_TEM_A51B_TRUST_ROOT"]
+                except KeyError:
+                    raise LiveGateError("A51B_CANDIDATE_MASK_REVIEW_NOT_CONFIGURED")
+                mask_result=validate_candidate_review(
+                    root=protected_root,trust_root=trust_root,
+                    trusted_sha=authorization,job=job,policy=snapshot,
+                    input_png=raw,final_png=result.image_bytes)
+                receipt["candidate_mask_validation"]=mask_result
+            elif plan["profile_id"].startswith(PROFILE_PREFIX):
                 from .a5_beta_profile_v3 import verify_receipt_for_v3
                 receipt=verify_receipt_for_v3(receipt,plan=plan,
                                                font_sha=font_hash,copy_json=cp)
