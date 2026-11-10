@@ -15,9 +15,8 @@ from hashlib import sha256
 from io import BytesIO
 import json
 import secrets
-import threading
-import time
 from pathlib import Path
+import shutil
 
 from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
 from PIL import Image, UnidentifiedImageError
@@ -29,6 +28,7 @@ from demo_staging.live.a51c_explicit_mpo_ingress import (
     normalize_selected_source, MAX_UPLOAD,
 )
 from src.serving.job_api import MAX_TOTAL_BYTES, validate_upload
+from .a51dr1_mpo_selection_journal import MpoSelectionJournal, JournalConflict
 
 MODE = "A51D_MPO_PREVIEW_EXPLICIT_SELECT_FIXTURE_V1"
 TOKEN_TTL_SECONDS = 5 * 60
@@ -85,19 +85,16 @@ def register_fixture_mpo_bridge(app:FastAPI, ledger)->None:
     in branch with installation disabled. The server's existing /demo/api
     middleware authenticates all requests and enforces same-origin CSRF.
     """
-    pending:dict[str,dict]={}
-    lock=threading.RLock()
+    # Durable, TEST-ONLY SQLite CAS separate from historical B0/Live ledgers.
+    journal=MpoSelectionJournal(Path(ledger.path).with_name(
+        "a51dr1_mpo_selection.sqlite"))
+    app.state.a51dr1_mpo_journal=journal
 
     def actor_of(request:Request)->str:
         identity=app.state.demo_request_identity(request)
         if not identity:
             _bad("ACTOR_NOT_AUTHENTICATED",401)
         return identity[0]
-
-    def prune(now:float):
-        for key,record in list(pending.items()):
-            if record["expires"] < now:
-                pending.pop(key,None)
 
     @app.post("/demo/api/a51d/mpo/preview")
     async def preview(request:Request, photo:UploadFile=File(...)):
@@ -117,20 +114,15 @@ def register_fixture_mpo_bridge(app:FastAPI, ledger)->None:
             } for f in inspected["candidate_frames"]]
         except LiveGateError:
             _bad("MPO_INSPECTION_FAILED")
-        now=time.monotonic()
-        with lock:
-            prune(now)
-            if len(pending)>=MAX_PREVIEW_TOKENS:
-                _bad("PREVIEW_CAPACITY_EXHAUSTED",429)
-            token=secrets.token_urlsafe(32)
-            pending[sha256(token.encode()).hexdigest()]={
-                "actor":actor,
-                "sha":inspected["original_sha256"],
-                "count":inspected["source_frame_count"],
-                "previews":{f["index"]:f["preview_png_sha256"] for f in frames},
-                "expires":now+TOKEN_TTL_SECONDS,
-                "confirmed_selection":None,
-            }
+        token=secrets.token_urlsafe(32)
+        try:
+            journal.preview(token=token,actor=actor,
+                source_sha=inspected["original_sha256"],
+                frame_count=inspected["source_frame_count"],
+                previews={f["index"]:f["preview_png_sha256"] for f in frames},
+                ttl_seconds=TOKEN_TTL_SECONDS,capacity=MAX_PREVIEW_TOKENS)
+        except JournalConflict:
+            _bad("PREVIEW_CAPACITY_EXHAUSTED",429)
         return {
             "contract":MODE,
             "token":token,
@@ -151,18 +143,12 @@ def register_fixture_mpo_bridge(app:FastAPI, ledger)->None:
         evidence of browser interaction, not an Owner release approval.
         """
         actor=actor_of(request)
-        now=time.monotonic()
-        token_key=sha256(choice.token.encode()).hexdigest()
-        with lock:
-            prune(now)
-            rec=pending.get(token_key)
-            if (not rec or rec["actor"]!=actor or rec["expires"]<now
-                or rec["confirmed_selection"] is not None
-                or rec["previews"].get(choice.selected_frame_index)!=
-                    choice.selected_preview_sha256):
-                _bad("FRAME_CONFIRM_ACTOR_TOKEN_CAS_DENIED",409)
-            rec["confirmed_selection"]=(
-                choice.selected_frame_index,choice.selected_preview_sha256)
+        try:
+            journal.confirm(token=choice.token,actor=actor,
+                frame_index=choice.selected_frame_index,
+                preview_sha=choice.selected_preview_sha256)
+        except JournalConflict:
+            _bad("FRAME_CONFIRM_ACTOR_TOKEN_CAS_DENIED",409)
         return {"contract":MODE,"confirmed":True,"frame_index":
                 choice.selected_frame_index,"provider_calls":0}
 
@@ -191,79 +177,135 @@ def register_fixture_mpo_bridge(app:FastAPI, ledger)->None:
                 _bad("DUPLICATE_FRAME_CHOICE")
             selection[key]=choice
 
+        # IMPORTANT: complete *every* asynchronous file read and validation
+        # BEFORE entering the SQLite BEGIN IMMEDIATE token-CAS transaction.
+        # No RLock may contain awaits; the cost/provider worker remains OFF.
         outputs={"product":[],"reference":[]}
         total_bytes=0
-        # All source SHA / selection checks before persisting ANY asset.
-        # Race-safe token consumption happens under the same lock. A missing
-        # token or mismatched Actor+frame is never a fallback to frame 0.
-        with lock:
-            now=time.monotonic()
-            prune(now)
-            used:set[str]=set()
-            for role,files in (("product",product_images),("reference",ref)):
-                for idx,file in enumerate(files):
-                    raw=await _read(file)
-                    total_bytes+=len(raw)
-                    if total_bytes>MAX_TOTAL_BYTES:
-                        _bad("TOTAL_INPUT_TOO_LARGE",413)
-                    name=file.filename or ""
-                    actual=_actual_mpo(raw,name)
-                    choice=selection.get((role,idx))
-                    if actual and choice is None:
-                        _bad("EXPLICIT_FRAME_SELECTION_REQUIRED")
-                    if not actual and choice is not None:
-                        _bad("NON_MPO_CANNOT_HAVE_FRAME_SELECTION")
-                    if actual:
-                        token_key=sha256(choice.token.encode()).hexdigest()
-                        preview=pending.get(token_key)
-                        if (not preview or preview["actor"]!=actor or
-                                preview["sha"]!=sha256(raw).hexdigest() or
-                                preview["expires"]<now or
-                                preview["confirmed_selection"]!=(
-                                    choice.selected_frame_index,
-                                    choice.selected_preview_sha256) or
-                                choice.selected_frame_index not in preview["previews"] or
-                                choice.selected_preview_sha256!=preview["previews"][
-                                    choice.selected_frame_index] or token_key in used):
-                            _bad("PREVIEW_TOKEN_ACTOR_SHA_OR_FRAME_MISMATCH",409)
-                        selected=FrameSelection(
-                            contract=CONTRACT,
-                            original_sha256=preview["sha"],
-                            source_frame_count=preview["count"],
-                            selected_frame_index=choice.selected_frame_index,
-                            selected_preview_sha256=choice.selected_preview_sha256,
-                            confirmation=CONFIRM,
-                            upload_request_sha256=sha256(
-                                (actor+":"+token_key).encode()).hexdigest(),
-                        )
-                        try:
-                            norm=normalize_selected_source(
-                                raw,filename=name,mime=file.content_type or "",
-                                selected=selected,
-                                expected_upload_request_sha256=selected.upload_request_sha256)
-                        except LiveGateError:
-                            _bad("MPO_NORMALIZATION_FAILED")
-                        outputs[role].append(norm)
-                        used.add(token_key)
-                    else:
-                        # Calls official B0 upload validation (does not change
-                        # its historical primary-frame MPO behavior).
-                        from starlette.datastructures import UploadFile as SUpload
-                        normal=SUpload(filename=name,file=BytesIO(raw),
-                                       headers=file.headers)
-                        outputs[role].append(await validate_upload(normal))
-            if len(used)!=len(selection):
-                _bad("UNUSED_OR_MISSING_FRAME_CHOICE")
-            for token_key in used:
-                pending.pop(token_key,None)
+        source_bindings=[]
+        claims=[]
+        mpo_pending=[]
+        for role,files in (("product",product_images),("reference",ref)):
+            for idx,file in enumerate(files):
+                raw=await _read(file)
+                total_bytes+=len(raw)
+                if total_bytes>MAX_TOTAL_BYTES:
+                    _bad("TOTAL_INPUT_TOO_LARGE",413)
+                name=file.filename or ""
+                actual=_actual_mpo(raw,name)
+                source_sha=sha256(raw).hexdigest()
+                source_bindings.append({
+                    "role":role,"index":idx,"source_sha256":source_sha})
+                choice=selection.get((role,idx))
+                if actual and choice is None:
+                    _bad("EXPLICIT_FRAME_SELECTION_REQUIRED")
+                if not actual and choice is not None:
+                    _bad("NON_MPO_CANNOT_HAVE_FRAME_SELECTION")
+                if actual:
+                    try:
+                        preview=journal.inspect_confirmed(
+                            token=choice.token,actor=actor,source_sha=source_sha,
+                            frame_index=choice.selected_frame_index,
+                            preview_sha=choice.selected_preview_sha256)
+                    except JournalConflict:
+                        _bad("PREVIEW_TOKEN_ACTOR_SHA_OR_FRAME_MISMATCH",409)
+                    token_key=journal.digest(choice.token)
+                    claim={
+                        "token_sha256":token_key,
+                        "source_sha256":source_sha,
+                        "frame_count":preview["source_frame_count"],
+                        "frame_index":choice.selected_frame_index,
+                        "preview_sha256":choice.selected_preview_sha256,
+                    }
+                    # Request SHA commits to ALL uploaded source image hashes,
+                    # roles and frame selections, not just an opaque Actor ID.
+                    claims.append(claim)
+                    # Defer normalization until ALL photos are read, allowing
+                    # the pinned per-request SHA to include the entire upload.
+                    outputs[role].append(None)
+                    mpo_pending.append((role,idx,raw,name,
+                                        file.content_type or "",choice,preview))
+                else:
+                    # Reuse existing B0 validation without changing v2 routes.
+                    from starlette.datastructures import UploadFile as SUpload
+                    normal=SUpload(filename=name,file=BytesIO(raw),
+                                   headers=file.headers)
+                    outputs[role].append(await validate_upload(normal))
+        if len(claims)!=len(selection):
+            _bad("UNUSED_OR_MISSING_FRAME_CHOICE")
+        request_sha=sha256(json.dumps(
+            {"actor":actor,"inputs":source_bindings,
+             "selections":sorted(claims,key=lambda c:c["token_sha256"])},
+            sort_keys=True,separators=(",",":")).encode()).hexdigest()
 
-        if sum(len(x.data) for x in outputs["product"]+outputs["reference"])>MAX_TOTAL_BYTES:
+        # Normalize AFTER computing a deterministic full-request commitment.
+        # The resulting Job asset and both SQLite CAS receipts now store the
+        # SAME Actor+entire-upload SHA, not an actor/token-only approximation.
+        for role,idx,raw,name,mime,choice,preview in mpo_pending:
+            selected=FrameSelection(
+                contract=CONTRACT,
+                original_sha256=preview["source_sha256"],
+                source_frame_count=preview["source_frame_count"],
+                selected_frame_index=choice.selected_frame_index,
+                selected_preview_sha256=choice.selected_preview_sha256,
+                confirmation=CONFIRM,upload_request_sha256=request_sha)
+            try:
+                norm=normalize_selected_source(
+                    raw,filename=name,mime=mime,selected=selected,
+                    expected_upload_request_sha256=request_sha)
+            except LiveGateError:
+                _bad("MPO_NORMALIZATION_FAILED")
+            outputs[role][idx]=norm
+        if sum(len(x.data) for x in
+                outputs["product"]+outputs["reference"])>MAX_TOTAL_BYTES:
             _bad("TOTAL_NORMALIZED_INPUT_TOO_LARGE",413)
-        job=app.state.job_store.create_job(outputs["product"],outputs["reference"])
-        # This route lies under /demo/api/ and is not auto-claimed by the B0
-        # middleware; explicitly persist ownership before sending a job ID.
+
+        # Durable CAS commits RESERVED before filesystem Job creation. Even if
+        # the process is killed the next request gets 409, never a new Job.
+        # A RESERVED token is NOT automatically released after a crash:
+        # human operator reconciliation is necessary on this fixture system.
+        if claims:
+            try:
+                journal.reserve(actor=actor,claims=claims,request_sha=request_sha)
+            except JournalConflict:
+                _bad("MPO_TOKEN_ALREADY_RESERVED_OR_CONSUMED",409)
+
+        job=None
         try:
+            job=app.state.job_store.create_job(
+                outputs["product"],outputs["reference"])
+            # The /demo/api/ route is not auto-claimed by B0 middleware.
             ledger.claim(actor,job["job_id"])
+            if claims:
+                journal.settle(actor=actor,claims=claims,
+                    request_sha=request_sha,status="COMMITTED",
+                    job_id=job["job_id"])
         except Exception:
-            _bad("JOB_OWNERSHIP_PERSIST_FAILED",503)
+            # Do NOT reset token to CONFIRMED or allow automatic retries:
+            # reservation might already be durable, or ownership was committed
+            # before an exception. A non-claimed orphan is private and removed
+            # when safe; if cleanup fails, operator reconciliation required.
+            claimed=False
+            if job is not None:
+                try:
+                    claimed=ledger.owns(actor,job["job_id"])
+                except Exception:
+                    claimed=False
+                if not claimed:
+                    try:
+                        candidate=app.state.job_store._job_dir(job["job_id"])
+                        if candidate.is_dir() and not candidate.is_symlink():
+                            shutil.rmtree(candidate)
+                    except (OSError,ValueError):
+                        pass
+            if claims:
+                try:
+                    journal.settle(actor=actor,claims=claims,
+                        request_sha=request_sha,
+                        status="COMMITTED" if claimed else "FAILED_RETRY_REQUIRED",
+                        job_id=job["job_id"] if claimed else None)
+                except Exception:
+                    # SQLite retains RESERVED, which itself rejects replay.
+                    pass
+            _bad("JOB_COMMIT_UNCERTAIN_RETRY_REQUIRES_NEW_PREVIEW",503)
         return job
