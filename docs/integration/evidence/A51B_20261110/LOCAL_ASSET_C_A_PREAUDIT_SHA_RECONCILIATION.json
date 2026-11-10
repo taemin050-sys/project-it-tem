@@ -1,0 +1,15 @@
+{
+  "JPEG_singleframe_files": 9,
+  "MPO_2frame_files": 15,
+  "brand_rights_status": "NO_AUTHORIZATION_EVIDENCE",
+  "byte_changed": 0,
+  "contract": "IT_TEM_P03_A51B_SOURCE_PHOTO_C_A51_SHA_RECONCILIATION_V1",
+  "duplicate_pair_count": 1,
+  "original_sha_matches_prior_c_a51": 24,
+  "prior_c_a51_metadata_csv_sha256": "4ac796b854a7d4124d0d7fbf653cb6797c3f9704d74d676cfc2318e13a2f11b5",
+  "provider_sent": false,
+  "raw_photos_copied_into_git": false,
+  "read_only": true,
+  "real_product_label_mask_quality": "NOT_AUDITED",
+  "source_images_compared": 24
+}

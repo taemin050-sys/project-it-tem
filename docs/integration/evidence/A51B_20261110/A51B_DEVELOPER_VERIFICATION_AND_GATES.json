@@ -1,0 +1,65 @@
+{
+  "a51b_targeted": {
+    "exit_code": 0,
+    "passed": 38
+  },
+  "actual_approved_product_mask_count": 0,
+  "baseline_c_a51_accepted_sha": "7681addc04af9a5ba23c862e10d35061885a0a0e",
+  "beta_signed_runtime_activatable": "OFFLINE_ONLY_AFTER_AUTHENTIC_SIGNATURE",
+  "build": {
+    "exit_code": 0
+  },
+  "c_a_independent_a51b": "PENDING",
+  "code_changes": [
+    "demo_staging/live/a51b_candidate_mask_gate.py",
+    "demo_staging/live/a51b_signed_beta_contract.py",
+    "demo_staging/live/pipeline.py",
+    "demo_staging/live/store.py",
+    "demo_staging/live/template_contract.py",
+    "scripts/a51b_gcp_a_readonly_ledger_probe.py",
+    "scripts/a51b_local_product_cohort_audit.py",
+    "tests/demo_live/test_a51b_candidate_mask_gate.py",
+    "tests/demo_live/test_a51b_predeployment_tools.py",
+    "tests/demo_live/test_a51b_signed_beta_contract.py"
+  ],
+  "commercial_release_ready": false,
+  "contract": "IT_TEM_P03_A51B_SIGNED_PROFILE_MASK_GCP_READINESS_V1",
+  "decoded_jpeg_files": 9,
+  "decoded_two_frame_mpo_files": 15,
+  "duplicate_sha_pair": 1,
+  "font_file_sha256": "3090ccde0442bb347aa7685d9ba8b17436a60682df6e8f92a9a670de14056e22",
+  "font_license_text_sha256": "b04538c9abec39a3db75108cf0af0fd9c77032fe8aa2cf38345b4d250e98e38e",
+  "frontend_build_mode": "OFFLINE_FIXTURE_NONDEPLOYED",
+  "frontend_bundle_filename": "index-BOX7UL0g.js",
+  "frontend_bundle_sha256": "7427c697b6824ac3866cf567e91e5491b69deb3ad479eedf3b005b69ce6c122b",
+  "frontend_index_html_sha256": "a2c91db0e3cc5cc5483d84dc1ef943de4bc239067b8fff4bfd53c4115b2c3baa",
+  "frontend_source_sha_label": "a08c5c7e",
+  "frozen_code_sha": "a08c5c7ea68d5863ecf68eae98d468e319aa2f6f",
+  "frozen_code_tree": "b9d80a196b8f4c1d2cc3e0cfc32856790d7ca5a3",
+  "full_feature_beta_ready": false,
+  "gcp_a_deployment_performed": false,
+  "gcp_a_new_ssh_probe_executed": false,
+  "gcp_a_source_observed_from_prior_c_a51": "9879eb0f85747312a224ecd898aaff84d834590b",
+  "lint": {
+    "exit_code": 0
+  },
+  "mask_candidate_authority": "OFFLINE_SIGNED_GEOMETRY_ONLY",
+  "original_user_photos_jpg_extension": 24,
+  "paid_provider_calls": 0,
+  "product_groups": 10,
+  "product_source_sha_matches_previous_c_audit": 24,
+  "production_provider_attempt_ledger": "NOT_VERIFIED_ON_LIVE_GCP_A",
+  "python_full": {
+    "exit_code": 0,
+    "passed": 1199
+  },
+  "react": {
+    "exit_code": 0,
+    "passed": 57
+  },
+  "real_product_brand_label_human_quality": "NOT_AUDITED",
+  "real_product_commercial_use_rights": "NOT_VERIFIED",
+  "real_provider_e2e_combinations": 0,
+  "signed_actual_owner_pm_approval": "NOT_RECEIVED",
+  "team_uat_verified": false
+}
