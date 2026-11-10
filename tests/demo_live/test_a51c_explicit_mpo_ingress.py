@@ -9,7 +9,7 @@ from io import BytesIO
 from pathlib import Path
 import json
 
-from PIL import Image
+from PIL import Image, ImageCms
 from pydantic import ValidationError
 import pytest
 
@@ -164,3 +164,35 @@ def test_wrong_raw_container_jailed_before_any_selection():
     Image.new("RGB",(100,100)).save(data,format="JPEG")
     with pytest.raises(LiveGateError,match="A51C_"):
         inspect_source(data.getvalue(),filename="misnamed.mpo",mime="image/jpeg")
+
+def test_mpo_exif_rotation_and_icc_normalization_matches_preview_intent():
+    exif=Image.Exif()
+    exif[274]=6
+    exif[315]="PRIVATE_PHOTO_PHOTOGRAPHER_EXIF_NOT_TO_EXPORT"
+    first=Image.new("RGB",(320,220),(90,80,30))
+    second=Image.new("RGB",(310,200),(30,100,150))
+    icc=ImageCms.ImageCmsProfile(ImageCms.createProfile("sRGB")).tobytes()
+    buf=BytesIO()
+    first.save(buf,format="MPO",save_all=True,
+               append_images=[second],quality=93,exif=exif,
+               icc_profile=icc)
+    raw=buf.getvalue()
+    info=inspect_source(raw,filename="lookalike.jpg",mime="image/jpeg")
+    assert info["source_frame_count"]==2
+    choice=selection(raw,i=0)
+    encoded=preview_frame(raw,filename="lookalike.jpg",mime="image/jpeg",index=0)
+    with Image.open(BytesIO(encoded)) as preview:
+        assert preview.size==(220,320)
+        assert preview.format=="PNG"
+    normalized=normalize_selected_source(
+        raw,filename="lookalike.jpg",mime="image/jpeg",
+        selected=choice,expected_upload_request_sha256="a"*64)
+    with Image.open(BytesIO(normalized.data)) as image:
+        assert image.size==(220,320)
+        assert image.format=="JPEG"
+        assert not image.getexif()
+        assert not image.info.get("icc_profile")
+    assert normalized.provenance["source_exif_orientation"]==6
+    assert normalized.provenance["source_icc_sha256"]==sha256(icc).hexdigest()
+    assert normalized.provenance["exif_icc_private_metadata_removed"] is True
+    assert b"PRIVATE_PHOTO_PHOTOGRAPHER" not in normalized.data
