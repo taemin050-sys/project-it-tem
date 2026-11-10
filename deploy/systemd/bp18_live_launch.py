@@ -29,6 +29,7 @@ POLICY_KEYS = frozenset({
 })
 DUAL_FLAG = "IT_TEM_BP18_LIVE_DUAL_ENABLED"
 OPTIONAL_POLICY_KEYS = frozenset({DUAL_FLAG})
+RELEASE_POLICY_DIRECTORY = "bp18_live_policies"
 LIVE_FLAGS = (
     "IT_TEM_LIVE_ENABLED", "IT_TEM_LIVE_EXECUTION_APPROVED",
     "IT_TEM_LIVE_WEB_QUEUE_ENABLED", "IT_TEM_PROVIDER_READINESS_CONFIRMED",
@@ -39,12 +40,16 @@ class LaunchDenied(ValueError):
     pass
 
 
+def _private_directory(path: Path) -> None:
+    info = path.lstat()
+    if (not stat.S_ISDIR(info.st_mode) or info.st_uid != os.geteuid()
+            or info.st_mode & 0o077):
+        raise LaunchDenied("PRIVATE_DIRECTORY_REQUIRED")
+
+
 def private_text(path: Path, *, credential: bool = False) -> str:
     """Read bounded owner-only regular files without following a final symlink."""
-    parent = path.parent.lstat()
-    if (not stat.S_ISDIR(parent.st_mode) or parent.st_uid != os.geteuid()
-            or parent.st_mode & 0o077):
-        raise LaunchDenied("PRIVATE_DIRECTORY_REQUIRED")
+    _private_directory(path.parent)
     fd = os.open(path, os.O_RDONLY | os.O_NONBLOCK | os.O_NOFOLLOW)
     with os.fdopen(fd, "rb") as source:
         info = os.fstat(source.fileno())
@@ -71,14 +76,30 @@ def release_sha(root: Path) -> str:
     return sha
 
 
-def read_policy(root: Path) -> dict[str, str] | None:
-    path = root / "config/bp18_b_live.env"
+def read_policy(root: Path, sha: str) -> dict[str, str] | None:
+    if not re.fullmatch(r"[a-f0-9]{40}", sha):
+        raise LaunchDenied("LIVE_POLICY_RELEASE_INVALID")
+    config = root / "config"
+    policy_directory = config / RELEASE_POLICY_DIRECTORY
     try:
-        path.lstat()
+        _private_directory(policy_directory)
     except FileNotFoundError:
-        return None
+        per_release = False
+        try:
+            policy_text = private_text(config / "bp18_b_live.env")
+        except FileNotFoundError:
+            return None
+    else:
+        per_release = True
+        _private_directory(config)
+        try:
+            policy_text = private_text(policy_directory / f"{sha}.env")
+        except FileNotFoundError:
+            raise LaunchDenied("LIVE_RELEASE_POLICY_FILE_REQUIRED") from None
+        except OSError:
+            raise LaunchDenied("LIVE_RELEASE_POLICY_FILE_INVALID") from None
     policy = {}
-    for line in private_text(path).splitlines():
+    for line in policy_text.splitlines():
         if not line.strip() or line.lstrip().startswith("#"):
             continue
         key, separator, value = line.partition("=")
@@ -91,6 +112,8 @@ def read_policy(root: Path) -> dict[str, str] | None:
         raise LaunchDenied("LIVE_DUAL_POLICY_FLAG_INVALID")
     if not re.fullmatch(r"[a-f0-9]{40}", policy["IT_TEM_BP18_LIVE_RELEASE_SHA"]):
         raise LaunchDenied("LIVE_POLICY_RELEASE_INVALID")
+    if per_release and policy["IT_TEM_BP18_LIVE_RELEASE_SHA"] != sha:
+        raise LaunchDenied("LIVE_RELEASE_POLICY_SHA_MISMATCH")
     actors = policy["IT_TEM_LIVE_APPROVED_ACTORS"].split(",")
     if (len(actors) != len(set(actors)) or
             any(not re.fullmatch(r"bp18_b_[a-zA-Z0-9_-]{1,33}", actor) for actor in actors)):
@@ -128,7 +151,7 @@ def configure(root: Path, *, worker: bool) -> str | None:
     sha = release_sha(root)
     from scripts.bp18_b5_release_prestart import required_review_contract
     required_review = required_review_contract(root, sha)
-    policy = read_policy(root)
+    policy = read_policy(root, sha)
     if policy is None or policy["IT_TEM_BP18_LIVE_RELEASE_SHA"] != sha:
         if worker or required_review:
             raise LaunchDenied("LIVE_POLICY_FOR_CURRENT_RELEASE_REQUIRED")
@@ -191,10 +214,7 @@ def load_credential() -> None:
 
 @contextmanager
 def worker_release_lease(root: Path):
-    directory = (root / "config").lstat()
-    if (not stat.S_ISDIR(directory.st_mode) or directory.st_uid != os.geteuid()
-            or directory.st_mode & 0o077):
-        raise LaunchDenied("PRIVATE_DIRECTORY_REQUIRED")
+    _private_directory(root / "config")
     fd = os.open(root / "config/.b5_operator_control.lock",
                  os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW, 0o600)
     try:
