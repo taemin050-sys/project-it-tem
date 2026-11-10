@@ -1,0 +1,380 @@
+{
+  "360_390_human_visual": "NOT_AUDITED",
+  "a5_1": "HOLD",
+  "actual_platform_crop": "NOT_AUDITED",
+  "actual_product_identity_mask": "NOT_AUDITED",
+  "cases": {
+    "A_REFLOW_EDITORIAL_CENTER": {
+      "cta_display_font_360": 20.0,
+      "cta_native_to_safe_bottom": 48,
+      "original_png_sha256": "bcf1b8081a6164ed236cca0cc370d8b906dcd2b0b841aca7db1dc58c14e3e509",
+      "proposed_360_cta_font_min_px": 16,
+      "proposed_360_safe_bottom_min_px": 12,
+      "synthetic_product_cases": {
+        "compact_bottle": {
+          "boxes": [
+            [
+              466,
+              465,
+              614,
+              1020
+            ]
+          ],
+          "brand_label_detected": false,
+          "model_data": false,
+          "overlay_png": "A_REFLOW_EDITORIAL_CENTER_compact_bottle_synthetic_mask_overlay.png",
+          "overlay_sha256": "819e9b114a59f93bf88dec5797acbcea1766d1affa5308276774f04950b383b5",
+          "reasons": [],
+          "status": "SYNTHETIC_NO_COLLISION"
+        },
+        "headline_overlap": {
+          "boxes": [
+            [
+              461,
+              92,
+              619,
+              211
+            ]
+          ],
+          "brand_label_detected": false,
+          "model_data": false,
+          "reasons": [
+            "MASK_INTERSECTS_HEADLINE",
+            "OUTSIDE_SYNTHETIC_PRODUCT_TARGET"
+          ],
+          "status": "GEOMETRIC_HOLD"
+        },
+        "tall_package_into_cta": {
+          "boxes": [
+            [
+              461,
+              445,
+              619,
+              1163
+            ]
+          ],
+          "brand_label_detected": false,
+          "model_data": false,
+          "overlay_png": "A_REFLOW_EDITORIAL_CENTER_tall_package_into_cta_synthetic_mask_overlay.png",
+          "overlay_sha256": "2c7ed6364b68236854d890a8864584d6c3e22cec316860b1d091c80d41d79e52",
+          "reasons": [
+            "MASK_INTERSECTS_CTA",
+            "OUTSIDE_SYNTHETIC_PRODUCT_TARGET"
+          ],
+          "status": "GEOMETRIC_HOLD"
+        },
+        "two_short_products": {
+          "boxes": [
+            [
+              444,
+              485,
+              534,
+              1005
+            ],
+            [
+              546,
+              485,
+              636,
+              1005
+            ]
+          ],
+          "brand_label_detected": false,
+          "model_data": false,
+          "reasons": [],
+          "status": "SYNTHETIC_NO_COLLISION"
+        },
+        "wide_package_beyond_target": {
+          "boxes": [
+            [
+              381,
+              445,
+              699,
+              1005
+            ]
+          ],
+          "brand_label_detected": false,
+          "model_data": false,
+          "reasons": [
+            "OUTSIDE_SYNTHETIC_PRODUCT_TARGET"
+          ],
+          "status": "GEOMETRIC_HOLD"
+        }
+      },
+      "synthetic_two_line_cta_geometry_only": {
+        "approved_for_image": false,
+        "font_px": 54,
+        "line_count": 2
+      },
+      "typography": {
+        "cta": {
+          "font_size_360": 20.0,
+          "font_size_390": 21.67,
+          "font_size_native": 60,
+          "glyph_coverage": {
+            "missing_codepoints": [],
+            "pass": true,
+            "supported": 8,
+            "unique_codepoints": 8
+          },
+          "ink_bbox": [
+            351,
+            1145,
+            729,
+            1200
+          ],
+          "region": [
+            218,
+            1108,
+            862,
+            1238
+          ],
+          "render_instructions": 1,
+          "text_sha256": "29f1185e55a4d3499794d36ada72dda3556cb88a0bd220690a9e0811a5fbc0be"
+        },
+        "headline": {
+          "font_size_360": 38.67,
+          "font_size_390": 41.89,
+          "font_size_native": 116,
+          "glyph_coverage": {
+            "missing_codepoints": [],
+            "pass": true,
+            "supported": 6,
+            "unique_codepoints": 6
+          },
+          "ink_bbox": [
+            276,
+            100,
+            803,
+            204
+          ],
+          "region": [
+            86,
+            82,
+            994,
+            223
+          ],
+          "render_instructions": 1,
+          "text_sha256": "fed16d23a8dc3a78ffa55d4412e11866dc687b469f311d153779e67198bff807"
+        },
+        "subline": {
+          "font_size_360": 25.0,
+          "font_size_390": 27.08,
+          "font_size_native": 75,
+          "glyph_coverage": {
+            "missing_codepoints": [],
+            "pass": true,
+            "supported": 8,
+            "unique_codepoints": 8
+          },
+          "ink_bbox": [
+            262,
+            280,
+            818,
+            347
+          ],
+          "region": [
+            86,
+            245,
+            994,
+            382
+          ],
+          "render_instructions": 1,
+          "text_sha256": "ba116b354fb1441d0b11556547acc165d155f5389046a978ff814431248a28e6"
+        }
+      }
+    },
+    "C_REFLOW_CONTRAST_ACTION": {
+      "cta_display_font_360": 20.0,
+      "cta_native_to_safe_bottom": 50,
+      "original_png_sha256": "eec55373cca228de34838b33baaf3b11e703e341b05739b34f4c909b1afea6fd",
+      "proposed_360_cta_font_min_px": 16,
+      "proposed_360_safe_bottom_min_px": 12,
+      "synthetic_product_cases": {
+        "compact_bottle": {
+          "boxes": [
+            [
+              466,
+              460,
+              614,
+              1010
+            ]
+          ],
+          "brand_label_detected": false,
+          "model_data": false,
+          "overlay_png": "C_REFLOW_CONTRAST_ACTION_compact_bottle_synthetic_mask_overlay.png",
+          "overlay_sha256": "e64626c3227c90c00ad8df785a6b2a36b430456c362125940bbcad1853f1d487",
+          "reasons": [],
+          "status": "SYNTHETIC_NO_COLLISION"
+        },
+        "headline_overlap": {
+          "boxes": [
+            [
+              461,
+              92,
+              619,
+              211
+            ]
+          ],
+          "brand_label_detected": false,
+          "model_data": false,
+          "reasons": [
+            "MASK_INTERSECTS_HEADLINE",
+            "OUTSIDE_SYNTHETIC_PRODUCT_TARGET"
+          ],
+          "status": "GEOMETRIC_HOLD"
+        },
+        "tall_package_into_cta": {
+          "boxes": [
+            [
+              461,
+              440,
+              619,
+              1149
+            ]
+          ],
+          "brand_label_detected": false,
+          "model_data": false,
+          "overlay_png": "C_REFLOW_CONTRAST_ACTION_tall_package_into_cta_synthetic_mask_overlay.png",
+          "overlay_sha256": "f11ddb2f2b0dfbd14396edc9a5c30d08278550555f877849ce29dd9033a813ba",
+          "reasons": [
+            "MASK_INTERSECTS_CTA",
+            "OUTSIDE_SYNTHETIC_PRODUCT_TARGET"
+          ],
+          "status": "GEOMETRIC_HOLD"
+        },
+        "two_short_products": {
+          "boxes": [
+            [
+              444,
+              480,
+              534,
+              995
+            ],
+            [
+              546,
+              480,
+              636,
+              995
+            ]
+          ],
+          "brand_label_detected": false,
+          "model_data": false,
+          "reasons": [],
+          "status": "SYNTHETIC_NO_COLLISION"
+        },
+        "wide_package_beyond_target": {
+          "boxes": [
+            [
+              381,
+              440,
+              699,
+              995
+            ]
+          ],
+          "brand_label_detected": false,
+          "model_data": false,
+          "reasons": [
+            "OUTSIDE_SYNTHETIC_PRODUCT_TARGET"
+          ],
+          "status": "GEOMETRIC_HOLD"
+        }
+      },
+      "synthetic_two_line_cta_geometry_only": {
+        "approved_for_image": false,
+        "font_px": 54,
+        "line_count": 2
+      },
+      "typography": {
+        "cta": {
+          "font_size_360": 20.0,
+          "font_size_390": 21.67,
+          "font_size_native": 60,
+          "glyph_coverage": {
+            "missing_codepoints": [],
+            "pass": true,
+            "supported": 8,
+            "unique_codepoints": 8
+          },
+          "ink_bbox": [
+            351,
+            1137,
+            729,
+            1192
+          ],
+          "region": [
+            80,
+            1094,
+            1000,
+            1236
+          ],
+          "render_instructions": 1,
+          "text_sha256": "29f1185e55a4d3499794d36ada72dda3556cb88a0bd220690a9e0811a5fbc0be"
+        },
+        "headline": {
+          "font_size_360": 37.33,
+          "font_size_390": 40.44,
+          "font_size_native": 112,
+          "glyph_coverage": {
+            "missing_codepoints": [],
+            "pass": true,
+            "supported": 6,
+            "unique_codepoints": 6
+          },
+          "ink_bbox": [
+            284,
+            103,
+            795,
+            203
+          ],
+          "region": [
+            86,
+            82,
+            994,
+            223
+          ],
+          "render_instructions": 1,
+          "text_sha256": "fed16d23a8dc3a78ffa55d4412e11866dc687b469f311d153779e67198bff807"
+        },
+        "subline": {
+          "font_size_360": 25.0,
+          "font_size_390": 27.08,
+          "font_size_native": 75,
+          "glyph_coverage": {
+            "missing_codepoints": [],
+            "pass": true,
+            "supported": 8,
+            "unique_codepoints": 8
+          },
+          "ink_bbox": [
+            262,
+            280,
+            818,
+            347
+          ],
+          "region": [
+            86,
+            245,
+            994,
+            382
+          ],
+          "render_instructions": 1,
+          "text_sha256": "ba116b354fb1441d0b11556547acc165d155f5389046a978ff814431248a28e6"
+        }
+      }
+    }
+  },
+  "composed_4x5_design_profile": "DESIGN_PROFILE_V3_PENDING",
+  "contract": "IT_TEM_P03_A50G_SYNTHETIC_TYPOGRAPHY_PACKAGE_MASK_PRECHECK_V1",
+  "d50_08_cta_9x16": "DECISION_PENDING_PM_OWNER",
+  "font_file_sha256_read_only_not_bundled": "3090ccde0442bb347aa7685d9ba8b17436a60682df6e8f92a9a670de14056e22",
+  "font_package": "Pretendard 1.3.9 - candidate only",
+  "gcp_qa": "HOLD",
+  "licensing_signed": false,
+  "new_runtime_profile": "NOT_IMPLEMENTED",
+  "owner_pm_design_approved": false,
+  "paid_worker": "HOLD",
+  "prior_a50e_manifest_sha256": "42995a82027e727eebfb416f9cf4270b3870b1849b041f2e0151a0578e2615b8",
+  "product_policy": "PRODUCT_POLICY_APPROVED",
+  "release": "NOT_RELEASE_READY",
+  "rights_cleared_real_product_count": 0
+}
