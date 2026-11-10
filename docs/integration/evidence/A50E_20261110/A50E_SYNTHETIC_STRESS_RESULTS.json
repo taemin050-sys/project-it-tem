@@ -1,0 +1,44 @@
+{
+  "actual_object_mask_missing": {
+    "reason": "A50E_REAL_PRODUCT_MASK_REQUIRED_FAIL_CLOSED",
+    "status": "REJECTED_AS_EXPECTED"
+  },
+  "cta_overlap_fake_mask": {
+    "reason": "A50E_TEXT_PROTECTED_OBJECT_COLLISION",
+    "status": "REJECTED_AS_EXPECTED"
+  },
+  "large_packaging_into_cta": {
+    "reason": "A50E_PROTECTED_MASK_OUTSIDE_TARGET",
+    "status": "REJECTED_AS_EXPECTED"
+  },
+  "long_cta_no_truncation": {
+    "reason": "A50E_COPY_OVERFLOW_FAIL_CLOSED",
+    "status": "REJECTED_AS_EXPECTED"
+  },
+  "multiline_cta_unapproved": {
+    "reason": "A50E_CTA_MULTILINE_REQUIRES_PROFILE_APPROVAL",
+    "status": "REJECTED_AS_EXPECTED"
+  },
+  "overlong_korean_headline": {
+    "reason": "A50E_COPY_OVERFLOW_FAIL_CLOSED",
+    "status": "REJECTED_AS_EXPECTED"
+  },
+  "small_package_synthetic_mask": {
+    "mask": [
+      494,
+      540,
+      586,
+      955
+    ],
+    "status": "SYNTHETIC_GEOMETRY_PASS_NOT_REAL_DETECTION"
+  },
+  "three_line_cta_disallowed": {
+    "reason": "A50E_UNSUPPORTED_LINE_COUNT",
+    "status": "REJECTED_AS_EXPECTED"
+  },
+  "two_line_cta_explicit_simulation": {
+    "lines": 2,
+    "native_font_px": 54,
+    "status": "SYNTHETIC_LAYOUT_FEASIBLE_NOT_PROFILE_APPROVED"
+  }
+}
