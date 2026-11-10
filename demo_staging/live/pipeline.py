@@ -670,10 +670,13 @@ class LivePipeline:
                     copy_revision=job["generation"],copy_hash=job["copy_sha"],
                     copy_output=cp,layout=layout_obj)
                 try:
-                    result=compose_ad_png(input_obj,font_path=font,
-                        beta_style=(plan["profile_id"][-1]
-                          if plan["profile_id"].startswith(PROFILE_PREFIX)
-                          else None))
+                    if plan["profile_id"].startswith(PROFILE_PREFIX):
+                        # Only v3 receives the additive style keyword.
+                        result=compose_ad_png(input_obj,font_path=font,
+                            beta_style=plan["profile_id"][-1])
+                    else:
+                        # Keep historical Owner v2/v1 call signature exactly.
+                        result=compose_ad_png(input_obj,font_path=font)
                 except (GatewayError,ValueError):
                     raise LiveGateError("COMPOSITION_RENDER_FAILED") from None
             receipt=result.receipt
