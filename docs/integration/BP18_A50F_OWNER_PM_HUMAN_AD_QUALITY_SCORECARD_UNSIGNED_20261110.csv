@@ -1,0 +1,11 @@
+candidate,case_id,dimension,review_prompt,proposed_weight_NOT_APPROVED,owner_pm_approved_weight,actual_human_score,reject_reason,rights_check,mask_protection_check,font_license_check,approved_copy_cta_check,platform_crop_check,reviewer_identity_ref,reviewer_role,authentic_signed_evidence_ref,reviewed_at_utc,human_acceptance
+A_REFLOW_EDITORIAL_CENTER,UNASSIGNED_REAL_SAMPLE,TYPOGRAPHY,"Korean spelling, clipping, glyphs, hierarchy and spacing",30,,,,NOT_AUDITED,NOT_AUDITED,HOLD,NOT_REAL_PROVIDER_E2E,NOT_AUDITED,,,,,PENDING
+A_REFLOW_EDITORIAL_CENTER,UNASSIGNED_REAL_SAMPLE,CTA,"CTA once, exact approved text, prominence, readability",25,,,,NOT_AUDITED,NOT_AUDITED,HOLD,NOT_REAL_PROVIDER_E2E,NOT_AUDITED,,,,,PENDING
+A_REFLOW_EDITORIAL_CENTER,UNASSIGNED_REAL_SAMPLE,PRODUCT_BRAND,real package/logo/label fidelity and protected mask,20,,,,NOT_AUDITED,NOT_AUDITED,HOLD,NOT_REAL_PROVIDER_E2E,NOT_AUDITED,,,,,PENDING
+A_REFLOW_EDITORIAL_CENTER,UNASSIGNED_REAL_SAMPLE,COMMERCIAL_VISUAL,"composition, subject/art direction, credible ad quality",15,,,,NOT_AUDITED,NOT_AUDITED,HOLD,NOT_REAL_PROVIDER_E2E,NOT_AUDITED,,,,,PENDING
+A_REFLOW_EDITORIAL_CENTER,UNASSIGNED_REAL_SAMPLE,MOBILE,360 and 390 actual viewport and platform crop review,10,,,,NOT_AUDITED,NOT_AUDITED,HOLD,NOT_REAL_PROVIDER_E2E,NOT_AUDITED,,,,,PENDING
+C_REFLOW_CONTRAST_ACTION,UNASSIGNED_REAL_SAMPLE,TYPOGRAPHY,"Korean spelling, clipping, glyphs, hierarchy and spacing",30,,,,NOT_AUDITED,NOT_AUDITED,HOLD,NOT_REAL_PROVIDER_E2E,NOT_AUDITED,,,,,PENDING
+C_REFLOW_CONTRAST_ACTION,UNASSIGNED_REAL_SAMPLE,CTA,"CTA once, exact approved text, prominence, readability",25,,,,NOT_AUDITED,NOT_AUDITED,HOLD,NOT_REAL_PROVIDER_E2E,NOT_AUDITED,,,,,PENDING
+C_REFLOW_CONTRAST_ACTION,UNASSIGNED_REAL_SAMPLE,PRODUCT_BRAND,real package/logo/label fidelity and protected mask,20,,,,NOT_AUDITED,NOT_AUDITED,HOLD,NOT_REAL_PROVIDER_E2E,NOT_AUDITED,,,,,PENDING
+C_REFLOW_CONTRAST_ACTION,UNASSIGNED_REAL_SAMPLE,COMMERCIAL_VISUAL,"composition, subject/art direction, credible ad quality",15,,,,NOT_AUDITED,NOT_AUDITED,HOLD,NOT_REAL_PROVIDER_E2E,NOT_AUDITED,,,,,PENDING
+C_REFLOW_CONTRAST_ACTION,UNASSIGNED_REAL_SAMPLE,MOBILE,360 and 390 actual viewport and platform crop review,10,,,,NOT_AUDITED,NOT_AUDITED,HOLD,NOT_REAL_PROVIDER_E2E,NOT_AUDITED,,,,,PENDING
