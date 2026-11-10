@@ -25,7 +25,7 @@ from fastapi.responses import FileResponse, JSONResponse, Response, StreamingRes
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
-from src.serving.main import create_app as create_b0_app
+from src.serving.app_factory import create_app as create_b0_app
 from src.serving.job_store import get_mock_artifact
 from .tailnet_assertion import TailnetAssertionError, verify_request, key_from_file
 
