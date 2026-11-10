@@ -188,10 +188,21 @@ def register_live_api(app:FastAPI, ledger, runtime_root:Path, cookie_name:str):
     # Isolated developer QA fixture path. NOT a Live Provider substitute:
     # requires an explicit process permit, loopback-only request, and a QA
     # identity. It is never enabled by the team's normal serving process.
+    # The prior 127.0.0.1 invitation QA remains unchanged. A51E adds an
+    # isolated, nonbillable *signed-assertion* QA test candidate, allowed
+    # ONLY under private ephemeral test roots and with fully disabled Live.
+    # This is never deployable as a real Provider beta or a team UAT pass.
+    signed_candidate_qa=(
+        os.environ.get("IT_TEM_A51E_SIGNED_BETA_INTAKE")=="YES"
+        and os.environ.get("IT_TEM_A51E_NONBILLABLE_CANDIDATE")=="YES"
+        and os.environ.get("IT_TEM_A51E_MPO_POLICY_STATE")=="PENDING_REJECT"
+        and os.environ.get("IT_TEM_TAILNET_SSO_ONLY")=="YES"
+        and os.environ.get("IT_TEM_TAILNET_AUTH_ENABLED")=="YES")
     qa_enabled=(os.environ.get("IT_TEM_QA_FIXTURE_ENABLED")=="YES"
                 and os.environ.get("IT_TEM_LIVE_ENABLED")=="NO"
                 and os.environ.get("IT_TEM_LIVE_EXECUTION_APPROVED")=="NO"
-                and os.environ.get("IT_TEM_DEMO_SECURE_COOKIE")=="NO")
+                and (os.environ.get("IT_TEM_DEMO_SECURE_COOKIE")=="NO"
+                     or signed_candidate_qa))
     qa_actors=frozenset(x.strip() for x in
           os.environ.get("IT_TEM_QA_ALLOWED_ACTORS","").split(",") if x.strip())
 

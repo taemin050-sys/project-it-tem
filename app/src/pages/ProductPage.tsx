@@ -1,4 +1,4 @@
-import { useEffect,useState, type FormEvent } from 'react'
+import { useEffect,useRef,useState, type FormEvent } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { isUnreachable } from '../api/client'
 import { createJob } from '../api/jobs'
@@ -12,6 +12,7 @@ import PhotoDrop from '../components/PhotoDrop'
 import StepPage from '../components/StepPage'
 import { PRODUCT_PHOTOS, RATIOS, REFERENCE_PHOTOS, SHRINK, type Ratio } from '../config'
 import { shrinkImage } from '../lib/shrinkImage'
+import {A51E_SIGNED_BETA_CANDIDATE,newUploadRequestId} from '../lib/a51eSignedBeta'
 import { validateProduct, type ProductErrors } from '../lib/validateProduct'
 import { useProjectStore } from '../store/projectStore'
 import { AD_PURPOSES, EMOJI_LEVELS, FUNCTIONAL_TYPES, PRODUCT_TYPES, type EmojiLevel, type FunctionalType } from '../types/textSchema'
@@ -47,6 +48,9 @@ export default function ProductPage() {
   const [errors, setErrors] = useState<ProductErrors>({})
   const [uploading, setUploading] = useState(false)
   const [uploadError, setUploadError] = useState<{ message: string; offline: boolean }>()
+  const uploadRequestId=useRef<string|undefined>(undefined)
+  useEffect(()=>{uploadRequestId.current=undefined},
+    [images,references,product,ratio,generationMode])
   // FE mode and ratio are a single immutable server Job decision. Prevent a
   // second selection while upload/AI is running or a prior Job is active.
   const imageSelectionLocked=uploading || run.busy || (Boolean(jobId) && hasUnfinishedJob())
@@ -108,7 +112,10 @@ export default function ProductPage() {
         brand_name: product.brand_name?.trim() || null,
         product_image_count: productFiles.length,
         reference_image_count: referenceFiles.length,
-      })
+      }, A51E_SIGNED_BETA_CANDIDATE
+        ? (uploadRequestId.current ??= newUploadRequestId())
+        : undefined)
+      uploadRequestId.current=undefined
       // 업로드가 성공한 뒤에 비워야 실패해도 이전 작업으로 돌아갈 수 있다
       resetJob()
       navigate('/create/copy')
@@ -177,7 +184,9 @@ export default function ProductPage() {
           id="photos"
           title="제품 사진"
           limits={PRODUCT_PHOTOS}
-          hint={`같은 제품을 정면·후면·측면 등 여러 각도에서 찍은 사진 ${PRODUCT_PHOTOS.minFiles}~${PRODUCT_PHOTOS.maxFiles}장. JPG·PNG·WEBP, 큰 사진은 자동으로 줄여서 올립니다.`}
+          hint={A51E_SIGNED_BETA_CANDIDATE
+            ? `같은 제품의 원본 사진 ${PRODUCT_PHOTOS.minFiles}~${PRODUCT_PHOTOS.maxFiles}장. JPG·PNG·WEBP. MPO는 Owner 승인 전까지 차단되며 사진을 자동 재압축하지 않습니다.`
+            : `같은 제품을 정면·후면·측면 등 여러 각도에서 찍은 사진 ${PRODUCT_PHOTOS.minFiles}~${PRODUCT_PHOTOS.maxFiles}장. JPG·PNG·WEBP, 큰 사진은 자동으로 줄여서 올립니다.`}
           files={images}
           error={errors.images}
           onChange={(files) => { setImages(files); setError('images') }}

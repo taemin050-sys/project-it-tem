@@ -1,4 +1,5 @@
 import {isMpoFile} from './mpo.ts'
+import {A51E_SIGNED_BETA_CANDIDATE,isPendingMpo} from './a51eSignedBeta.ts'
 import {A51D_MPO_FIXTURE,confirmedMpoChoice,requiresMpoFixtureSelection
 } from './a51dMpoSelection.ts'
 
@@ -11,6 +12,15 @@ export function fitWithin(width: number, height: number, maxSide: number) {
 // 큰 사진은 올리기 전에 브라우저에서 줄이고 다시 압축한다. 작은 사진은 원본 그대로 보낸다
 // PNG는 투명도를 지키려고 PNG로, 나머지는 JPEG로 저장한다. EXIF 회전은 createImageBitmap이 반영한다
 export async function shrinkImage(file: File, limits: { maxSide: number; maxBytes: number }): Promise<File> {
+  if(A51E_SIGNED_BETA_CANDIDATE){
+    // Product/brand fidelity: do not browser-transcode *any* signed beta
+    // image before the server commits to the actual source byte SHA.
+    if (await isPendingMpo(file))
+      throw Error('다중 프레임 MPO는 Owner 승인 전 Signed Beta에 사용할 수 없습니다.')
+    if (file.size>limits.maxBytes)
+      throw Error('이 베타에서는 사진 원본을 자동 압축하지 않습니다. 더 작은 원본을 선택해 주세요.')
+    return file
+  }
   if(A51D_MPO_FIXTURE){
     // Never silently decode/re-encode .jpg hidden MPO in browser; this would
     // discard the selected frame and break source/provenance SHA binding.

@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { useObjectUrls } from '../lib/useObjectUrls'
 import { validateImages, type Limits } from '../lib/validateImages'
 import {hasMpoPrimarySignature,isMpoFile} from '../lib/mpo'
+import {A51E_SIGNED_BETA_CANDIDATE,isPendingMpo} from '../lib/a51eSignedBeta'
 import {A51D_MPO_FIXTURE, requiresMpoFixtureSelection, inspectMpoFixture,
   confirmMpoFixtureFrame, confirmedMpoChoice, type PreviewReceipt
 } from '../lib/a51dMpoSelection'
@@ -43,6 +44,22 @@ export default function PhotoDrop({ id, title, limits, hint, files, error, onCha
     const errs = validateImages(next, { ...limits, minFiles: 0 }, title)
     onError(errs.length > 0 ? errs.join(' ') : undefined)
     if(errs.length)return
+    // Until Image Owner/FE/PM sign the MPO contract, Beta must never
+    // quietly choose frame zero. Browser may not detect late APP2 markers;
+    // server also reopens full original bytes and rejects actual MPO.
+    if (A51E_SIGNED_BETA_CANDIDATE) {
+      try {
+        for (const file of next) {
+          if (await isPendingMpo(file)) {
+            onError('다중 프레임 MPO는 현재 Owner 승인 대기 중입니다. 단일 프레임 원본을 선택해 주세요.')
+            return
+          }
+        }
+      } catch {
+        onError('MPO 사진 형식을 확인할 수 없습니다. 다른 사진을 선택해 주세요.')
+        return
+      }
+    }
     for(const file of next){
       if(isMpoFile(file) && !(await hasMpoPrimarySignature(file))){
         onError(file.name+': MPO 사진의 MPF 구조가 올바르지 않습니다. JPEG로 변환해 주세요.')

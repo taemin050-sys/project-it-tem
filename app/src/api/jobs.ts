@@ -4,16 +4,28 @@ import type { Job } from '../types/draft'
 import type { ProductInput } from '../types/textSchema'
 import { request, send } from './client'
 import {A51D_MPO_FIXTURE,confirmedMpoChoice} from '../lib/a51dMpoSelection'
+import {A51E_SIGNED_BETA_CANDIDATE,newUploadRequestId} from '../lib/a51eSignedBeta'
 
 const json = (body: unknown) => ({ headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
 
 // 레거시 구현(f979331) 경로 + 신규 Wire 제안(UP-EXT의 product_input_json). 성공 응답은 래퍼 없는 Job JSON.
 // 레거시 서버는 product_input_json을 받지 않고 무시한다
-export function createJob(productImages: File[], referenceImages: File[], input: ProductInput) {
+export function createJob(productImages: File[], referenceImages: File[],
+  input: ProductInput, uploadRequestId?: string) {
   const form = new FormData()
   productImages.forEach((f) => form.append('product_images', f))
   referenceImages.forEach((f) => form.append('reference_images', f))
   form.append('product_input_json', JSON.stringify(input))
+  if(A51E_SIGNED_BETA_CANDIDATE){
+    // Only nonbillable signed SSO admission candidate; original file bytes
+    // and stable request ID are verified by an isolated persistent ledger.
+    // Existing B0 route is deliberately blocked in signed-beta candidate.
+    const id=uploadRequestId ?? newUploadRequestId()
+    return request<Job>('/demo/api/a51e/beta/jobs', {
+      method:'POST',body:form,
+      headers:{'X-IT-TEM-Upload-Request-ID':id},
+    })
+  }
   if(A51D_MPO_FIXTURE){
     // Only explicit, visually confirmed MPO candidates use the provisional
     // authenticated HTTP→B0 Job bridge. Legacy B0 jobs remain unchanged.

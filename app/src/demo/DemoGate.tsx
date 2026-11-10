@@ -7,6 +7,7 @@ import { Link, useLocation } from 'react-router-dom'
 import {QA_OFFLINE_FIXTURE} from '../config'
 import { continueOrStartNew } from '../api/useJob'
 const SSO_ONLY = import.meta.env.VITE_IT_TEM_SSO_ONLY === 'YES'
+const SIGNED_NONBILLABLE_CANDIDATE = import.meta.env.VITE_A51E_SIGNED_BETA_CANDIDATE === 'YES'
 const TRACK_LABEL = import.meta.env.VITE_IT_TEM_TRACK_ID === 'ENHANCED' ? 'BP18 ENHANCED / PROVISIONAL' : import.meta.env.VITE_IT_TEM_TRACK_ID === 'BASELINE' ? 'BP18 BASELINE' : 'IT-TEM'
 
 type Identity = { authenticated: true; evaluator_id: string; role: 'evaluator' | 'admin';
@@ -60,7 +61,9 @@ export default function DemoGate() {
   </main>
   if (!identity) return <main style={{maxWidth: 560, margin: '8vh auto', padding: 30}}>
     <h1>{TRACK_LABEL} 원격 시연</h1>
-    <p><strong>{QA_OFFLINE_FIXTURE ? 'IT-TEM QA 전용 · 실제 AI 아님' : 'IT-TEM 실제 AI Live 평가'}</strong> — 승인된 구성원에게만 제공됩니다.</p>
+    <p><strong>{QA_OFFLINE_FIXTURE || SIGNED_NONBILLABLE_CANDIDATE
+      ? 'IT-TEM Signed SSO 비과금 통합 검증 · 실제 AI 호출 없음'
+      : 'IT-TEM 실제 AI Live 평가'}</strong> — 승인된 구성원에게만 제공됩니다.</p>
     <p>승인된 Tailscale 네트워크에서 접속해 주세요. 자동 로그인되지 않으면 관리자에게 문의하세요.</p>
     <form onSubmit={e => {e.preventDefault();void login()}}>
       <label htmlFor="demo-invite">개인별 초대코드</label>
@@ -72,8 +75,15 @@ export default function DemoGate() {
   </main>
   return <>
     <aside style={{padding:'9px 14px',background:'#202b3b',color:'white',display:'flex',justifyContent:'space-between',alignItems:'center',flexWrap:'wrap',gap:10}}>
-      <span><strong>{TRACK_LABEL} · {QA_OFFLINE_FIXTURE ? 'IT-TEM QA OFFLINE_FIXTURE · 실제 AI 아님' : 'IT-TEM 제품 검증 · 실모델 Worker 비활성'}</strong>
-        {' · '}{QA_OFFLINE_FIXTURE ? '시험 데이터 / 유료 호출 없음' : '승인된 팀원용 입력 검증 · 실제 AI 호출 비활성 · MONITOR_ONLY'}{' · '}
+      <span><strong>{TRACK_LABEL} · {SIGNED_NONBILLABLE_CANDIDATE
+        ? 'Signed SSO 비과금 후보 · 실모델 승인 대기'
+        : QA_OFFLINE_FIXTURE ? 'IT-TEM QA OFFLINE_FIXTURE · 실제 AI 아님'
+        : 'IT-TEM 제품 검증 · 실모델 Worker 비활성'}</strong>
+        {' · '}{SIGNED_NONBILLABLE_CANDIDATE
+          ? 'MPO Owner 정책 미확정 · Worker 비활성 · 시험 데이터 전용'
+          : QA_OFFLINE_FIXTURE
+            ? '시험 데이터 / 유료 호출 없음'
+            : '승인된 팀원용 입력 검증 · 실제 AI 호출 비활성 · MONITOR_ONLY'}{' · '}
         <small>Build {import.meta.env.VITE_IT_TEM_CODE_SHA?.slice(0,8) || 'UNPINNED'}</small></span>
       <span>{identity.evaluator_id} · {identity.auth_provider==='TAILSCALE_SERVE'
         ? <span aria-label="Tailscale 신원 확인 완료">Tailscale 인증됨</span>

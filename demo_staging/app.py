@@ -228,6 +228,29 @@ class ReviewBody(BaseModel):
 def make_demo_app(root: Path, invite_file: Path, frontend: Path,
                   *, secure_cookie: bool = True, code_sha: str = "UNPINNED"):
     root = Path(root)
+    a51e_candidate=os.environ.get("IT_TEM_A51E_SIGNED_BETA_INTAKE")=="YES"
+    if a51e_candidate:
+        # This is a sealed NONBILLABLE signed-SSO integration rehearsal, NOT
+        # an authorized GCP or paid beta. No MPO policy or asset-use grant
+        # may be invented by environment variables. New Beta uploads
+        # reject all MPO until formally signed Owner/PM policy is reviewed.
+        candidate_root=str(root.resolve())
+        if (not secure_cookie or
+            not (candidate_root.startswith("/private/tmp/ittem-a51e-")
+                 or "/pytest-" in candidate_root)
+            or os.environ.get("IT_TEM_A51E_NONBILLABLE_CANDIDATE")!="YES"
+            or os.environ.get("IT_TEM_A51E_MPO_POLICY_STATE")!="PENDING_REJECT"
+            or os.environ.get("IT_TEM_A51D_SIGNED_BETA_RUNTIME")!="YES"
+            or os.environ.get("IT_TEM_TAILNET_SSO_ONLY")!="YES"
+            or os.environ.get("IT_TEM_TAILNET_AUTH_ENABLED")!="YES"
+            or os.environ.get("IT_TEM_LIVE_COST_POLICY")!="HARD_CAP"
+            or os.environ.get("IT_TEM_A51C_HARD_CAP_ENABLE")!="YES"
+            or os.environ.get("IT_TEM_LIVE_ENABLED")=="YES"
+            or os.environ.get("IT_TEM_LIVE_EXECUTION_APPROVED")=="YES"
+            or os.environ.get("IT_TEM_LIVE_WEB_QUEUE_ENABLED")=="YES"
+            or os.environ.get("IT_TEM_ENABLE_BILLABLE_TEXT_CALLS")=="YES"
+            or os.environ.get("IT_TEM_A51D_MPO_FIXTURE_BRIDGE")=="YES"):
+            raise RuntimeError("A51E_SIGNED_SSO_CANDIDATE_HARD_GATES_NOT_MET")
     if os.environ.get("IT_TEM_A51D_SIGNED_BETA_RUNTIME")=="YES" and (
             os.environ.get("IT_TEM_A51C_HARD_CAP_ENABLE")!="YES" or
             os.environ.get("IT_TEM_LIVE_COST_POLICY")!="HARD_CAP" or
@@ -319,6 +342,13 @@ def make_demo_app(root: Path, invite_file: Path, frontend: Path,
                                     headers={"Cache-Control":"no-store"})
         actor=identity[0] if identity else None
         job_id=None
+        # In the isolated signed beta candidate, forbid direct B0 POST
+        # creation (its legacy MPO/frame-zero codec is v2-only). All new
+        # uploads must enter a separate audited signed-Actor route.
+        if a51e_candidate and path=="/api/v1/jobs" and request.method=="POST":
+            return JSONResponse({"detail":"A51E_USE_SIGNED_BETA_INGRESS"},
+                                status_code=423,
+                                headers={"Cache-Control":"no-store"})
         if is_b0:
             match=_STEP.fullmatch(path)
             if not match:
@@ -472,6 +502,16 @@ def make_demo_app(root: Path, invite_file: Path, frontend: Path,
     # Provisional Live routes ONLY on independent staging. No official B0 routes edited.
     from .live.http_api import register_live_api
     register_live_api(app,ledger,root,cookie_name)
+
+    if a51e_candidate:
+        # Operator must preinitialize a private, isolated candidate ledger.
+        # Never create/migrate current GCP or historical Job/Provider DB here.
+        from .live.a51e_signed_beta_ingress_ledger import BetaUploadLedger
+        from .live.a51e_signed_beta_ingress import register_a51e_signed_beta_ingress
+        upload_ledger=BetaUploadLedger(
+            root/"a51e_beta_upload_request.sqlite",initialize=False)
+        app.state.a51e_beta_upload_ledger=upload_ledger
+        register_a51e_signed_beta_ingress(app,ledger,upload_ledger)
 
     # A51D candidate HTTP bridge is strictly local, MOCK/OFFLINE and test-only.
     # Future MPO approval requires Image Owner #24, FE #26 and PM authority,
