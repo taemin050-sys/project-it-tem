@@ -21,6 +21,15 @@ export async function shrinkImage(file: File, limits: { maxSide: number; maxByte
     }
     if(await requiresMpoFixtureSelection(file))
       throw Error('MPO 사진을 다시 선택하고 사용할 프레임을 확정해 주세요.')
+    // The JPG MPF marker can be beyond the browser's bounded APP2 scan.
+    // Never re-encode an unconfirmed .jpg/.jpeg in fixture mode: pass the
+    // original bytes to B0, which rejects actual MPO-format-as-JPG. If the
+    // browser resized it first it could silently lose the second frame.
+    if(/\.jpe?g$/i.test(file.name)){
+      if(file.size>limits.maxBytes)
+        throw Error('원본 JPG가 업로드 제한보다 큽니다. 사진을 별도로 줄여서 올려 주세요.')
+      return file
+    }
   }
   if(isMpoFile(file)){
     if(file.size>limits.maxBytes)
