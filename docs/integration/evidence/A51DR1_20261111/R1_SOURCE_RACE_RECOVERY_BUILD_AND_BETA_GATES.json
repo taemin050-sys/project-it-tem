@@ -1,0 +1,60 @@
+{
+  "C_A_a51dr1_independent_acceptance": "PENDING",
+  "C_A_independent_original_attack_before": {
+    "distinct_jobs": 2,
+    "http": [
+      201,
+      201
+    ]
+  },
+  "a51dr1_local_test_only": true,
+  "actual_external_provider_calls": 0,
+  "actual_gcp_updates": false,
+  "browser_screenshots": 6,
+  "build_pass": true,
+  "caption_sha256": "a2269c826e49dd43406c281935c1fc411e720c278ef24b14f6f9c10ab109c839",
+  "contract": "IT_TEM_P03_A51DR1_FIXED_SOURCE_SAME_ATTACK_BROWSER_BETA_GATE_V1",
+  "crash_after_reserved_and_restart": "ONE_TOKEN_409_REPLAY_DENIED",
+  "download_png_sha256": "95b9414d6eac81ef4352ae28a9d30ef41c1af1a0caf50bd492624bc288b34d62",
+  "failed_job_creation_and_owner_claim": "NO_AUTOMATIC_REPLAY_OR_DOUBLE_JOB",
+  "fixed_code_head": "7c5738b1a2adbe06a96a50a6851add7606a03eba",
+  "fixed_code_tree": "4432c8ad77bb30b62a7044a1ca778cb91dc716c3",
+  "focused_python_pass": 56,
+  "frontend_index_html_sha256": "c77a88186a127be44dc319e16e5818e1cfc1ef547067846f2837b74814b7757a",
+  "frontend_js_name": "index-FTyp9Wwf.js",
+  "frontend_js_sha256": "4ab7584362365fa2b7164ef6b65a6524d6d18c70b3b971f537fda99fbf415e89",
+  "frontend_package_lock_sha256": "de5d56ac4eff9570c11b2dcb9c939088073f500537df02eaa25019b49fb0b6e7",
+  "full_feature_beta": "HOLD",
+  "full_python_pass": 1306,
+  "image_owner_PM_MPO_contract_approved": false,
+  "input": "SYNTHETIC_ONLY",
+  "lint_pass": true,
+  "new_async_attack_N": [
+    2,
+    12
+  ],
+  "official_react_chrome_steps": 15,
+  "prior_C_A51D_source": "c2ba3baa5bcf5211469fdf37da8ed7845130f4a0",
+  "react_pass": 59,
+  "real_signed_ss0_beta_durable_journal": false,
+  "real_six_provider_jobs": 0,
+  "request_sha256": "ACTOR_ALL_SOURCE_SHA_FRAME_AND_PREVIEW_SHA",
+  "same_C_A_independent_script_after": {
+    "distinct_jobs": 1,
+    "http": [
+      201,
+      409
+    ]
+  },
+  "source_changed_paths": [
+    "demo_staging/live/a51d_mpo_fixture_bridge.py",
+    "demo_staging/live/a51dr1_mpo_selection_journal.py",
+    "tests/demo_live/test_a51dr1_mpo_concurrency_recovery.py"
+  ],
+  "source_integrity": "PASS",
+  "source_integrity_checked_blobs": 805,
+  "token_CAS": "SQLITE_BEGIN_IMMEDIATE_WAL_PREPARE_BEFORE_JOB",
+  "two_independent_sqlite_processes": "ONE_RESERVED_OTHER_CONFLICT",
+  "uncertain_commit": "PERMANENTLY_BLOCK_REQUIRES_OPERATOR_RECONCILIATION",
+  "working_tree_clean": true
+}
