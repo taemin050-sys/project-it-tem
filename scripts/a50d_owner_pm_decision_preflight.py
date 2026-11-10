@@ -10,6 +10,7 @@ import csv
 import hashlib
 import importlib.util
 import json
+import os
 from pathlib import Path
 
 BASE = Path(__file__).resolve().parents[1]
@@ -261,28 +262,60 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--out", type=Path, required=True)
     args = parser.parse_args()
-    args.out.mkdir(parents=True, exist_ok=True)
+    # R1: The generator owns ONLY its explicit output directory, never the
+    # version-controlled canonical review CSV/JSON, or a future signed ledger.
+    # Refuse *every* pre-existing destination, even if its draft bytes match.
+    supplied = args.out.expanduser().absolute()
+    if supplied.is_symlink() or (supplied.exists() and not supplied.is_dir()):
+        raise SystemExit("A50D_SIGNED_OR_EXISTING_OUTPUT_PATH_HOLD")
+    # macOS standard /var -> /private/var alias must not appear as a
+    # malicious output path; resolve only AFTER rejecting leaf symlinks.
+    out = supplied.resolve()
+    out.mkdir(parents=True, exist_ok=True)
     measurements = inspect()
     contract = build_contract(measurements)
     register = make_register(measurements)
     paths = {
-        "measurements": args.out/"A50D_GEOMETRY_AND_DECISION_PREFLIGHT.json",
-        "contract": DOCS/"BP18_A50D_PROFILE_V3_REVIEW_ONLY_CONTRACT_20261110.json",
-        "decisions": DOCS/"BP18_A50D_OWNER_PM_DECISION_REGISTER_20261110.csv",
+        "measurements": out/"A50D_GEOMETRY_AND_DECISION_PREFLIGHT.json",
+        "contract": out/"BP18_A50D_PROFILE_V3_REVIEW_ONLY_CONTRACT_20261110.json",
+        "decisions": out/"BP18_A50D_OWNER_PM_DECISION_REGISTER_20261110.csv",
     }
-    paths["measurements"].write_text(
-        json.dumps(measurements, ensure_ascii=False, sort_keys=True, indent=2)+"\n",
-        encoding="utf-8")
-    paths["contract"].write_text(
-        json.dumps(contract, ensure_ascii=False, sort_keys=True, indent=2)+"\n",
-        encoding="utf-8")
-    with paths["decisions"].open("w", newline="", encoding="utf-8") as f:
-        writer = csv.DictWriter(f, fieldnames=list(register[0]), lineterminator="\n")
-        writer.writeheader()
-        writer.writerows(register)
-    print("A50D_REVIEW_ASSETS_READY")
+    # A signed record in any output location must remain untouched.
+    # Preflight ALL file paths before creating the first draft.
+    for f in paths.values():
+        if f.exists() or f.is_symlink():
+            raise SystemExit(f"A50D_SIGNED_OR_EXISTING_DESTINATION_HOLD: {f}")
+    from io import StringIO
+    csvbuf = StringIO(newline="")
+    writer = csv.DictWriter(csvbuf, fieldnames=list(register[0]), lineterminator="\n")
+    writer.writeheader()
+    writer.writerows(register)
+    payloads = {
+        "measurements": json.dumps(measurements, ensure_ascii=False, sort_keys=True, indent=2)+"\n",
+        "contract": json.dumps(contract, ensure_ascii=False, sort_keys=True, indent=2)+"\n",
+        "decisions": csvbuf.getvalue(),
+    }
+    created = []
+    try:
+        for key, f in paths.items():
+            # O_EXCL / O_NOFOLLOW: prevent race-driven clobber, including
+            # previously accepted signoff material. No rewrite capability.
+            flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL
+            if hasattr(os, "O_NOFOLLOW"):
+                flags |= os.O_NOFOLLOW
+            fd = os.open(f, flags, 0o600)
+            created.append(f)
+            with os.fdopen(fd, "w", encoding="utf-8", newline="") as handle:
+                handle.write(payloads[key])
+                handle.flush()
+                os.fsync(handle.fileno())
+    except BaseException:
+        for f in created:
+            f.unlink(missing_ok=True)  # only this invocation's drafts
+        raise
+    print("A50D_REVIEW_ASSETS_READY_OUTSIDE_SIGNED_LEDGER")
     for key, f in paths.items():
-        print(key, f.resolve().relative_to(BASE), sha(f))
+        print(key, str(f), sha(f))
     print("A50D_SIGNOFFS=0; PRODUCT_PROFILE_IMPLEMENTATION=HOLD")
 
 
