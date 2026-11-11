@@ -3,7 +3,7 @@
 Target: team UX testing this morning, project demonstration tomorrow morning.
 This beta remains `NOT_RELEASE_READY` and does not change Release Master r0.1.
 
-The implementation commit `d751f1bb54666fa7c8ebe28c0c85365af832de32`
+The implementation commit `06c9e4f3b1b333788c42f4e2d1796af6222fa196`
 provides the compatible fallback for this documentation-only forward candidate.
 Both candidates read historical text-edit v1/v2 records and new frozen
 `source-style-preserving-glyph-edit-v3` requests. After a v3 request is admitted,
@@ -18,6 +18,8 @@ the older `2db299ad` source is not an eligible rollback reader.
   preserve source pixels outside the deliberately selected rectangle. The
   original and corrected regions are shown at equal scale. Spelling and
   typography quality still require fresh human review; no automatic acceptance.
+  Selection coordinates use the displayed image's native aspect ratio for all
+  three output ratios, without a fixed 4:5 letterbox or mismatched wrapper.
 - Revision image-edit and copy-review attempts are separated from initial
   shared planning and image generation counts. USD remains unreconciled;
   no unverified amount is recorded as zero and no automatic paid retry is added.
