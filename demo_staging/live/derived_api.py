@@ -71,6 +71,12 @@ class Selection(Body):
     expected_approval_sha: Sha
 
 
+class Revoke(Body):
+    expected_revision: Revision
+    expected_context_sha: Sha
+    expected_admission_sha: Sha
+
+
 class Configure(Body):
     source_asset_id: Annotated[str, Field(pattern=r"^[0-9a-f]{32}$")]
     mask_ref: ContentRef | None = None
@@ -216,6 +222,11 @@ def register_derived_api(app, ledger, flow, runtime_root):
     def finalize(job_id: str, derived_id: str, body: Finalize, request: Request):
         actor, role = identity(request)
         return call(lambda: service().finalize(actor, role, job_id, derived_id, body.model_dump()))
+
+    @router.post("/renders/{derived_id}/revoke-admission")
+    def revoke(job_id: str, derived_id: str, body: Revoke, request: Request):
+        actor, role = identity(request)
+        return call(lambda: service().revoke(actor, role, job_id, derived_id, body.model_dump()))
 
     @router.post("/selection")
     def selection(job_id: str, body: Selection, request: Request):

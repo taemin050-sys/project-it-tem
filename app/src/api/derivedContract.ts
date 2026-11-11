@@ -168,4 +168,3 @@ export function parseDerivedGeometry(input: string): Pick<DerivedConfiguration,
   }
   return value as ReturnType<typeof parseDerivedGeometry>
 }
-

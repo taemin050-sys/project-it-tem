@@ -322,6 +322,23 @@ class DerivedService:
             raise LiveGateError("DERIVED_ARTIFACT_CHANGED")
         return data
 
+    def revoke(self, actor, role, job_id, derived_id, body):
+        """Explicitly retire a recipe grant without reviving previous approvals."""
+        with self.store.transaction() as c:
+            owner, _, _, context_sha, policy = self.context(c, actor, role, job_id, "admit")
+            require_same_context(context_sha, body["expected_context_sha"])
+            row = self.store.get_render(owner, job_id, derived_id, c=c)
+            grant = self.store.active_admission(owner, job_id, row["grant_id"],
+                expected_revision=row["grant_revision"], c=c)
+            if row["revision"] != body["expected_revision"] or grant["record_sha"] != body["expected_admission_sha"]:
+                raise LiveGateError("DERIVED_REVOCATION_STALE")
+            self.store.revoke_admission(actor=owner, job_id=job_id, grant_id=row["grant_id"],
+                expected_revision=grant["revision"], reviewer_actor=actor, reviewer_role=role,
+                record={"reason": "EXPLICIT_RECIPE_ADMISSION_REVOKED", "authority": policy},
+                idempotency_key=digest({"body": body, "actor": actor, "derived_id": derived_id}), c=c)
+            updated = self.store.get_render(owner, job_id, derived_id, c=c)
+        return self.public_render(updated, context_sha)
+
     def finalize(self, actor, role, job_id, derived_id, body):
         with self.store.transaction() as c:
             owner, job, binding, current_sha, policy = self.context(c, actor, role, job_id, "finalize")

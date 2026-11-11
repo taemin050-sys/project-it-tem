@@ -93,6 +93,8 @@ def run_once(service, *, worker_id, phase_hook=None):
             font_path=service.font_path if recipe["render_mode"] == "composed_protected_product" else None,
             background_bytes=background)
         receipt = {**result.receipt, "job_id": job_id, "derived_id": derived_id,
+                   "worker_source_tree_sha": service.source_tree_sha,
+                   "recipe_source_tree_sha": recipe["source_tree_sha"],
                    "admission_event_id": row["admission_event_id"], "grant_revision": row["grant_revision"],
                    "admission_context_sha": row["context_sha"], "raw_provider_reference": row["payload"]["context"]}
         artifacts = {
