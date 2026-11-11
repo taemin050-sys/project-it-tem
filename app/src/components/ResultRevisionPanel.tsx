@@ -113,6 +113,8 @@ function RevisionWorkspace({snapshot, kind, base, canMutate, refresh}: {
   return <div className="stack">
     {freeform ? <>
       {source.url && <TextAreaSelector src={source.url} region={region} setRegion={setRegion} />}
+      {source.query.isError && <div role="alert"><p>수정 영역을 고를 원본 이미지를 가져오지 못했습니다.</p>
+        <button className="button secondary" type="button" onClick={() => void source.query.refetch()}>원본 이미지 다시 가져오기</button></div>}
       <label>수정할 문구<select value={field} onChange={e => {setField(e.target.value as keyof CopyFields); setObserved('')}}>
         {FIELDS.map(([key, label]) => <option key={key} value={key}>{label}</option>)}
       </select></label>
