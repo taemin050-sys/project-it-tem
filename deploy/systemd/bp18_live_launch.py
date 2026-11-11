@@ -39,6 +39,12 @@ BETA_KEYS = frozenset({
     "IT_TEM_BP18_LIVE_DUAL_MULTI_RATIO_ENABLED", "IT_TEM_BP18_9_16_CTA_POLICY",
     "IT_TEM_BP18_BETA_TYPOGRAPHY_ENABLED",
 })
+REVISION_BETA_VALUES = {
+    "IT_TEM_IMAGE_CORRECTION_ENABLED": frozenset({"YES", "NO"}),
+    "IT_TEM_IMAGE_CORRECTION_PROTOCOL": frozenset({"FREEFORM_TEXT_EDIT_V1"}),
+    "IT_TEM_COMPOSED_COPY_EDIT_ENABLED": frozenset({"YES", "NO"}),
+    "IT_TEM_COMPOSED_COPY_EDIT_WORKER_PROTOCOL": frozenset({"COMPOSED_COPY_EDIT_V1"}),
+}
 RELEASE_POLICY_DIRECTORY = "bp18_live_policies"
 LIVE_FLAGS = (
     "IT_TEM_LIVE_ENABLED", "IT_TEM_LIVE_EXECUTION_APPROVED",
@@ -151,12 +157,16 @@ def read_beta_policy(root: Path, sha: str) -> dict[str, str] | None:
         if not line or line.startswith("#"):
             continue
         name, separator, value = line.partition("=")
-        if (not separator or name not in BETA_KEYS or name in values or not value
+        if (not separator or name not in BETA_KEYS | REVISION_BETA_VALUES.keys() or name in values or not value
                 or not re.fullmatch(r"[A-Za-z0-9_./:-]+", value)):
             raise LaunchDenied("BETA_POLICY_INVALID")
         values[name] = value
-    if set(values) != BETA_KEYS:
+    if not BETA_KEYS.issubset(values):
         raise LaunchDenied("BETA_POLICY_INCOMPLETE")
+    revisions = set(values) & REVISION_BETA_VALUES.keys()
+    if revisions and (revisions != REVISION_BETA_VALUES.keys() or
+            any(values[key] not in REVISION_BETA_VALUES[key] for key in revisions)):
+        raise LaunchDenied("BETA_REVISION_PROTOCOL_INVALID")
     if any(values[key] not in ("YES", "NO") for key in
            ("IT_TEM_DERIVED_ENABLED", "IT_TEM_BP18_LIVE_DUAL_MULTI_RATIO_ENABLED", "IT_TEM_BP18_BETA_TYPOGRAPHY_ENABLED")):
         raise LaunchDenied("BETA_POLICY_FLAG_INVALID")
@@ -177,7 +187,7 @@ def validate_beta_source(root: Path, sha: str, beta: dict[str, str]) -> None:
 
 def configure(root: Path, *, worker: bool) -> str | None:
     for name in list(os.environ):
-        if name.startswith("OPENAI_") or name in POLICY_KEYS | OPTIONAL_POLICY_KEYS | BETA_KEYS:
+        if name.startswith("OPENAI_") or name in POLICY_KEYS | OPTIONAL_POLICY_KEYS | BETA_KEYS | REVISION_BETA_VALUES.keys():
             os.environ.pop(name)
     os.environ.update({name: "NO" for name in LIVE_FLAGS})
     os.environ.update({

@@ -75,3 +75,23 @@ def test_beta_duplicate_or_incomplete_policy_never_activates(root):
     with pytest.raises(launch.LaunchDenied,match="BETA_POLICY_INVALID"):launch.read_beta_policy(root,SHA)
     path.write_text("IT_TEM_DERIVED_ENABLED=YES")
     with pytest.raises(launch.LaunchDenied,match="BETA_POLICY_INCOMPLETE"):launch.read_beta_policy(root,SHA)
+
+
+def test_explicit_revision_protocols_in_source_beta_policy_only(root):
+    path,values=beta_policy(root)
+    additions={key:next(iter(allowed)) if len(allowed)==1 else 'YES' for key,allowed in launch.REVISION_BETA_VALUES.items()}
+    private_file(path,path.read_text()+'\n'+''.join(f'{k}={v}\n' for k,v in additions.items()))
+    assert launch.read_beta_policy(root,SHA)=={**values,**additions}
+    # The live policy's stricter model/Actor whitelist is not expanded.
+    assert not (launch.REVISION_BETA_VALUES.keys() & launch.OPTIONAL_POLICY_KEYS)
+
+
+@pytest.mark.parametrize('changes',[
+    {'IT_TEM_IMAGE_CORRECTION_ENABLED':'YES'},
+    {**{k:next(iter(v)) if len(v)==1 else 'YES' for k,v in launch.REVISION_BETA_VALUES.items()},'IT_TEM_IMAGE_CORRECTION_PROTOCOL':'FREEFORM_TEXT_EDIT_V0'},
+    {**{k:next(iter(v)) if len(v)==1 else 'YES' for k,v in launch.REVISION_BETA_VALUES.items()},'IT_TEM_COMPOSED_COPY_EDIT_ENABLED':'true'},
+])
+def test_incomplete_or_unknown_revision_protocol_fails_closed(root,changes):
+    path,_=beta_policy(root)
+    private_file(path,path.read_text()+'\n'+''.join(f'{k}={v}\n' for k,v in changes.items()))
+    with pytest.raises(launch.LaunchDenied,match='BETA_REVISION_PROTOCOL_INVALID'):launch.read_beta_policy(root,SHA)
