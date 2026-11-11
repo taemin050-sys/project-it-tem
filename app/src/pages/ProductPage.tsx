@@ -24,6 +24,7 @@ const FOCUS_ORDER: [keyof ProductErrors, string][] = [
   ['features', 'features'],
   ['functional_types', 'functional_types'],
   ['photo_verified', 'photo_verified'],
+  ['ai_consent', 'ai_consent'],
 ]
 
 // 화면 표시 이름만 시안을 따르고, 서버로 보내는 값은 텍스트 스키마 값 그대로다
@@ -53,6 +54,8 @@ export default function ProductPage() {
   const [errors, setErrors] = useState<ProductErrors>({})
   const [uploading, setUploading] = useState(false)
   const [uploadError, setUploadError] = useState<{ message: string; offline: boolean }>()
+  // AI 생성 직전 권한 재확인(PM 11/11). 매 제출마다 다시 받으려고 store·서버 값에 넣지 않는다
+  const [aiConsent, setAiConsent] = useState(false)
 
   // 사용자가 항목을 고치면 그 항목의 오류는 바로 지운다 (나머지는 다음 제출 때 다시 검사)
   const setError = (key: keyof ProductErrors, message?: string) => setErrors((e) => ({ ...e, [key]: message }))
@@ -66,6 +69,7 @@ export default function ProductPage() {
   async function onSubmit(e: FormEvent) {
     e.preventDefault()
     const errs = validateProduct(images, references, product, LIMITS)
+    if (!aiConsent) errs.ai_consent = '광고 활용과 외부 AI 전송 권한을 확인해 주세요.'
     setErrors(errs)
     const first = FOCUS_ORDER.find(([key]) => errs[key])
     if (first) {
@@ -300,6 +304,18 @@ export default function ProductPage() {
                 <p className="ok-line"><Icon name="check_circle" />필수 입력 항목(제품 사진 {images.length}장, 제품명, 특장점, 저작권 동의)이 모두 완벽히 충족되었습니다.</p>
               )}
             </div>
+          </div>
+
+          <div className={errors.ai_consent ? 'consent-box has-error' : 'consent-box'}>
+            <label>
+              <input id="ai_consent" type="checkbox" checked={aiConsent}
+                aria-invalid={Boolean(errors.ai_consent)}
+                aria-describedby={describedBy('ai_consent-hint', errors.ai_consent && 'ai_consent-error')}
+                onChange={(e) => { setAiConsent(e.target.checked); setError('ai_consent') }} />
+              <span><strong>[필수]</strong> 이 사진과 브랜드·로고를 광고에 쓰고, 광고 제작을 위해 외부 AI 서비스로 보낼 권한이 있음을 확인했습니다.</span>
+            </label>
+            <p id="ai_consent-hint" className="field-hint">판매자의 확인이며, 서비스가 실제 사용권을 검증하지는 않습니다.</p>
+            {errors.ai_consent && <p id="ai_consent-error" className="field-error">{errors.ai_consent}</p>}
           </div>
 
           {!import.meta.env.DEV && jobId && !run.busy &&
