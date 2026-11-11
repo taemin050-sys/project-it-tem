@@ -8,7 +8,7 @@ After=ittem-bp18-b.service
 Type=exec
 WorkingDirectory=/home/macstudio/ittem-bp18-product-completion-20261111/repo
 Environment=PYTHONDONTWRITEBYTECODE=1
-Environment=PYTHONPATH=/home/macstudio/ittem-bp18-product-completion-20261111/repo
+Environment=PYTHONPATH=/home/macstudio/ittem-bp18-product-completion-20261111/vendor/bp10_unicode_site:/home/macstudio/ittem-bp18-product-completion-20261111/repo
 Environment=IT_TEM_TAILNET_AUTH_ENABLED=YES
 Environment=IT_TEM_TAILNET_SSO_ONLY=YES
 Environment=IT_TEM_TAILNET_EXPECTED_HOST=macstudio-macstudio.tail17dfff.ts.net:10500
