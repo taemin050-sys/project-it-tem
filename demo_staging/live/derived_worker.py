@@ -84,6 +84,9 @@ def run_once(service, *, worker_id, phase_hook=None):
                     renderer_fingerprints(recipe["render_mode"]) != recipe["code_sha256"]):
                 raise LiveGateError("DERIVED_RENDERER_OR_RECIPE_CHANGED")
             service.raw_candidate(job, row["payload"]["context"])
+            if (service.upload_provenance(owner, job_id, row["payload"]["upload_bindings"]["source_photo"])
+                    != row["payload"]["layer_spec"].get("source_upload_provenance")):
+                raise LiveGateError("DERIVED_UPLOAD_PROVENANCE_CHANGED")
         assets = service.registry.resolve_recipe(owner, job_id, recipe,
             upload_bindings=row["payload"]["upload_bindings"])
         background = service.registry.read_content(owner, job_id, row["payload"]["background_ref"]).data
@@ -95,6 +98,8 @@ def run_once(service, *, worker_id, phase_hook=None):
         receipt = {**result.receipt, "job_id": job_id, "derived_id": derived_id,
                    "worker_source_tree_sha": service.source_tree_sha,
                    "recipe_source_tree_sha": recipe["source_tree_sha"],
+                   "source_upload_provenance": row["payload"]["layer_spec"].get("source_upload_provenance"),
+                   "pixel_preservation_baseline": "REGISTERED_NORMALIZED_UPLOAD_PIXELS",
                    "admission_event_id": row["admission_event_id"], "grant_revision": row["grant_revision"],
                    "admission_context_sha": row["context_sha"], "raw_provider_reference": row["payload"]["context"]}
         artifacts = {

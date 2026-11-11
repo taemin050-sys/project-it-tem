@@ -139,6 +139,19 @@ class DerivedService:
         offset = [(output[0]-size[0])//2, round(output[1]*.28)]
         return [0, 0, cw, ch], size, offset
 
+    def upload_provenance(self, owner, job_id, asset_id):
+        source_job = self.source_job(owner, job_id)
+        _, record = self.jobs.get_asset(source_job, asset_id)
+        provenance = record.get("source_provenance")
+        if provenance is not None:
+            if (provenance.get("normalization") != "mpo-primary-srgb-jpeg-v1"
+                    or provenance.get("converted_sha256") != record["sha256"]
+                    or provenance.get("selected_frame") != 0
+                    or type(provenance.get("source_frame_count")) is not int
+                    or provenance["source_frame_count"] < 2):
+                raise LiveGateError("DERIVED_UPLOAD_PROVENANCE_CHANGED")
+        return provenance
+
     def proposal(self, owner, job, binding, options=None):
         options = options or {}
         inputs = json.loads(job["input_json"])
@@ -161,6 +174,7 @@ class DerivedService:
         copy = json.loads(job["copy_json"])
         raw = self.raw_candidate(job, binding)
         layer = {"schema": "bp18-protected-layers-v1", "raw_candidate_sha": sha256(raw).hexdigest(),
+                 "source_upload_provenance": self.upload_provenance(owner, job["job_id"], source_id),
                  "source_orientation": source.image.orientation,
                  "model_regions": options.get("model_regions", []), "copy_exclusions": options.get("copy_exclusions", []),
                  "layer_order": ["model_scene", "original_product", "approved_copy"] if mode == "composed_protected_product" else ["model_scene_with_copy", "original_product"]}
