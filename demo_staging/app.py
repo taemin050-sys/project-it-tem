@@ -27,7 +27,7 @@ from pydantic import BaseModel, Field
 
 from src.serving.main import create_app as create_b0_app
 from src.serving.job_store import get_mock_artifact
-from .tailnet_assertion import TailnetAssertionError, verify_request, key_from_file
+from .tailnet_assertion import TailnetAssertionError, verify_request, key_from_file, TailnetNonceJournal
 
 _ID = re.compile(r"^[0-9a-f]{32}$")
 _STEP = re.compile(r"^/api/v1/jobs(?:/([0-9a-f]{32})(?:/(.*))?)?$")
@@ -342,9 +342,22 @@ def make_demo_app(root: Path, invite_file: Path, frontend: Path,
         tailnet_key=None
         tailnet_roles={}
 
+    # Only the new isolated A51I candidate requires preinitialized durable
+    # nonce consumption. Do not silently create or migrate operational DBs.
+    tailnet_nonce=(TailnetNonceJournal(root/"tailnet_nonce.sqlite")
+                   if a51i_devtest else None)
+
     def request_identity(request:Request):
+        cached=request.scope.get("a51i_verified_identity")
+        if a51i_devtest and cached is not None:
+            return cached
         tailnet=verify_request(request,tailnet_key,tailnet_roles,tailnet_expected_host)
         if tailnet:
+            if tailnet_nonce is not None:
+                tailnet_nonce.consume(request.headers.get("x-ittem-tailnet-nonce",""))
+                # Middleware and nested route handlers re-use the same ASGI
+                # scope; the same request MUST NOT consume its nonce twice.
+                request.scope["a51i_verified_identity"]=tailnet
             return tailnet
         # A/B SSO: never fall back to legacy invite cookies. An unsigned
         # request remains unauthenticated even with a valid old QA cookie.

@@ -10,6 +10,7 @@ import hmac
 import re
 import secrets
 import time
+import sqlite3
 from pathlib import Path
 
 from typing import TYPE_CHECKING
@@ -26,6 +27,56 @@ MAX_CLOCK_SKEW = 45
 class TailnetAssertionError(ValueError):
     pass
 
+
+
+class TailnetNonceJournal:
+    """GCP A5-1I only: durable, atomic anti-replay for valid signed assertions.
+
+    Application-side nonce replay protection is not a substitute for a
+    trusted Tailscale Serve -> gateway origin on the Mac host.
+    Existing A/B/v2 signers and validators are unaffected.
+    """
+    def __init__(self, path: Path, *, initialize: bool = False):
+        self.path = Path(path)
+        if not self.path.is_absolute() or self.path.is_symlink():
+            raise RuntimeError("TAILNET_NONCE_LEDGER_PATH_UNTRUSTED")
+        if not initialize and not self.path.is_file():
+            raise RuntimeError("TAILNET_NONCE_LEDGER_NOT_PREINITIALIZED")
+        if self.path.parent.is_symlink() or not self.path.parent.is_dir():
+            raise RuntimeError("TAILNET_NONCE_LEDGER_ROOT_UNTRUSTED")
+        if initialize:
+            if self.path.exists():
+                raise RuntimeError("TAILNET_NONCE_LEDGER_ALREADY_EXISTS")
+            with sqlite3.connect(self.path, timeout=5, isolation_level=None) as db:
+                db.execute("CREATE TABLE assertion_nonces ("
+                           "nonce TEXT PRIMARY KEY NOT NULL,"
+                           "seen_utc INTEGER NOT NULL)")
+            self.path.chmod(0o600)
+        if self.path.stat().st_mode & 0o077:
+            raise RuntimeError("TAILNET_NONCE_LEDGER_PERMISSIONS_UNSAFE")
+        with sqlite3.connect(self.path, timeout=5) as db:
+            rows=db.execute("PRAGMA table_info(assertion_nonces)").fetchall()
+            if [(r[1],r[2]) for r in rows] != [
+                    ("nonce","TEXT"),("seen_utc","INTEGER")]:
+                raise RuntimeError("TAILNET_NONCE_LEDGER_SCHEMA_INVALID")
+
+    def consume(self, nonce: str, *, instant: int | None = None) -> None:
+        if not isinstance(nonce,str) or not HEX32.fullmatch(nonce):
+            raise TailnetAssertionError("TAILNET_NONCE_INVALID")
+        now=int(time.time()) if instant is None else int(instant)
+        try:
+            # A lock contention is a DENY, not a replay allowance.
+            with sqlite3.connect(self.path, timeout=5, isolation_level=None) as db:
+                db.execute("BEGIN IMMEDIATE")
+                db.execute("DELETE FROM assertion_nonces WHERE seen_utc < ?",
+                           (now-4*MAX_CLOCK_SKEW,))
+                db.execute("INSERT INTO assertion_nonces(nonce,seen_utc) VALUES (?,?)",
+                           (nonce,now))
+                db.execute("COMMIT")
+        except sqlite3.IntegrityError:
+            raise TailnetAssertionError("TAILNET_ASSERTION_NONCE_REPLAY") from None
+        except sqlite3.Error:
+            raise TailnetAssertionError("TAILNET_NONCE_LEDGER_UNAVAILABLE") from None
 
 def key_from_file(path: str) -> bytes:
     file = Path(path)

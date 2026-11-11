@@ -185,7 +185,7 @@ export default function ProductPage() {
           title="제품 사진"
           limits={PRODUCT_PHOTOS}
           hint={A51E_SIGNED_BETA_CANDIDATE
-            ? `같은 제품의 원본 사진 ${PRODUCT_PHOTOS.minFiles}~${PRODUCT_PHOTOS.maxFiles}장. JPG·PNG·WEBP. MPO는 Owner 승인 전까지 차단되며 사진을 자동 재압축하지 않습니다.`
+            ? `같은 제품의 원본 사진 ${PRODUCT_PHOTOS.minFiles}~${PRODUCT_PHOTOS.maxFiles}장. JPG·PNG·WEBP. 이번 베타에서 MPO 형식은 업로드할 수 없습니다. 일반 JPG·PNG 파일로 저장한 후 다시 올려 주세요. 원본 사진을 자동 재압축하지 않습니다.`
             : `같은 제품을 정면·후면·측면 등 여러 각도에서 찍은 사진 ${PRODUCT_PHOTOS.minFiles}~${PRODUCT_PHOTOS.maxFiles}장. JPG·PNG·WEBP, 큰 사진은 자동으로 줄여서 올립니다.`}
           files={images}
           error={errors.images}

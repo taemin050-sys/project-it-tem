@@ -10,6 +10,7 @@ from fastapi.testclient import TestClient
 import pytest
 
 from demo_staging.app import make_demo_app
+from demo_staging.tailnet_assertion import TailnetNonceJournal
 from demo_staging.tailnet_assertion import build_assertion
 from demo_staging.live.a51e_signed_beta_ingress_ledger import BetaUploadLedger
 from tests.demo_live.test_a51e_signed_sso_beta_ingress import form
@@ -43,6 +44,7 @@ def candidate(tmp_path,monkeypatch):
     (ui/"assets").mkdir()
     (ui/"index.html").write_text("<html>WORKER OFF beta</html>")
     BetaUploadLedger(root/"a51e_beta_upload_request.sqlite",initialize=True)
+    TailnetNonceJournal(root/"tailnet_nonce.sqlite",initialize=True)
     environment={
         "IT_TEM_A51I_GCP_SIGNED_SSO_DEVTEST":"YES",
         "IT_TEM_A51I_DEPLOYED_SOURCE_SHA":sha,
@@ -98,7 +100,9 @@ def test_gcp_scoped_sso_signed_real_b0_job_cas_and_actor_acl(candidate):
         assert job.status_code==201,job.text
         jid=job.json()["job_id"]
         assert app.state.demo_ledger.owns("alice",jid)
-        replay=client.post(UPLOAD,headers=h,files=form())
+        replay=client.post(UPLOAD,headers={
+            **x["sign"]("alice",UPLOAD,"POST"),
+            "X-IT-TEM-Upload-Request-ID":reqid},files=form())
         assert replay.status_code==200
         assert replay.json()["job_id"]==jid
         assert client.get("/api/v1/jobs/"+jid,headers=x["sign"](
@@ -162,3 +166,55 @@ def test_unpinned_actual_source_and_dir_mismatch_fail_closed(candidate):
     (x["root"].parent/"SOURCE_SHA.txt").write_text("d"*40)
     with pytest.raises(RuntimeError,match="A51I_GCP_SIGNED_SSO_WORKER_OFF_GATES_NOT_MET"):
         x["create"]()
+
+
+def test_signed_assertion_replay_and_restart_fail_closed(candidate):
+    x=candidate
+    app=x["create"]()
+    signed=x["sign"]("alice","/demo/api/session")
+    with TestClient(app,base_url=BASE) as c:
+        assert c.get("/demo/api/session",headers=signed).status_code==200
+        # A new HTTP request cannot replay a previously consumed signature.
+        assert c.get("/demo/api/session",headers=signed).status_code==401
+        assert c.get("/demo/api/session",headers=x["sign"](
+            "alice","/demo/api/session")).status_code==200
+    # State is persistent across a new app process; no in-memory cache bypass.
+    new_app=x["create"]()
+    with TestClient(new_app,base_url=BASE) as c:
+        assert c.get("/demo/api/session",headers=signed).status_code==401
+
+
+def test_invalid_or_expired_assertions_never_consume_nonce(candidate):
+    from demo_staging.tailnet_assertion import build_assertion
+    import time
+    x=candidate
+    path="/demo/api/session"
+    with TestClient(x["create"](),base_url=BASE) as c:
+        old={"Origin":BASE,**build_assertion(
+            x["key"].read_bytes().strip(),"alice","admin","GET",path,HOST,
+            now=int(time.time())-80)}
+        assert c.get(path,headers=old).status_code==401
+        valid=x["sign"]("alice",path)
+        tampered=dict(valid)
+        tampered["x-ittem-tailnet-signature"]="0"*64
+        assert c.get(path,headers=tampered).status_code==401
+        assert c.get(path,headers=valid).status_code==200
+
+def test_same_nonce_concurrent_threads_only_one_wins(candidate):
+    from concurrent.futures import ThreadPoolExecutor
+    from demo_staging.tailnet_assertion import TailnetAssertionError
+    import secrets
+    x=candidate
+    journal=TailnetNonceJournal(x["root"]/"tailnet_nonce.sqlite")
+    nonce=secrets.token_hex(16)
+    def consume(i):
+        try:
+            journal.consume(nonce)
+            return "accepted"
+        except TailnetAssertionError as exc:
+            assert "NONCE_REPLAY" in str(exc)
+            return "rejected"
+    with ThreadPoolExecutor(max_workers=12) as pool:
+        results=list(pool.map(consume,range(12)))
+    assert results.count("accepted")==1
+    assert results.count("rejected")==11
