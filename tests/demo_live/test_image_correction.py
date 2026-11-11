@@ -53,7 +53,7 @@ def wire_transport(flow,child,calls,*,failure=None):
             assert matte.getchannel("A").getextrema()==(0,255)
             assert matte.convert("RGB").tobytes()==source.convert("RGB").tobytes()
         assert "사각형" in data["prompt"].decode("utf-8")
-        assert "correct" in data["prompt"].decode("utf-8")
+        assert any(key in data["prompt"].decode("utf-8") for key in ("approved_full_field_context", '"correct"'))
         if failure:
             response=failure(request)
             if response is not None:return response
@@ -327,3 +327,133 @@ def test_cross_namespace_interrupted_task_blocks_all_new_paid_claims(repair,monk
     assert attempts(flow)==before
     with service.db() as db:assert db.execute('SELECT state FROM image_corrections').fetchone()[0]==('BILLING_UNKNOWN' if interrupted=='image' else 'QUEUED')
     with comp.db() as db:assert db.execute('SELECT state FROM composed_copy_edits').fetchone()[0]==('QUEUED_REVIEW' if interrupted=='image' else 'BILLING_UNKNOWN')
+
+
+@pytest.mark.parametrize('observed,target,old_range,new_range,old_fragment,new_fragment,initial',[
+    ('자분하게 시작해요','차분하게 시작해요',[0,1],[0,1],'자','차',('ㅈ','ㅊ')),
+    ('오늘 자분하게','오늘 차분하게',[3,4],[3,4],'자','차',('ㅈ','ㅊ')),
+    ('차분게 시작해요','차분하게 시작해요',[2,2],[2,3],'','하',None),
+    ('차분하하게 시작해요','차분하게 시작해요',[3,4],[3,3],'하','',None),
+    ('가볍게','촉촉하게',[0,2],[0,3],'가볍','촉촉하',None),
+])
+def test_v3_change_span_is_derived_without_reading_or_inventing_image_text(
+        observed,target,old_range,new_range,old_fragment,new_fragment,initial):
+    from demo_staging.live.image_correction import _change_span
+    span=_change_span(observed,target)
+    assert span['observed_range']==old_range and span['target_range']==new_range
+    assert span['observed_fragment']==old_fragment and span['target_fragment']==new_fragment
+    if initial:
+        assert span['initial_consonant_change']['observed_initial']==initial[0]
+        assert span['initial_consonant_change']['target_initial']==initial[1]
+        assert span['initial_consonant_change']['preserved_medial_index']==0
+        assert span['initial_consonant_change']['preserved_final_index']==0
+    else:assert span['initial_consonant_change'] is None
+
+
+def test_stored_v2_payload_replays_exact_old_prompt_and_same_request_is_idempotent(repair):
+    from demo_staging.live.image_correction import _prompt_v2, _prompt
+    from demo_staging.live.contracts import digest
+    flow,service,_,child,body=repair
+    admitted=service.request(ACTOR,child,body)
+    # Disposable saved v2 request, as it would have been admitted by that source.
+    # Its old prompt and request SHA must not be silently upgraded on a replay.
+    with service.db() as db:
+        row=dict(db.execute('SELECT * FROM image_corrections').fetchone())
+        payload=json.loads(row['payload_json'])
+        for key in ('change_span','source_size'):payload.pop(key)
+        payload['edit_prompt_version']='source-style-preserving-text-edit-v2'
+        payload['edit_prompt']=_prompt_v2(payload)
+        frozen_prompt=payload['edit_prompt'];frozen_sha=digest(payload)
+        db.execute('UPDATE image_corrections SET payload_json=?,request_sha=?',
+            (json.dumps(payload,ensure_ascii=False),frozen_sha))
+    row_before=None
+    with service.db() as db:row_before=dict(db.execute('SELECT * FROM image_corrections').fetchone())
+    assert service.request(ACTOR,child,body)['correction_id']==admitted['correction_id']
+    with service.db() as db:assert dict(db.execute('SELECT * FROM image_corrections').fetchone())==row_before
+    assert _prompt(payload)==frozen_prompt
+    calls=[]
+    assert run_image_correction_once(flow,transport=wire_transport(flow,child,calls))=='IMAGE_CORRECTION_REVIEW_REQUIRED'
+    assert len(calls)==1
+    parts=BytesParser(policy=policy.default).parsebytes(
+        b'Content-Type: '+calls[0].headers['content-type'].encode()+b'\r\n\r\n'+calls[0].read())
+    sent_prompt=next(part.get_payload(decode=True).decode('utf-8') for part in parts.iter_parts()
+                     if part.get_param('name',header='content-disposition')=='prompt')
+    assert sent_prompt==frozen_prompt
+    with service.db() as db:
+        saved=dict(db.execute('SELECT * FROM image_corrections').fetchone())
+        assert saved['request_sha']==frozen_sha and json.loads(saved['payload_json'])==payload
+
+
+@pytest.mark.parametrize('mutate', ['span', 'initial_component', 'frozen_prompt'])
+def test_v3_span_or_prompt_semantic_tampering_is_held_even_with_recomputed_hash(repair,mutate):
+    from demo_staging.live.contracts import digest
+    flow,service,_,child,body=repair
+    service.request(ACTOR,child,body)
+    with service.db() as db:
+        payload=json.loads(db.execute('SELECT payload_json FROM image_corrections').fetchone()[0])
+        if mutate=='span':payload['change_span']['target_range']=[1,2]
+        elif mutate=='initial_component':payload['change_span']['initial_consonant_change']={'observed_initial':'ㅈ','target_initial':'ㄱ'}
+        else:payload['edit_prompt']+='문장 전체를 크게 다시 그리세요.'
+        db.execute('UPDATE image_corrections SET payload_json=?,request_sha=?',
+            (json.dumps(payload,ensure_ascii=False),digest(payload)))
+    before=attempts(flow);calls=[]
+    assert run_image_correction_once(flow,transport=wire_transport(flow,child,calls))=='IMAGE_CORRECTION_HOLD'
+    assert calls==[] and attempts(flow)==before
+
+
+def test_v3_single_initial_region_keeps_vowel_and_remaining_field_pixels_exact(repair):
+    from PIL import ImageChops
+    flow,service,_,child,body=repair
+    approved=json.loads(flow.state.get(ACTOR,child)['copy_json'])['ad_copy']['subline']
+    # Keep the fixture's signed approved copy/F09 untouched. Change only the
+    # observed first initial to construct a one-syllable mismatch for this test.
+    offset=ord(approved[0])-0xAC00
+    assert 0<=offset<11172
+    other_initial=(offset//588+1)%19
+    observed=chr(0xAC00+other_initial*588+offset%588)+approved[1:]
+    box=[294,238,343,305]
+    body={**body,'observed_text':observed,'region':[294/1152,238/1440,343/1152,305/1440]}
+    admitted=service.request(ACTOR,child,body)
+    assert admitted['edit_prompt_version']=='source-style-preserving-glyph-edit-v3'
+    assert admitted['change_span']['observed_range']==[0,1]
+    assert admitted['change_span']['target_range']==[0,1]
+    assert admitted['change_span']['initial_consonant_change'] is not None
+    assert admitted['source_size']==[1152,1440] and admitted['style_note']=='HUMAN_STYLE_REVIEW_REQUIRED'
+    with service.db() as db:
+        payload=json.loads(db.execute('SELECT payload_json FROM image_corrections').fetchone()[0])
+    assert '전체 문장을 마스크 안에 다시 쓰거나' in payload['edit_prompt']
+    assert '초성만' in payload['edit_prompt']
+    source=flow.image_path(child).read_bytes();calls=[]
+    assert run_image_correction_once(flow,transport=wire_transport(flow,child,calls))=='IMAGE_CORRECTION_REVIEW_REQUIRED'
+    result=service.snapshot(ACTOR,child)['corrections'][0]
+    preview,_=service.artifact(ACTOR,child,result['correction_id'],'preview',result['preview_sha'])
+    receipt=json.loads(service.artifact(ACTOR,child,result['correction_id'],'receipt',result['receipt_sha'])[0])
+    assert receipt['region_pixels']==box and receipt['outside_region_pixel_count']==1655597
+    assert receipt['change_span']==admitted['change_span'] and receipt['server_text_overlay'] is False
+    assert receipt['style_note']=='HUMAN_STYLE_REVIEW_REQUIRED'
+    with Image.open(BytesIO(source)) as original,Image.open(BytesIO(preview)) as corrected:
+        diff=ImageChops.difference(original.convert('RGB'),corrected.convert('RGB'))
+        assert diff.getbbox()==tuple(box)
+        # The original vowel and the rest of the line are to the right of the
+        # selected initial; the whole right side must remain pixel-identical.
+        assert original.crop((343,0,1152,1440)).tobytes()==corrected.crop((343,0,1152,1440)).tobytes()
+    assert len(calls)==1 and flow.state.get(ACTOR,child)['state']=='IMAGE_REJECTED'
+
+
+def test_stored_v1_unversioned_payload_is_readable_and_not_silently_upgraded(repair):
+    from demo_staging.live.image_correction import _prompt_v1, _prompt
+    from demo_staging.live.contracts import digest
+    flow,service,_,child,body=repair
+    service.request(ACTOR,child,body)
+    with service.db() as db:
+        payload=json.loads(db.execute('SELECT payload_json FROM image_corrections').fetchone()[0])
+        for key in ('change_span','source_size','source_ink_rgb','source_background_rgb','edit_prompt_version','edit_prompt'):
+            payload.pop(key)
+        raw=json.dumps(payload,ensure_ascii=False)
+        db.execute('UPDATE image_corrections SET payload_json=?,request_sha=?',(raw,digest(payload)))
+    old=service.snapshot(ACTOR,child)['corrections'][0]
+    assert old['change_span'] is None and old['edit_prompt_version'] is None
+    assert _prompt(payload)==_prompt_v1(payload)
+    assert service.request(ACTOR,child,body)==old
+    with service.db() as db:assert db.execute('SELECT payload_json FROM image_corrections').fetchone()[0]==raw
+    assert len(attempts(flow))==7

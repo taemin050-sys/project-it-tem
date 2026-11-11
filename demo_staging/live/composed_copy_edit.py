@@ -108,6 +108,10 @@ class ComposedCopyEdits:
         if (digest(source) != record["source_context_sha"] or digest(record["copy"]) != record["copy_sha"]
                 or digest(request) != record["request_sha"]):
             raise LiveGateError("COMPOSED_EDIT_STORAGE_INTEGRITY")
+        model = record.get("review_model")
+        if model is not None and (not isinstance(model, str) or not re.fullmatch(r"[A-Za-z0-9_.:-]{1,100}", model)
+                or record.get("review_model_sha") != digest({"request_sha": record["request_sha"], "model": model})):
+            raise LiveGateError("COMPOSED_EDIT_REVIEW_MODEL_INTEGRITY")
         if record["review_sha"] and record["review_sha"] != digest({"protocol": PROTOCOL,
                 "source": record["source_context_sha"], "copy_sha": record["copy_sha"], "report": record["report"]}):
             raise LiveGateError("COMPOSED_EDIT_REVIEW_INTEGRITY")
@@ -177,7 +181,9 @@ class ComposedCopyEdits:
                     records = [self._read(c, actor, job_id, row[0]) for row in c.execute(
                         "SELECT edit_id FROM composed_copy_edits WHERE actor=? AND job_id=? ORDER BY rowid DESC",
                         (actor, job_id))]
+            from .revision_costs import revision_cost_summary
             return {"available": enabled(), "protocol": PROTOCOL, "job_id": job_id,
+                "cost_summary": revision_cost_summary(self.flow, actor, job_id),
                 "approved_copy": json.loads(job["copy_json"])["ad_copy"],
                 "source_image_sha": job["image_sha"], "source_copy_sha": job["copy_sha"],
                 "source_approval_sha": job["approval_sha"], "copy_sha": job["copy_sha"],
@@ -204,6 +210,9 @@ class ComposedCopyEdits:
             report = strict_review(verified.output, json.loads(job["input_json"])["product"],
                                    json.loads(job["analysis_json"]))
             same = verified.sha256 == job["copy_sha"]
+            review_model = os.environ.get("IT_TEM_TEXT_MODEL", "gpt-6-luna") if not same else None
+            if review_model is not None and not re.fullmatch(r"[A-Za-z0-9_.:-]{1,100}", review_model):
+                raise LiveGateError("COMPOSED_EDIT_REVIEW_MODEL_INVALID")
             if same:
                 report = json.loads(job["compliance_json"])
             with self.db(create=True) as c:
@@ -218,6 +227,8 @@ class ComposedCopyEdits:
                     raise LiveGateError("COMPOSED_EDIT_BILLING_UNKNOWN_OR_RUNNING")
                 row = {"edit_id": uuid4().hex, "actor": actor, "job_id": job_id,
                     "protocol": PROTOCOL, "request_sha": request_sha, "request_key": payload["request_key"],
+                    "review_model": review_model,
+                    "review_model_sha": digest({"request_sha": request_sha, "model": review_model}) if review_model else None,
                     "source_context": context, "source_context_sha": context_sha,
                     "copy": verified.output, "copy_sha": verified.sha256, "report": report,
                     "state": ("COPY_REVIEW_REQUIRED" if same else "QUEUED_REVIEW") if report["passed"] else "RULE_BLOCKED",
@@ -374,7 +385,13 @@ def run_composed_copy_edit_once(flow, *, recover_only=False):
         from . import pipeline
         from .copy_review import complete_report
         from src.text_generation.schemas import AdCopyOutput, ProductInput
-        model = os.environ.get("IT_TEM_TEXT_MODEL", "gpt-6-luna")
+        configured_model = os.environ.get("IT_TEM_TEXT_MODEL", "gpt-6-luna")
+        # Historical records without this field preserve their original format.
+        # New requests freeze the model before queueing and may not drift across
+        # a policy change, restart, or accounting reconciliation.
+        model = row.get("review_model") or configured_model
+        if model != configured_model:
+            raise LiveGateError("COMPOSED_EDIT_REVIEW_MODEL_CHANGED")
         cp, product = AdCopyOutput.model_validate(row["copy"], strict=True), ProductInput.model_validate(product, strict=True)
         fingerprint = {"protocol": PROTOCOL, "edit_id": row["edit_id"], "source_context_sha": context_sha,
                        "copy_sha": row["copy_sha"], "model": model}

@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query'
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { dualArtifactPath, matchesDualImageSize, type DualArtifactKind } from '../api/dualArtifacts'
 import { canResumeDualJob, decideDualVariant, dualQueryKey, getDualJob, resumeDualJob, selectDualVariant,
@@ -16,6 +16,7 @@ import { useProjectStore } from '../store/projectStore'
 import AssetThumb from './AssetThumb'
 import DerivedArtifactPanel from './DerivedArtifactPanel'
 import ResultRevisionPanel from './ResultRevisionPanel'
+import RevisionResultLinks from './RevisionResultLinks'
 import { derivedQueryKey } from '../api/derivedJobs'
 import StepPage from './StepPage'
 
@@ -49,8 +50,9 @@ function useVerifiedArtifact(path: string | undefined, sha: string | null | unde
   return {query, url}
 }
 
-function VariantCard({group, mode, stage, variant, canMutate, approvedCopy}: {
+function VariantCard({group, mode, stage, variant, canMutate, approvedCopy, onRevisionCompletedChange}: {
   group: DualSnapshot; mode: DualMode; stage: Stage; variant: DualVariant | null; canMutate: boolean; approvedCopy: AdCopy | undefined
+  onRevisionCompletedChange: (completed: boolean) => void
 }) {
   const live=group.provenance==='LIVE_DUAL'
   const [checks,setChecks]=useState({product_matches:false,label_matches:false,cta_policy_matches:false,no_extra_text:false})
@@ -224,7 +226,7 @@ function VariantCard({group, mode, stage, variant, canMutate, approvedCopy}: {
       </details>
     </>}
     {live && variant?.variant_job_id && <ResultRevisionPanel key={`${variant.variant_job_id}:${variant.candidate_sha}`}
-      jobId={variant.variant_job_id} mode={mode} canMutate={canMutate} />}
+      jobId={variant.variant_job_id} mode={mode} canMutate={canMutate} onCompletedChange={onRevisionCompletedChange} />}
     {live && variant?.variant_job_id && (variant.state === 'IMAGE_REJECTED'
       ? <p role="status">원본 시안이 거절되어 이 원본을 사용한 제품 보호 합성본도 승인·저장할 수 없습니다. 오타 수정은 별도의 수정본으로 요청하세요.</p>
       : <DerivedArtifactPanel jobId={variant.variant_job_id} approvedCopy={approvedCopy} target={target} canMutate={canMutate} />)}
@@ -264,6 +266,15 @@ export default function DualModePage({snapshot, stage}: {snapshot: LiveSnapshot;
   const {job_id: jobId} = snapshot
   const [resuming, setResuming] = useState(false)
   const [resumeError, setResumeError] = useState('')
+  const [revisionCompletion, setRevisionCompletion] = useState({jobId, composed: false, freeform: false})
+  const onComposedCompleted = useCallback((completed: boolean) => setRevisionCompletion(previous =>
+    previous.jobId === jobId && previous.composed === completed ? previous : {
+      jobId, composed: completed, freeform: previous.jobId === jobId && previous.freeform,
+    }), [jobId])
+  const onFreeformCompleted = useCallback((completed: boolean) => setRevisionCompletion(previous =>
+    previous.jobId === jobId && previous.freeform === completed ? previous : {
+      jobId, freeform: completed, composed: previous.jobId === jobId && previous.composed,
+    }), [jobId])
   const resumeInFlight = useRef(false)
   const provenance=snapshotDualProvenance(snapshot)
   const live=provenance==='LIVE_DUAL'
@@ -278,7 +289,11 @@ export default function DualModePage({snapshot, stage}: {snapshot: LiveSnapshot;
   })
   const group = groupQuery.data?.job_id === jobId && groupQuery.data.provenance === provenance ? groupQuery.data : undefined
   const complete = group?.state === 'COMPLETED'
-  const canExport = group && MODES.some(mode => group.variants[mode]?.state === 'COMPLETED')
+  const completedRevisions = revisionCompletion.jobId === jobId && live
+    ? {composed: revisionCompletion.composed, freeform: revisionCompletion.freeform}
+    : {composed: false, freeform: false}
+  const canExport = group && (MODES.some(mode => group.variants[mode]?.state === 'COMPLETED') ||
+    completedRevisions.composed || completedRevisions.freeform)
   const products = originals.data?.assets?.filter(asset => asset.role === 'product') ?? []
   const copy = group?.copy_sha && group.copy_sha === snapshot.copy_sha ? snapshot.copy?.ad_copy : undefined
   const canResume = enabled && stage === 'draft' && group && !groupQuery.isError && canResumeDualJob(snapshot, group)
@@ -321,6 +336,7 @@ export default function DualModePage({snapshot, stage}: {snapshot: LiveSnapshot;
           <strong>{GROUP_STATUS[group.state]}</strong> · {group.image_size}
           {group.state === 'PARTIAL' && ' · 완성된 시안은 계속 사용할 수 있습니다.'}
         </p>
+        <RevisionResultLinks completed={completedRevisions} />
         {group.hold_code && <div className="notice notice-warning" role="alert">
           <p>실행 결과 또는 과금 상태를 확인하고 있습니다. 기존에 완료된 시안은 계속 저장할 수 있습니다.</p>
           <small>{group.hold_code}</small>
@@ -358,6 +374,7 @@ export default function DualModePage({snapshot, stage}: {snapshot: LiveSnapshot;
             const variant = group.variants[mode]
             return <VariantCard key={`${mode}:${variant?.candidate_sha}:${variant?.state}`}
               group={group} approvedCopy={copy} mode={mode} stage={stage} variant={variant}
+              onRevisionCompletedChange={mode === 'composed' ? onComposedCompleted : onFreeformCompleted}
               canMutate={!groupQuery.isError && (variant?.state !== 'IMAGE_REVIEW_REQUIRED' || Boolean(copy && products.length >= 2))} />
           })}
         </div>

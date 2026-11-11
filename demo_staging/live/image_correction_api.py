@@ -82,7 +82,11 @@ def install_image_correction_routes(app, flow, authorized, require_queue):
             authorized(request, parent or job_id)
             return {"job_id": job_id, "available": False, "corrections": []}
         actor = actor_for(request, job_id)
-        return call(lambda: service.snapshot(actor, job_id))
+        def snapshot():
+            from .revision_costs import revision_cost_summary
+            return {**service.snapshot(actor, job_id),
+                    "cost_summary": revision_cost_summary(flow, actor, job_id)}
+        return call(snapshot)
 
     @app.post(prefix)
     def prepare(job_id: str, body: CorrectionRequest, request: Request):

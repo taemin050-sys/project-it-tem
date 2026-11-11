@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query'
-import { useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { request } from '../api/client'
 import { getBlob } from '../api/jobs'
 import { queryClient } from '../api/queryClient'
@@ -7,18 +7,22 @@ import { revisionArtifactPath, revisionPath, revisionSourcePath, validTextRegion
   type CopyFields, type RevisionKind, type TextRegion } from '../api/resultRevisionContract'
 import { download } from '../lib/download'
 import { useObjectUrls } from '../lib/useObjectUrls'
+import RevisionCostDetails, { type RevisionCostSummary } from './RevisionCostDetails'
 
 type Revision = {
   edit_id?: string; correction_id?: string; state: string; revision: number
   copy?: {ad_copy: CopyFields}; approved_copy?: CopyFields; copy_sha: string; review_sha: string | null
   preview_sha: string | null; final_sha: string | null; caption_sha: string | null; receipt_sha: string | null
   error_code?: string | null; report?: {passed?: boolean; issues?: Array<{reason?: string}>}
+  region?: TextRegion; source_size?: [number, number] | null
+  edit_prompt_version?: string | null
   artifacts: Partial<Record<'preview' | 'final' | 'caption' | 'receipt', string>>
 }
 type Snapshot = {
-  job_id: string; available: boolean; source_image_sha: string; source_artifact?: string
+  job_id: string; available: boolean; source_image_sha: string; source_artifact?: string; source_size?: [number, number]
   approved_copy: CopyFields; copy_sha: string; approval_sha: string
   source_copy_sha?: string; source_approval_sha?: string; corrections?: Revision[]; edits?: Revision[]
+  cost_summary?: RevisionCostSummary
 }
 const FIELDS = [['headline', '헤드라인'], ['subline', '서브 문구'], ['cta', 'CTA']] as const
 const STATES: Record<string, string> = {
@@ -45,18 +49,21 @@ function useFile(path: string | undefined, sha: string | null | undefined) {
   return {url, query}
 }
 
-export default function ResultRevisionPanel({jobId, mode, canMutate}: {
-  jobId: string; mode: 'composed' | 'freeform'; canMutate: boolean
+export default function ResultRevisionPanel({jobId, mode, canMutate, onCompletedChange}: {
+  jobId: string; mode: 'composed' | 'freeform'; canMutate: boolean; onCompletedChange?: (completed: boolean) => void
 }) {
-  const [open, setOpen] = useState(false)
+  const [expanded, setExpanded] = useState<boolean | null>(null)
   const kind: RevisionKind = mode === 'freeform' ? 'image-corrections' : 'composed-copy-edits'
   const base = revisionPath(jobId, kind)
-  const query = useQuery({queryKey: ['result-revisions', jobId, kind], enabled: open,
+  const query = useQuery({queryKey: ['result-revisions', jobId, kind],
     queryFn: () => request<Snapshot>(base), retry: false, refetchInterval: q =>
       [...q.state.data?.corrections ?? [], ...q.state.data?.edits ?? []].some(
         item => ['QUEUED', 'RUNNING', 'QUEUED_REVIEW'].includes(item.state)) ? 2500 : false})
-  return <details className="panel stack" data-testid={`revision-panel-${mode}`} open={open}
-    onToggle={event => setOpen(event.currentTarget.open)}>
+  const completed = [...query.data?.corrections ?? [], ...query.data?.edits ?? []].some(row => row.state === 'COMPLETED')
+  const open = expanded ?? completed
+  useEffect(() => {onCompletedChange?.(completed)}, [completed, onCompletedChange])
+  return <details className="panel stack" id={`result-revisions-${mode}`} data-testid={`revision-panel-${mode}`} open={open}
+    onToggle={event => setExpanded(event.currentTarget.open)}>
     <summary>{mode === 'freeform' ? '자유형 오타 부분만 수정 요청' : '합성형 문구 직접 수정'}</summary>
     {open && <div className="stack">
       <p className="field-hint">{mode === 'freeform'
@@ -110,7 +117,11 @@ function RevisionWorkspace({snapshot, kind, base, canMutate, refresh}: {
       // Keep the same idempotency key after an uncertain HTTP response.
     } finally {await refresh(); flight.current = false; setPending(false)}
   }
+  const review = (row: Revision) => <RevisionReview key={row.correction_id ?? row.edit_id} row={row} base={base}
+    kind={kind} jobId={snapshot.job_id} canMutate={canMutate} approvedCopy={snapshot.approved_copy}
+    sourceUrl={source.url} sourceSize={snapshot.source_size} cost={snapshot.cost_summary} refresh={refresh} />
   return <div className="stack">
+    {records.filter(row => row.state === 'COMPLETED').map(review)}
     {freeform ? <>
       {source.url && <TextAreaSelector src={source.url} region={region} setRegion={setRegion} />}
       {source.query.isError && <div role="alert"><p>수정 영역을 고를 원본 이미지를 가져오지 못했습니다.</p>
@@ -146,8 +157,7 @@ function RevisionWorkspace({snapshot, kind, base, canMutate, refresh}: {
       {pending ? '요청 저장 중…' : freeform ? '이 오타 영역만 수정 요청' : '수정 카피 검수 요청'}
     </button>
     {error && <p className="field-error" role="alert">{error}</p>}
-    {records.map(row => <RevisionReview key={row.correction_id ?? row.edit_id} row={row} base={base}
-      kind={kind} jobId={snapshot.job_id} canMutate={canMutate} approvedCopy={snapshot.approved_copy} refresh={refresh} />)}
+    {records.filter(row => row.state !== 'COMPLETED').map(review)}
   </div>
 }
 
@@ -165,8 +175,9 @@ function TextAreaSelector({src, region, setRegion}: {src: string; region: TextRe
   </div>
 }
 
-function RevisionReview({row, base, kind, jobId, canMutate, approvedCopy, refresh}: {
+function RevisionReview({row, base, kind, jobId, canMutate, approvedCopy, sourceUrl, sourceSize, cost, refresh}: {
   row: Revision; base: string; kind: RevisionKind; jobId: string; canMutate: boolean; approvedCopy: CopyFields; refresh: () => Promise<void>
+  sourceUrl?: string; sourceSize?: [number, number]; cost?: RevisionCostSummary
 }) {
   const id = row.correction_id ?? row.edit_id ?? ''
   const [observed, setObserved] = useState<CopyFields>(EMPTY_COPY)
@@ -196,6 +207,9 @@ function RevisionReview({row, base, kind, jobId, canMutate, approvedCopy, refres
     <p role="status">{STATES[row.state] ?? row.state}</p>
     {row.error_code && <p role="alert" style={{overflowWrap:'anywhere'}}>확인 코드: {row.error_code}</p>}
     {image.url && <a href={image.url} target="_blank" rel="noreferrer"><img className="result-image" src={image.url} alt="새 수정본 · 별도 검수 대상" /></a>}
+    {kind === 'image-corrections' && image.url && sourceUrl && row.region && (row.source_size ?? sourceSize) &&
+      <CorrectionComparison before={sourceUrl} after={image.url} region={row.region} size={(row.source_size ?? sourceSize)!} />}
+    <RevisionCostDetails cost={cost} revisionId={id} />
     {row.state === 'COPY_REVIEW_REQUIRED' && <>
       {FIELDS.map(([field,label]) => <p key={field}>{label}: {copy?.[field]}</p>)}
       {row.report?.issues?.map((issue,index) => <p className="field-error" key={index}>{issue.reason}</p>)}
@@ -223,4 +237,27 @@ function RevisionReview({row, base, kind, jobId, canMutate, approvedCopy, refres
     </div>}
     {error && <p role="alert" className="field-error">{error}</p>}
   </article>
+}
+
+function CorrectionComparison({before, after, region, size}: {
+  before: string; after: string; region: TextRegion; size: [number, number]
+}) {
+  if (!validTextRegion(region) || size.some(n => !Number.isSafeInteger(n) || n < 1)) return null
+  const [width, height] = size
+  // Show neighbouring strokes as context at the same magnification in both panels.
+  const x = Math.max(0, region[0] * width - 32), y = Math.max(0, region[1] * height - 16)
+  const w = Math.min(width - x, (region[2] - region[0]) * width + 64)
+  const h = Math.min(height - y, (region[3] - region[1]) * height + 32)
+  return <section className="stack" aria-label="오타 수정 전후 확대 비교">
+    <p className="field-hint">같은 영역을 같은 배율로 비교하세요. 맞춤법 외에도 글씨 크기·굵기·간격과 정보 위계를 확인해야 합니다. 영역 밖 픽셀 보존은 영역 안의 디자인 품질 승인을 대신하지 않습니다.</p>
+    <div style={{display:'grid',gridTemplateColumns:'repeat(2,minmax(0,1fr))',gap:8}}>
+      {[[before,'수정 전'],[after,'수정 후']].map(([src,label]) => <figure key={label} style={{margin:0,minWidth:0}}>
+        <figcaption>{label}</figcaption>
+        <svg role="img" aria-label={`${label} 글자 영역 확대`} viewBox={`${x} ${y} ${w} ${h}`}
+          style={{display:'block',width:'100%',height:150,border:'1px solid #ddd'}}>
+          <image href={src} width={width} height={height} />
+        </svg>
+      </figure>)}
+    </div>
+  </section>
 }

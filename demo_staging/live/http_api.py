@@ -801,6 +801,11 @@ def register_live_api(app:FastAPI, ledger, runtime_root:Path, cookie_name:str):
         return value if isinstance(value,str) and re.fullmatch(r"[A-Z][A-Z0-9_]{1,95}",value) else None
 
     def attempt_cost(actor,job_id,*,shared_text=False):
+        from .revision_costs import revision_cost_summary
+        # Revisions are already part of this Job ledger. Their exact durable
+        # fingerprints belong to the independent revision usage panel.
+        revision_cost = revision_cost_summary(flow,actor,job_id)
+        excluded = set(revision_cost["excluded_attempt_ids"])
         condition="stage!='image'" if shared_text else "stage='image'"
         with flow.cost.connect() as db:
             rows=db.execute(f"""SELECT id,stage,status,billing_unknown,receipt FROM attempts
@@ -808,6 +813,8 @@ def register_live_api(app:FastAPI, ledger, runtime_root:Path, cookie_name:str):
                 (actor,job_id)).fetchall()
         attempts=[]
         for row in rows:
+            if row["id"] in excluded:
+                continue
             try:
                 receipt=json.loads(row["receipt"] or "{}")
             except (TypeError,ValueError):
@@ -834,6 +841,7 @@ def register_live_api(app:FastAPI, ledger, runtime_root:Path, cookie_name:str):
                 "status":status,"actual_usd":None,"attempts":attempts}
 
     def live_dual_variant_snapshot(request,actor,group,mode):
+        from .revision_costs import revision_cost_summary
         job_id=variant_job(group,mode)
         if job_id is None:
             return None
@@ -898,7 +906,8 @@ def register_live_api(app:FastAPI, ledger, runtime_root:Path, cookie_name:str):
                 "final_sha":hashes.get("final"),"caption_sha":hashes.get("caption"),
                 "receipt_sha":hashes.get("receipt"),"verification_state":verification,
                 "output_size":{"width":1080,"height":1350},"artifacts":artifact_urls,
-                "error_code":error_code,"provider_evidence":evidence,"cost":attempt_cost(actor,job_id)}
+                "error_code":error_code,"provider_evidence":evidence,"cost":attempt_cost(actor,job_id),
+                "revision_cost":revision_cost_summary(flow,actor,job_id)}
 
     def live_dual_snapshot(request,actor,group):
         parent_id=group["parent_job_id"]
