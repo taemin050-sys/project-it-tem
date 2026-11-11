@@ -513,6 +513,22 @@ class LivePipeline:
             raise LiveGateError("IMAGE_BINDING_MISMATCH")
         if not output.receipt:
             raise LiveGateError("PROVIDER_RECEIPT_REQUIRED")
+        # LIVE image bytes must carry the real Owner attempt, provider request
+        # identity and countable usage. A fabricated "mock=False" flag cannot
+        # be enough to publish a candidate with missing provenance.
+        if not offline:
+            evidence=output.receipt
+            if (not isinstance(evidence,dict) or
+                evidence.get("state")!="succeeded" or
+                not isinstance(evidence.get("attempt_id"),str) or
+                not evidence["attempt_id"] or
+                not isinstance(evidence.get("provider_request_id"),str) or
+                not evidence["provider_request_id"] or
+                not isinstance(evidence.get("model"),str) or
+                not evidence["model"] or
+                not isinstance(evidence.get("usage"),dict) or
+                not evidence["usage"]):
+                raise LiveGateError("LIVE_IMAGE_PROVIDER_PROVENANCE_REQUIRED")
         mode=json.loads(job["input_json"]).get("generation_mode","composed")
         if mode=="freeform" and (output.receipt.get("generation_mode")!="freeform"
                or output.receipt.get("state")!="succeeded"):
@@ -532,7 +548,9 @@ class LivePipeline:
                     or (output.width,output.height)!=im.size):
                 raise LiveGateError("OWNER_IMAGE_SIZE_INVALID")
         receipt_sha=None
-        if mode=="freeform":
+        if mode=="freeform" or not offline:
+            # Carry Owner's actual Provider response through the SAME Job for
+            # both visual modes. Composed must not silently lose provenance.
             receipt={"source_sha256":sha,"copy_sha":job["copy_sha"],
                      "generation":job["generation"],"owner_receipt":output.receipt}
             receipt_bytes=json.dumps(receipt,sort_keys=True,ensure_ascii=False).encode("utf-8")
@@ -746,6 +764,39 @@ class LivePipeline:
                 # Append authenticated post-output HUMAN review; never alter
                 # historical A51B mask's independent hold/quality fields.
                 receipt["a51j_signed_post_candidate_review"]=a51j_review
+            if before["mode"]=="LIVE":
+                # Signed/regular LIVE releases must preserve Owner's real
+                # Provider attempt ID, response ID and usage in the final
+                # sha-bound composition manifest. Never infer actual USD from
+                # tokens or from a held reservation.
+                attempt=self.state.current_image_attempt(actor,job_id)
+                try:
+                    source=(directory/"owner_candidate_receipt.json").read_bytes()
+                    if (attempt is None or not attempt["candidate_receipt_sha"] or
+                        hashlib.sha256(source).hexdigest()!=attempt["candidate_receipt_sha"]):
+                        raise ValueError
+                    bind=json.loads(source)
+                    owner=bind["owner_receipt"]
+                    if (bind["source_sha256"]!=image_sha or
+                        bind["copy_sha"]!=job["copy_sha"] or
+                        bind["generation"]!=job["generation"] or
+                        owner["state"]!="succeeded" or
+                        not owner["provider_request_id"] or
+                        not isinstance(owner["usage"],dict) or
+                        not owner["usage"] or
+                        owner["attempt_id"]!=attempt["provider_attempt_id"]):
+                        raise ValueError
+                    receipt["image_provider_evidence"]={
+                        "provider":"openai",
+                        "owner_attempt_id":owner["attempt_id"],
+                        "provider_request_id":owner["provider_request_id"],
+                        "model":owner["model"],
+                        "usage":owner["usage"],
+                        "image_sha256":image_sha,
+                        "billing_status":owner.get("billing_status",
+                                                 "UNPRICED_RESERVATION_HELD")}
+                except (OSError,ValueError,KeyError,TypeError):
+                    raise LiveGateError("LIVE_IMAGE_PROVIDER_RECEIPT_INTEGRITY_FAILED") from None
             expected_size=(tuple(snapshot["safe_zone"]["final_size"])
                if snapshot and snapshot["profile_id"].startswith("OWNER_IMAGE_SIZE_")
                else (1080,1350))
