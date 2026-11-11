@@ -838,6 +838,7 @@ def register_live_api(app:FastAPI, ledger, runtime_root:Path, cookie_name:str):
         hashes={}
         evidence=None
         verification="NOT_REVIEWED"
+        preview_error=None
         if state in ("IMAGE_REVIEW_REQUIRED","IMAGE_APPROVED","IMAGE_REJECTED","COMPLETED"):
             try:
                 binding=flow.live_dual_candidate_receipt(actor,job_id)
@@ -864,6 +865,12 @@ def register_live_api(app:FastAPI, ledger, runtime_root:Path, cookie_name:str):
                         raise LiveGateError("LIVE_DUAL_VISUAL_REVIEW_UNAVAILABLE")
                     hashes={"candidate":job["image_sha"]}
                     verification="LIVE_REVIEWED" if state=="IMAGE_APPROVED" else "LIVE_REVIEW_REQUIRED"
+                    if mode=="composed":
+                        try:
+                            preview=flow.composed_review_preview(actor,job_id,font_path=korean_font())
+                            hashes["preview"]=preview.sha256
+                        except (LiveGateError,OSError,ValueError):
+                            preview_error="COMPOSED_REVIEW_PREVIEW_UNAVAILABLE"
             except (LiveGateError,OSError,sqlite3.Error,KeyError,TypeError,ValueError):
                 state,error_code="FAILED","LIVE_DUAL_ARTIFACT_INTEGRITY_UNAVAILABLE"
                 evidence=None
@@ -880,6 +887,7 @@ def register_live_api(app:FastAPI, ledger, runtime_root:Path, cookie_name:str):
         return {"mode":mode,"state":state,"dispatch_state":dispatch.get("state"),
                 "variant_job_id":job_id,"approval_sha":job["approval_sha"],"review_sha":job["review_sha"],
                 "candidate_sha":job["image_sha"],"image_review_sha":review_sha,
+                "preview_sha":hashes.get("preview"),"preview_error":preview_error,
                 "final_sha":hashes.get("final"),"caption_sha":hashes.get("caption"),
                 "receipt_sha":hashes.get("receipt"),"verification_state":verification,
                 "output_size":{"width":1080,"height":1350},"artifacts":artifact_urls,
@@ -1016,7 +1024,7 @@ def register_live_api(app:FastAPI, ledger, runtime_root:Path, cookie_name:str):
 
     @app.get(live_dual_prefix+"/{mode}/artifacts/{kind}")
     def live_dual_artifact(job_id:str,mode:Literal["composed","freeform"],
-                           kind:Literal["candidate","final","caption","receipt"],sha256:str,request:Request):
+                           kind:Literal["candidate","preview","final","caption","receipt"],sha256:str,request:Request):
         actor=live_dual_access(request,job_id)
         group=live_dual_group(actor,job_id)
         variant=live_dual_variant_snapshot(request,actor,group,mode)
@@ -1026,6 +1034,16 @@ def register_live_api(app:FastAPI, ledger, runtime_root:Path, cookie_name:str):
         if sha256!=expected:
             raise HTTPException(409,"LIVE_DUAL_ARTIFACT_CHANGED")
         variant_id=variant_job(group,mode)
+        if kind=="preview":
+            try:
+                result=flow.composed_review_preview(actor,variant_id,font_path=korean_font())
+                if result.sha256!=expected:
+                    raise ValueError
+            except (LiveGateError,OSError,ValueError):
+                raise HTTPException(409,"COMPOSED_REVIEW_PREVIEW_CHANGED") from None
+            return Response(result.image_bytes,media_type="image/png",headers={
+                "Cache-Control":"private,no-store", "X-IT-TEM-Provenance":"LIVE_COMPOSED_REVIEW_PREVIEW",
+                "X-IT-TEM-Image-Approval":"PENDING", "X-IT-TEM-Source-Candidate-SHA256":variant["candidate_sha"]})
         filenames={"final":("final.png","image/png"),"caption":("caption.txt","text/plain; charset=utf-8"),
                    "receipt":("receipt.json","application/json"),"candidate":("candidate.png","image/png")}
         filename,media_type=filenames[kind]

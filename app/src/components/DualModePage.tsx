@@ -70,8 +70,9 @@ function VariantCard({group, mode, stage, variant, canMutate, approvedCopy}: {
   const target = RATIOS[group.image_size]
   const artifact = (kind: DualArtifactKind, sha: string | null | undefined) =>
     dualArtifactPath(group.job_id, mode, kind, variant?.artifacts[kind], sha, group.provenance)
-  const imageKind = complete ? 'final' : 'candidate'
-  const imageSha = complete ? variant.final_sha : reviewing ? variant.candidate_sha : undefined
+  const composedPreview = live && mode === 'composed' && reviewing
+  const imageKind = complete ? 'final' : composedPreview ? 'preview' : 'candidate'
+  const imageSha = complete ? variant.final_sha : reviewing ? composedPreview ? variant.preview_sha : variant.candidate_sha : undefined
   const image = useVerifiedArtifact(artifact(imageKind, imageSha), imageSha)
   const captionSha = complete ? variant.caption_sha : undefined
   const caption = useVerifiedArtifact(artifact('caption', captionSha), captionSha, true)
@@ -123,12 +124,17 @@ function VariantCard({group, mode, stage, variant, canMutate, approvedCopy}: {
           style={actualSize && {aspectRatio: `${actualSize.width} / ${actualSize.height}`}}
           onLoad={event => setLoaded({url: image.url, width: event.currentTarget.naturalWidth, height: event.currentTarget.naturalHeight})} />
         <figcaption>
+          {composedPreview && <p>승인 카피를 합성한 검토용 광고 · 이미지 승인 전</p>}
           {actualSize ? `${actualSize.width}×${actualSize.height}px` : '크기 확인 중…'}
           {actualSize && <> · <a href={image.url} target="_blank" rel="noreferrer">원본 크기로 보기</a></>}
           {complete && actualSize && !sizeOk && <p className="field-error" role="alert">선택한 출력 크기와 일치하지 않습니다.</p>}
           {reviewing && actualSize && !candidateReady && <p className="field-error" role="alert">선택한 출력 비율과 일치하지 않습니다.</p>}
         </figcaption>
       </figure> : <ArtifactStatus artifact={image} name="이미지" />}
+      {composedPreview && <details><summary>카피 합성 전 모델 원본 확인</summary>
+        <p className="field-hint">모델 원본에는 광고 문구가 없습니다. 위 광고는 승인된 문구를 서버에서 한 번 합성한 검토용 이미지이며 최종 승인은 별도입니다.</p>
+        <RawCandidate group={group} mode={mode} variant={variant} />
+      </details>}
     </>}
     {reviewing && <details className="dual-review">
       <summary>이 원본 시안 검수하기</summary>
@@ -220,6 +226,12 @@ function VariantCard({group, mode, stage, variant, canMutate, approvedCopy}: {
     {pending && <p className="muted" role="status">시안 상태 저장 중…</p>}
     {error && <p className="field-error" role="alert">{error}</p>}
   </article>
+}
+
+function RawCandidate({group, mode, variant}: {group: DualSnapshot; mode: DualMode; variant: DualVariant}) {
+  const path = dualArtifactPath(group.job_id, mode, 'candidate', variant.artifacts.candidate, variant.candidate_sha, group.provenance)
+  const raw = useVerifiedArtifact(path, variant.candidate_sha)
+  return raw.url ? <a href={raw.url} target="_blank" rel="noreferrer">모델 원본 크기로 보기</a> : <ArtifactStatus artifact={raw} name="모델 원본" />
 }
 
 function ArtifactStatus({artifact, name}: {artifact: ReturnType<typeof useVerifiedArtifact>; name: string}) {

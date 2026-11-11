@@ -59,6 +59,8 @@ export type DerivedConfiguration = {
   registered_size: number[] | null
   output_offset: number[] | null
   protected_rois: Record<string, number[]> | null
+  source_product_outline?: number[][] | null
+  scene_strategy?: 'registered_product_replacement_v1' | 'original_photo_editorial_v2'
   model_regions: number[][]
   copy_exclusions: number[][]
   acknowledge_regions: boolean
@@ -151,19 +153,23 @@ function validCoordinates(value: unknown, count: number): value is number[] {
 }
 
 export function parseDerivedGeometry(input: string): Pick<DerivedConfiguration,
-  'source_crop' | 'registered_size' | 'output_offset' | 'protected_rois' | 'model_regions' | 'copy_exclusions'> {
+  'source_crop' | 'registered_size' | 'output_offset' | 'protected_rois' | 'source_product_outline' | 'scene_strategy' | 'model_regions' | 'copy_exclusions'> {
   let value: Record<string, unknown>
   try {
     value = JSON.parse(input)
   } catch {
     throw Error('배치 설정은 JSON 형식으로 입력해 주세요.')
   }
-  const fields = ['source_crop', 'registered_size', 'output_offset', 'protected_rois', 'model_regions', 'copy_exclusions']
+  const fields = ['source_crop', 'registered_size', 'output_offset', 'protected_rois', 'source_product_outline', 'scene_strategy', 'model_regions', 'copy_exclusions']
   if (!value || Array.isArray(value) || typeof value !== 'object' ||
       Object.keys(value).some(key => !fields.includes(key)) ||
       (value.source_crop !== null && !validCoordinates(value.source_crop, 4)) ||
       (value.registered_size !== null && !validCoordinates(value.registered_size, 2)) ||
       (value.output_offset !== null && !validCoordinates(value.output_offset, 2)) ||
+      (value.scene_strategy != null && !['registered_product_replacement_v1','original_photo_editorial_v2'].includes(value.scene_strategy as string)) ||
+      (value.source_product_outline != null && (!Array.isArray(value.source_product_outline) ||
+        value.source_product_outline.length < 3 || value.source_product_outline.length > 128 ||
+        !value.source_product_outline.every(point => validCoordinates(point, 2)))) ||
       !Array.isArray(value.model_regions) || !value.model_regions.every(box => validCoordinates(box, 4)) ||
       !Array.isArray(value.copy_exclusions) || !value.copy_exclusions.every(box => validCoordinates(box, 4)) ||
       (value.protected_rois !== null && (typeof value.protected_rois !== 'object' ||

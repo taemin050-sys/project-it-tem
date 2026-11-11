@@ -37,4 +37,7 @@ test('Signed Live Dual artifacts stay bound to their own namespace and provenanc
   assert.equal(dualArtifactPath(job, 'composed', 'final', qa, sha, 'LIVE_DUAL'), undefined)
   assert.equal(dualArtifactPath(job, 'composed', 'final', live, sha, 'OFFLINE_FIXTURE'), undefined)
   assert.equal(dualArtifactPath(job, 'freeform', 'final', live, sha, 'LIVE_DUAL'), undefined)
+  const preview=`/demo/api/live/jobs/${job}/dual/composed/artifacts/preview?sha256=${sha}`
+  assert.equal(dualArtifactPath(job,'composed','preview',preview,sha,'LIVE_DUAL'),preview)
+  assert.equal(dualArtifactPath(job,'composed','candidate',preview,sha,'LIVE_DUAL'),undefined)
 })

@@ -12,7 +12,7 @@ import math
 from pathlib import Path
 import warnings
 
-from PIL import Image, ImageChops, ImageCms, ImageOps, __version__ as pillow_version
+from PIL import Image, ImageChops, ImageCms, ImageDraw, ImageFilter, ImageOps, __version__ as pillow_version
 
 from .ad_resize import resize_ad_png
 from .composition import CompositionInput, CompositionLayout, compose_ad_png, validate_copy_output
@@ -56,6 +56,30 @@ def _rect(box, size):
             or not 0 <= box[0] < box[2] <= size[0] or not 0 <= box[1] < box[3] <= size[1]):
         _reject("PROTECTED_REGION_BOUNDS")
     return tuple(box)
+
+
+def validate_product_outline(mask, crop, outline):
+    """Check a separately registered WHOLE product silhouette, not label ROIs.
+
+    The outline is a human registration input, not inferred from the mask being
+    tested. It must include the pump and base; semantic completeness still
+    requires visual review against the original photograph.
+    """
+    if (not isinstance(outline, list) or not 3 <= len(outline) <= 128 or
+            any(not isinstance(point, list) or len(point) != 2 or
+                any(type(v) is not int for v in point) or
+                not 0 <= point[0] < mask.width or not 0 <= point[1] < mask.height
+                for point in outline)):
+        _reject("PROTECTED_WHOLE_PRODUCT_OUTLINE_REQUIRED")
+    support = Image.new("L", mask.size)
+    ImageDraw.Draw(support).polygon([tuple(p) for p in outline], fill=255)
+    bounds = support.getbbox()
+    if not bounds or not (crop[0] <= bounds[0] and crop[1] <= bounds[1]
+                          and crop[2] >= bounds[2] and crop[3] >= bounds[3]):
+        _reject("PROTECTED_PRODUCT_CROP_TRUNCATES_OUTLINE")
+    if ImageChops.subtract(support, mask).getbbox():
+        _reject("PROTECTED_PRODUCT_MASK_TRUNCATES_OUTLINE")
+    return {"source_bounds": list(bounds), "registered_whole_outline": True}
 
 
 def professional_layout(copy, size, *, protected_regions=(), direction="editorial"):
@@ -107,9 +131,42 @@ def _repair_background(canvas, boxes, exclusions):
         for y in range(bottom-top):
             strip.putpixel((0, y), canvas.getpixel((left-2, top+y)))
             strip.putpixel((1, y), canvas.getpixel((right+1, top+y)))
+        # Smooth the side samples before interpolation. Raw scanline samples
+        # reproduce water highlights as hard horizontal stripes across a body.
+        strip = strip.resize((2, max(2, (bottom-top)//32)), Image.Resampling.BOX)
         patch = strip.resize((right-left, bottom-top), Image.Resampling.BILINEAR)
+        patch = patch.filter(ImageFilter.GaussianBlur(8))
         canvas.paste(patch, (left, top))
     return canvas
+
+
+def _original_photo_stage(original, size, offset, canvas_size, model_scene, exclusions, hybrid):
+    """One intact photograph, with its edge colours extended to the canvas.
+
+    This is a distinct editorial scene strategy, not a small photo pasted on
+    another bottle. Hybrid retains only the registered model text bands.
+    """
+    ox, oy = offset
+    stage = Image.new("RGB", canvas_size)
+    for y in range(canvas_size[1]):
+        sy = max(0, min(size[1]-1, y-oy))
+        strip = Image.new("RGB", (2, 1))
+        strip.putpixel((0,0), original.getpixel((0,sy)))
+        strip.putpixel((1,0), original.getpixel((size[0]-1,sy)))
+        stage.paste(strip.resize((canvas_size[0],1),Image.Resampling.BILINEAR),(0,y))
+    stage.paste(original, offset)
+    if hybrid:
+        bands = Image.new("L",canvas_size)
+        drawing = ImageDraw.Draw(bands)
+        for left,top,right,bottom in exclusions:
+            start = 0 if bottom < canvas_size[1]*.35 else top
+            end = canvas_size[1] if top > canvas_size[1]*.8 else bottom
+            drawing.rectangle((0,start,canvas_size[0]-1,end-1),fill=255)
+        # Soften only outside the exact text bands; their pixels stay exact.
+        soft = bands.filter(ImageFilter.GaussianBlur(12))
+        bands = ImageChops.lighter(bands,soft)
+        stage.paste(model_scene,(0,0),bands)
+    return stage
 
 
 def render_protected_product(recipe, contents, *, layer_spec, roi_spec,
@@ -144,6 +201,13 @@ def render_protected_product(recipe, contents, *, layer_spec, roi_spec,
         _reject("PROTECTED_SOURCE_ALPHA")
     original = source.crop(crop).convert("RGB")
     alpha = mask.crop(crop)
+    mask_bounds = mask.getbbox()
+    if mask_bounds and not (crop[0] <= mask_bounds[0] and crop[1] <= mask_bounds[1]
+                            and crop[2] >= mask_bounds[2] and crop[3] >= mask_bounds[3]):
+        _reject("PROTECTED_PRODUCT_CROP_TRUNCATES_MASK")
+    whole_product = None
+    if layer_spec.get("source_product_outline") is not None:
+        whole_product = validate_product_outline(mask, crop, layer_spec["source_product_outline"])
     if original.size != size:
         original = original.resize(size, Image.Resampling.LANCZOS)
         alpha = alpha.resize(size, Image.Resampling.LANCZOS)
@@ -165,6 +229,7 @@ def render_protected_product(recipe, contents, *, layer_spec, roi_spec,
 
     exclusions = [_rect(rect, canvas_size) for rect in layer_spec.get("copy_exclusions", [])]
     repair_regions = layer_spec.get("model_regions", [])
+    photo_stage = layer_spec.get("scene_strategy") == "original_photo_editorial_v2"
     if recipe["render_mode"] == "freeform_protected_product_hybrid":
         spec = json.loads(contents["scene_review_spec"])
         if content_hash(spec) != layer_spec.get("scene_review_sha") or spec.get("candidate_sha256") != layer_spec["raw_candidate_sha"]:
@@ -173,7 +238,13 @@ def render_protected_product(recipe, contents, *, layer_spec, roi_spec,
             _reject("HYBRID_SCENE_REVIEW_REQUIRED")
         if spec.get("reviewed") is not True:
             _reject("HYBRID_SCENE_REVIEW_REQUIRED")
-    canvas = _repair_background(canvas, repair_regions, exclusions)
+    if photo_stage:
+        if whole_product is None:
+            _reject("PROTECTED_WHOLE_PRODUCT_OUTLINE_REQUIRED")
+        canvas = _original_photo_stage(original,size,offset,canvas_size,canvas,exclusions,
+            recipe["render_mode"] == "freeform_protected_product_hybrid")
+    else:
+        canvas = _repair_background(canvas, repair_regions, exclusions)
     alpha_canvas = Image.new("L", canvas_size)
     alpha_canvas.paste(alpha, offset)
     for rectangle in exclusions:
@@ -236,7 +307,10 @@ def render_protected_product(recipe, contents, *, layer_spec, roi_spec,
                "opaque_pixel_count": opaque.histogram()[255], "placements": placements,
                "provider_calls": 0, "provider_billing_events": 0, "pillow_version": pillow_version,
                "checks": {"source_pixels_preserved": True, "no_copy_occlusion": True},
+               "whole_product_registration": whole_product,
+               "scene_origin": "original_photograph_editorial" if photo_stage else "model_scene_with_registered_product_replacement",
+               "model_scene_usage": "registered_text_bands_only" if photo_stage and recipe["render_mode"] == "freeform_protected_product_hybrid" else "not_used" if photo_stage else "background",
                "needs_manual_check": True, "literal_label_ground_truth": "PENDING",
-               "scene_repair": "existing_side_pixel_interpolation" if repair_regions else "none",
+               "scene_repair": "none_original_photo_stage" if photo_stage else "existing_side_pixel_interpolation_v2" if repair_regions else "none",
                "visual_quality": "HUMAN_REVIEW_REQUIRED"}
     return ProtectedRender(final_bytes, text.encode("utf-8"), receipt)

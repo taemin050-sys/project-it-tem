@@ -84,6 +84,8 @@ class Configure(Body):
     registered_size: list[Revision] | None = Field(default=None, min_length=2, max_length=2)
     output_offset: list[Revision] | None = Field(default=None, min_length=2, max_length=2)
     protected_rois: dict[str, list[Revision]] | None = Field(default=None, max_length=20)
+    source_product_outline: list[list[Revision]] | None = Field(default=None, min_length=3, max_length=128)
+    scene_strategy: Literal["registered_product_replacement_v1", "original_photo_editorial_v2"] = "registered_product_replacement_v1"
     model_regions: list[list[Revision]] = Field(default_factory=list, max_length=12)
     copy_exclusions: list[list[Revision]] = Field(default_factory=list, max_length=12)
     acknowledge_regions: bool

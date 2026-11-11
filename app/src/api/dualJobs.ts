@@ -28,6 +28,8 @@ export type DualVariant = {
   review_sha: string | null
   image_review_sha: string | null
   candidate_sha: string | null
+  preview_sha?: string | null
+  preview_error?: string | null
   final_sha: string | null
   caption_sha: string | null
   receipt_sha: string | null

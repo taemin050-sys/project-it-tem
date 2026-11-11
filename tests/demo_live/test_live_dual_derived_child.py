@@ -84,7 +84,15 @@ def test_signed_freeform_child_derives_from_parent_original_without_child_jobsto
 
         # These coordinates describe the synthetic flat-color fixture scene.
         # They are not a review of the real Anabiose packaging or generated ads.
+        assert snapshot["proposals"][0]["hold_code"]=="PROTECTED_WHOLE_PRODUCT_REGISTRATION_REQUIRED"
+        width,height=registered.image.upright_size
+        mask=BytesIO();Image.new("L",(width,height),255).save(mask,"PNG")
+        uploaded=req("POST","/assets",data={"kind":"product_mask"},
+            files={"file":("whole-fixture-mask.png",mask.getvalue(),"image/png")})
+        assert uploaded.status_code==200,uploaded.text
         configured=req("POST","/proposals",json={"source_asset_id":source["asset_id"],
+            "mask_ref":uploaded.json(),
+            "source_product_outline":[[0,0],[width-1,0],[width-1,height-1],[0,height-1]],
             "model_regions":[[450,340,640,600]],
             "copy_exclusions":[[50,40,1000,250],[280,1170,800,1280]],"acknowledge_regions":True})
         assert configured.status_code==200,configured.text

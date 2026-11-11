@@ -12,6 +12,7 @@ import json
 import os
 import sqlite3
 import tempfile
+from functools import lru_cache
 from io import BytesIO
 from pathlib import Path
 from typing import Protocol
@@ -31,6 +32,21 @@ from .checkpoints import LiveCheckpoints
 
 
 DEFAULT_LIVE_PROJECT_ID = uuid5(UUID("00000000-0000-0000-0000-000000000001"),"ittem-live-isolated")
+
+
+@lru_cache(maxsize=4)
+def _compose_review_bytes(raw, image_sha, copy_json, copy_sha, layout_json,
+                          font_path, font_sha, job_id, generation):
+    """Bounded, read-only preview cache. No approval, files, DB or Provider writes."""
+    from src.image_generation import CompositionInput, compose_ad_png
+    from src.image_generation.composition import CompositionLayout
+    result = compose_ad_png(CompositionInput(job_id=job_id, image_bytes=raw,
+        image_sha256=image_sha, copy_revision=generation, copy_hash=copy_sha,
+        copy_output=json.loads(copy_json), layout=CompositionLayout.model_validate_json(layout_json)),
+        font_path=Path(font_path))
+    if result.receipt.get("font_sha256") != font_sha:
+        raise LiveGateError("COMPOSITION_PREVIEW_FONT_CHANGED")
+    return result
 
 
 def live_dual_owner_project(project_id: UUID, parent_job_id: str) -> UUID:
@@ -731,6 +747,32 @@ class LivePipeline:
             except (OSError,ValueError):
                 raise LiveGateError("COMPOSITION_RECEIPT_INTEGRITY_FAILED") from None
         return job
+
+    def composed_review_preview(self, actor, job_id, *, font_path):
+        """Show the same frozen copy/layout as final composition before Image approval.
+
+        The Provider candidate and its receipt remain untouched. Final export
+        still requires the existing human Image approval and compose transaction.
+        """
+        with self.state.db() as c:
+            job = self.state._read(c, job_id, actor)
+            if (job["state"] not in ("IMAGE_REVIEW_REQUIRED", "IMAGE_APPROVED") or
+                    json.loads(job["input_json"]).get("generation_mode", "composed") != "composed"):
+                raise LiveGateError("COMPOSITION_PREVIEW_NOT_AVAILABLE")
+            self.state._approved(job, c)
+            self.live_dual_candidate_receipt(actor, job_id)
+            template = self.state.template(actor, job_id)
+            raw = self.image_path(job_id).read_bytes()
+            if hashlib.sha256(raw).hexdigest() != job["image_sha"]:
+                raise LiveGateError("IMAGE_BYTES_CHANGED")
+            font = Path(font_path)
+            font_sha = hashlib.sha256(font.read_bytes()).hexdigest()
+            required = template["safe_zone"].get("required_font_sha") or template.get("bound_font_sha")
+            if required and font_sha != required:
+                raise LiveGateError("COMPOSITION_PREVIEW_FONT_CHANGED")
+            layout_json = json.dumps(template["layout"], sort_keys=True, ensure_ascii=False)
+            return _compose_review_bytes(raw, job["image_sha"], job["copy_json"], job["copy_sha"],
+                layout_json, str(font), font_sha, job_id, job["generation"])
 
     def compose(self,actor,job_id,*,layout=None,font_path):
         from src.image_generation import compose_ad_png,CompositionInput

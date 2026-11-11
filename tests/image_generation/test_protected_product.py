@@ -138,6 +138,44 @@ def test_composed_exactly_one_placement_per_approved_copy_role():
     assert f.render().image_bytes==result.image_bytes
 
 
+def test_whole_product_outline_rejects_missing_base_even_when_labels_survive():
+    f=protected_fixture()
+    f.layer_spec["source_product_outline"]=[[20,10],[179,10],[179,389],[20,389]]
+    f.rebind()
+    assert f.render().receipt["whole_product_registration"]["source_bounds"]==[20,10,180,390]
+    mask=Image.open(BytesIO(f.contents["product_mask"])).copy()
+    ImageDraw.Draw(mask).rectangle((0,330,199,399),fill=0)
+    # The registered brand and seal are untouched; this was the old blind spot.
+    f.contents["product_mask"]=encoded(mask);f.rebind()
+    with pytest.raises(ValueError,match="PROTECTED_PRODUCT_MASK_TRUNCATES_OUTLINE"):
+        f.render()
+
+
+def test_crop_cannot_discard_product_pixels_outside_small_label_rois():
+    f=protected_fixture()
+    f.recipe["geometry"].update(source_crop=[0,0,200,350],registered_size=[200,350])
+    with pytest.raises(ValueError,match="PROTECTED_PRODUCT_CROP_TRUNCATES_MASK"):
+        f.render()
+
+
+@pytest.mark.parametrize("mode",["composed_protected_product","freeform_protected_product_hybrid"])
+def test_editorial_stage_keeps_the_entire_photo_without_a_second_model_product(mode):
+    f=protected_fixture(mode=mode)
+    f.layer_spec.update(scene_strategy="original_photo_editorial_v2",
+        source_product_outline=[[20,10],[179,10],[179,389],[20,389]])
+    f.rebind();result=f.render()
+    final=Image.open(BytesIO(result.image_bytes)).convert("RGB")
+    source=Image.open(BytesIO(f.contents["source_photo"])).convert("RGB")
+    x,y=f.recipe["geometry"]["output_offset"]
+    # Includes the base and the area OUTSIDE the old foreground mask.
+    assert final.crop((x,y,x+200,y+400)).tobytes()==source.tobytes()
+    assert result.receipt["scene_origin"]=="original_photograph_editorial"
+    if mode.startswith("freeform"):
+        raw=Image.open(BytesIO(f.contents["raw_candidate"])).convert("RGB")
+        for box in f.layer_spec["copy_exclusions"]:
+            assert final.crop(box).tobytes()==raw.crop(box).tobytes()
+
+
 def test_hybrid_model_copy_is_unchanged_and_server_typography_never_runs(monkeypatch):
     f=protected_fixture(mode="freeform_protected_product_hybrid")
     def forbidden(*args,**kwargs):

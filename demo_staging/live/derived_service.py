@@ -128,15 +128,16 @@ class DerivedService:
     def _default_geometry(self, width, height, output):
         # A registered crop keeps an exact rational scale with integer output.
         # All crop coordinates are shown in the recipe before human admission.
-        cw, ch = width-width % 16, height-height % 16
+        # Never round down the photo and silently discard bottom/right pixels.
+        cw, ch = width, height
         if not cw or not ch:
             raise LiveGateError("DERIVED_SOURCE_TOO_SMALL")
         unit = math.gcd(cw, ch)
-        factor = min(unit, int(output[0]*.58*unit/cw), int(output[1]*.55*unit/ch))
-        if factor < 1:
-            raise LiveGateError("DERIVED_REGISTRATION_REQUIRED")
+        top, bottom = round(output[1]*.245)+1, round(output[1]*.885)
+        factor = min(unit, int(output[0]*.84*unit/cw), int((bottom-top)*unit/ch))
+        factor = max(1, factor)
         size = [cw//unit*factor, ch//unit*factor]
-        offset = [(output[0]-size[0])//2, round(output[1]*.28)]
+        offset = [(output[0]-size[0])//2, top+max(0,(bottom-top-size[1])//2)]
         return [0, 0, cw, ch], size, offset
 
     def upload_provenance(self, owner, job_id, asset_id):
@@ -163,6 +164,8 @@ class DerivedService:
         source = self.registry.resolve_upload(owner, job["job_id"], source_id, expected_sha256=expected["sha256"])
         output = RATIOS[binding["image_size"]]
         source_width, source_height = source.image.upright_size
+        mode = "freeform_protected_product_hybrid" if binding["generation_mode"] == "freeform" else "composed_protected_product"
+        photo_default = not options and job["mode"] == "LIVE" and mode == "composed_protected_product"
         crop, size, offset = self._default_geometry(source_width, source_height, output)
         crop = options.get("source_crop") or crop
         size = options.get("registered_size") or size
@@ -170,7 +173,6 @@ class DerivedService:
         mask_ref = options.get("mask_ref")
         mask_data = self.registry.read_content(owner, job["job_id"], mask_ref).data if mask_ref else _mask((source_width, source_height))
         rois = options.get("protected_rois") or {"original_photo": crop}
-        mode = "freeform_protected_product_hybrid" if binding["generation_mode"] == "freeform" else "composed_protected_product"
         copy = json.loads(job["copy_json"])
         raw = self.raw_candidate(job, binding)
         layer = {"schema": "bp18-protected-layers-v1", "raw_candidate_sha": sha256(raw).hexdigest(),
@@ -178,6 +180,17 @@ class DerivedService:
                  "source_orientation": source.image.orientation,
                  "model_regions": options.get("model_regions", []), "copy_exclusions": options.get("copy_exclusions", []),
                  "layer_order": ["model_scene", "original_product", "approved_copy"] if mode == "composed_protected_product" else ["model_scene_with_copy", "original_product"]}
+        outline = options.get("source_product_outline")
+        if photo_default:
+            # Protect the ENTIRE original photograph rather than guess a
+            # silhouette or paste a smaller photo over a second AI bottle.
+            outline = [[0,0],[source_width-1,0],[source_width-1,source_height-1],[0,source_height-1]]
+            layer["scene_strategy"] = "original_photo_editorial_v2"
+            layer["coverage_scope"] = "WHOLE_ORIGINAL_PHOTOGRAPH"
+        if outline is not None:
+            layer["source_product_outline"] = outline
+        if options.get("scene_strategy") == "original_photo_editorial_v2":
+            layer["scene_strategy"] = "original_photo_editorial_v2"
         assets = {"source_photo": (source.data, source.ref.media_type), "product_mask": (mask_data, "image/png"),
                   "copy_snapshot": (_json(copy), "application/json")}
         if mode == "composed_protected_product":
@@ -202,11 +215,23 @@ class DerivedService:
         hold = None
         if mode == "freeform_protected_product_hybrid" and (not options.get("acknowledge_regions") or not layer["model_regions"] or not layer["copy_exclusions"]):
             hold = "HYBRID_SCENE_REGISTRATION_REQUIRED"
+        if job["mode"] == "LIVE":
+            # Never default to pasting a whole photo on top of a second model
+            # bottle. A small label ROI cannot certify an intact product base.
+            if photo_default:
+                hold = None
+            elif (not mask_ref or outline is None or not options.get("acknowledge_regions")
+                    or not layer["model_regions"]):
+                hold = "PROTECTED_WHOLE_PRODUCT_REGISTRATION_REQUIRED"
+            else:
+                from src.image_generation.protected_product import validate_product_outline
+                with Image.open(BytesIO(mask_data)) as product_mask:
+                    validate_product_outline(product_mask, crop, outline)
         payload = {"recipe": recipe, "layer_spec": layer, "roi_spec": rois, "upload_bindings": {"source_photo": source_id},
                    "background_ref": content_ref(raw, "image/png").model_dump(), "options": options}
         sha = recipe_content_sha(recipe)
         return {"proposal_id": sha, "recipe_sha": sha, "render_mode": mode,
-                "title": "원본 사진과 승인 카피로 보호 합성" if mode == "composed_protected_product" else "모델 장면·문구와 원본 제품 보호 합성",
+                "title": "원본 사진 장면과 승인 카피로 보호 합성" if mode == "composed_protected_product" else "모델 문구와 원본 제품 보호 합성",
                 "source_asset_id": source_id, "requires_ground_truth": True, "hold_code": hold,
                 "payload": payload, "content": assets, "raw": raw}
 
@@ -253,7 +278,9 @@ class DerivedService:
             for stored in self.stored_options(owner, job_id, context_sha):
                 custom = self.proposal(owner, job, binding, stored["options"])
                 if custom["recipe_sha"] != stored["recipe_sha"]:
-                    raise LiveGateError("DERIVED_PROPOSAL_CHANGED")
+                    # A historical proposal belongs to its frozen renderer.
+                    # Keep its records, without presenting it as a new recipe.
+                    continue
                 if not any(p["proposal_id"] == custom["proposal_id"] for p in proposals):
                     proposals.append(self.public_proposal(custom))
             hold = "BILLING_UNKNOWN" if self.billing_unknown() else None
@@ -272,12 +299,18 @@ class DerivedService:
         admission = self.store.get_admission(row["actor"], row["job_id"], row["grant_id"])
         mode = payload["recipe"]["render_mode"]
         state = row["state"]
+        hold_code = row["error_code"]
+        obsolete = (payload["recipe"]["code_sha256"] != renderer_fingerprints(mode) or
+                    payload["context"]["mode"] == "LIVE" and
+                    not payload["layer_spec"].get("source_product_outline"))
+        if obsolete and state not in ("REJECTED", "REVOKED"):
+            state, hold_code = "HOLD", "PROTECTED_PRODUCT_RECIPE_REVALIDATION_REQUIRED"
         if state == "REVOKED" or current_context and row["context_sha"] != current_context:
             state = "STALE"
         artifacts = {}
         for kind in ("preview", "final", "caption", "receipt"):
             h = row.get(kind+"_sha")
-            if h and kind in row["artifacts"]:
+            if h and kind in row["artifacts"] and not obsolete:
                 artifacts[kind] = f"/demo/api/live/jobs/{row['job_id']}/derived/renders/{row['derived_id']}/artifacts/{kind}?sha256={h}"
         size = payload["recipe"]["geometry"]["output_size"]
         return {"derived_id": row["derived_id"], "job_id": row["job_id"], "render_mode": mode,
@@ -285,7 +318,7 @@ class DerivedService:
                 "context_sha": row["context_sha"], "admission_sha": admission["record_sha"],
                 **{kind+"_sha": row.get(kind+"_sha") for kind in ("preview", "approval", "final", "caption", "receipt")},
                 "output_size": {"width": size[0], "height": size[1]}, "artifacts": artifacts,
-                "hold_code": row["error_code"], "checks": {"literal_label_ground_truth": "PENDING"}}
+                "hold_code": hold_code, "checks": {"literal_label_ground_truth": "PENDING"}}
 
     def admit(self, actor, role, job_id, body):
         with self.store.transaction() as c:
@@ -349,6 +382,12 @@ class DerivedService:
         return self.public_render(updated, current_sha)
 
     def read_artifact(self, owner, job_id, row, kind):
+        payload = row["payload"]
+        recipe = payload["recipe"]
+        if (recipe["code_sha256"] != renderer_fingerprints(recipe["render_mode"]) or
+                payload["context"]["mode"] == "LIVE" and
+                not payload["layer_spec"].get("source_product_outline")):
+            raise LiveGateError("PROTECTED_PRODUCT_RECIPE_REVALIDATION_REQUIRED")
         ref = row["artifacts"].get(kind)
         if ref is None:
             raise LiveGateError("DERIVED_ARTIFACT_NOT_AVAILABLE")

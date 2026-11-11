@@ -66,7 +66,7 @@ function RenderReview({snapshot, render, approvedCopy, target, canMutate}: {
   const [pending, setPending] = useState(false)
   const [error, setError] = useState('')
   const inFlight = useRef(false)
-  const current = belongsToDerivedContext(snapshot, render) && render.state !== 'STALE'
+  const current = belongsToDerivedContext(snapshot, render) && !['STALE', 'HOLD'].includes(render.state)
   const complete = render.state === 'COMPLETED' && current
   const imageKind = complete ? 'final' : 'preview'
   const image = useDerivedArtifact(render, imageKind, current && Boolean(complete ? render.final_sha : render.preview_sha))
@@ -101,7 +101,10 @@ function RenderReview({snapshot, render, approvedCopy, target, canMutate}: {
       <p className="muted" role="status">{STATUS[render.state]}</p>
     </header>
     {render.hold_code && <p className="notice notice-warning" role="alert">
-      제품·시각 품질 또는 승인 근거의 추가 확인이 필요합니다. <small>{render.hold_code}</small>
+      {render.hold_code === 'PROTECTED_PRODUCT_RECIPE_REVALIDATION_REQUIRED'
+        ? '이전 합성은 제품 전체 형태를 보장하지 못해 사용을 중단했습니다. 원본과 전체 윤곽을 확인한 새 배치가 필요합니다.'
+        : '제품·시각 품질 또는 승인 근거의 추가 확인이 필요합니다.'}
+      <small>{render.hold_code}</small>
     </p>}
     {image.url && <figure className="dual-preview">
       <img className="result-image" src={image.url} alt={`${derivedModeLabel(render.render_mode)} ${complete ? '최종 이미지' : '검토 이미지'}`}
@@ -208,7 +211,7 @@ function RenderReview({snapshot, render, approvedCopy, target, canMutate}: {
 }
 
 const EMPTY_GEOMETRY = JSON.stringify({source_crop: null, registered_size: null, output_offset: null,
-  protected_rois: null, model_regions: [], copy_exclusions: []}, null, 2)
+  protected_rois: null, source_product_outline: null, model_regions: [], copy_exclusions: []}, null, 2)
 
 function DerivedConfigurationForm({snapshot, canMutate, refresh}: {
   snapshot: DerivedSnapshot; canMutate: boolean; refresh: () => Promise<unknown>
@@ -257,7 +260,7 @@ function DerivedConfigurationForm({snapshot, canMutate, refresh}: {
       <label htmlFor={`${formId}-mask`}>제품 마스크 PNG <span className="field-hint">선택</span></label>
       <input key={sourceId} id={`${formId}-mask`} type="file" accept="image/png,.png" disabled={!enabled}
         onChange={event => {setMask(event.target.files?.[0] ?? null); setAcknowledged(false)}} />
-      <p className="field-hint">밝은 영역은 보존할 제품, 어두운 영역은 배경입니다. 서버가 원본·크기·라벨 보호 영역을 다시 검사합니다.</p>
+      <p className="field-hint">펌프부터 용기 바닥까지 전부 포함한 마스크가 필요합니다. 라벨만 보존하거나 제품 하단을 제거한 마스크는 사용할 수 없습니다.</p>
       <label htmlFor={`${formId}-geometry`}>크롭·배치·보호 영역</label>
       <textarea id={`${formId}-geometry`} className="derived-geometry" rows={12} value={geometry}
         spellCheck={false} autoComplete="off" disabled={!enabled} maxLength={64000}

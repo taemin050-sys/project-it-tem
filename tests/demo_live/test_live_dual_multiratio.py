@@ -83,6 +83,22 @@ def test_v2_signed_request_two_independent_artifacts_and_downloads(
             candidate=req("GET",variant["artifacts"]["candidate"])
             assert sha256(candidate.content).hexdigest()==variant["candidate_sha"]
             assert Image.open(BytesIO(candidate.content)).size==native
+            preview_bytes=None
+            if mode=="composed":
+                # The customer compares a complete ad BEFORE Image approval.
+                # Read-only refreshes cannot approve it or charge the Provider.
+                before=flow.state.get(ACTOR,job)
+                count=len(attempts(flow))
+                preview=req("GET",variant["artifacts"]["preview"])
+                assert preview.status_code==200,preview.text
+                assert sha256(preview.content).hexdigest()==variant["preview_sha"]
+                assert Image.open(BytesIO(preview.content)).size==final
+                assert preview.content!=candidate.content
+                assert req("GET",variant["artifacts"]["preview"]).content==preview.content
+                assert flow.state.get(ACTOR,job)==before and len(attempts(flow))==count
+                assert preview.headers["x-it-tem-image-approval"]=="PENDING"
+                assert req("GET",dual+"/composed/artifacts/preview?sha256="+"0"*64).status_code==409
+                preview_bytes=preview.content
             checks={"product_matches":True,"label_matches":True,"cta_policy_matches":True}
             if mode=="freeform":checks.update(observed_copy=ad_copy,no_extra_text=True)
             if beta and mode=="composed":
@@ -104,6 +120,7 @@ def test_v2_signed_request_two_independent_artifacts_and_downloads(
                 assert sha256(download.content).hexdigest()==artifact[f"{name}_sha"]
                 saved[name]=download.content
             assert Image.open(BytesIO(saved["final"])).size==final
+            if mode=="composed":assert saved["final"]==preview_bytes
             if mode=="freeform":
                 assert saved["final"]==resize_ad_png(candidate.content,final_size=final).image_bytes
             final_shas.append(artifact["final_sha"])

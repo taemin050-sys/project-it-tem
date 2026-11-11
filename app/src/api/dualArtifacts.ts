@@ -1,7 +1,7 @@
 import type { DualMode } from './dualJobs'
 
 export type DualProvenance = 'OFFLINE_FIXTURE' | 'LIVE_DUAL'
-export type DualArtifactKind = 'candidate' | 'final' | 'caption' | 'receipt'
+export type DualArtifactKind = 'candidate' | 'preview' | 'final' | 'caption' | 'receipt'
 type Size = {width: number; height: number}
 
 export const dualPath = (jobId: string, provenance: DualProvenance = 'OFFLINE_FIXTURE') =>
