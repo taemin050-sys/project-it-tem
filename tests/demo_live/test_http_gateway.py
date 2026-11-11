@@ -71,8 +71,12 @@ def test_provisional_live_contract_is_private_11_b0_routes_unchanged(tmp_path):
             r=a.post("/demo/api/live/jobs/"+jid+"/"+name,
                      headers={"Origin":"http://testserver"})
             assert r.status_code==423
-        assert a.get("/demo/api/live/jobs/"+jid+"/artifacts/final").status_code==409
-        assert b.get("/demo/api/live/jobs/"+jid+"/artifacts/final").status_code==404
+        for kind in ("final","caption","receipt"):
+            # An authorized owner cannot export incomplete or fake output.
+            assert a.get("/demo/api/live/jobs/"+jid+"/artifacts/"+kind).status_code==409
+            # An unrelated Actor must never see image bytes or receipt.
+            assert b.get("/demo/api/live/jobs/"+jid+"/artifacts/"+kind).status_code==404
+        assert a.get("/demo/api/live/jobs/"+jid+"/artifacts/unknown").status_code==409
 
 def test_live_endpoint_no_unprotected_mutation_or_paid_approvals(tmp_path):
     app,codes=setup(tmp_path)

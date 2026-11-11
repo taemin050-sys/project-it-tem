@@ -848,18 +848,30 @@ def register_live_api(app:FastAPI, ledger, runtime_root:Path, cookie_name:str):
         j=flow.state.get(actor,job_id)
         if j["state"]!="COMPLETED" or j["mode"]!="LIVE":
             raise HTTPException(status_code=409,detail="LIVE_OUTPUT_NOT_COMPLETED")
-        if kind not in ("final","caption"):
+        # The on-disk composition receipt is a deliverable too. Never expose
+        # a receipt without an authenticated Actor, immutable manifest and
+        # byte-verified PNG/caption. No new model call is performed.
+        if kind not in ("final","caption","receipt"):
             raise HTTPException(status_code=404,detail="Artifact not found")
-        try:flow.validate_final_artifacts(actor,job_id)
+        try:
+            flow.validate_final_artifacts(actor,job_id)
+            manifest=(flow.state.read_manifest(actor,job_id)
+                      if kind=="receipt" else None)
         except LiveGateError:
             raise HTTPException(status_code=503,detail="Artifact integrity unavailable") from None
-        target=flow.root/"outputs"/job_id/("final.png" if kind=="final" else "caption.txt")
+        if kind=="receipt" and manifest is None:
+            raise HTTPException(status_code=503,detail="Artifact receipt unavailable")
+        names={"final":"final.png","caption":"caption.txt","receipt":"receipt.json"}
+        media={"final":"image/png","caption":"text/plain; charset=utf-8",
+               "receipt":"application/json"}
+        expected=(manifest["receipt_sha"] if kind=="receipt" else
+                  (j["final_sha"] if kind=="final" else j["caption_sha"]))
+        target=flow.root/"outputs"/job_id/names[kind]
         import hashlib
         if not target.is_file():
             raise HTTPException(status_code=503,detail="Artifact unavailable")
-        if hashlib.sha256(target.read_bytes()).hexdigest()!=(
-             j["final_sha"] if kind=="final" else j["caption_sha"]):
+        if hashlib.sha256(target.read_bytes()).hexdigest()!=expected:
             raise HTTPException(status_code=503,detail="Artifact integrity error")
-        return FileResponse(target,media_type="image/png" if kind=="final" else
-                            "text/plain; charset=utf-8",filename=target.name,
-                            headers={"Cache-Control":"private,no-store"})
+        return FileResponse(target,media_type=media[kind],filename=target.name,
+                            headers={"Cache-Control":"private,no-store",
+                                     "X-IT-TEM-Artifact-SHA256":expected})
