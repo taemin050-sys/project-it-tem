@@ -2,6 +2,8 @@ import { useQuery } from '@tanstack/react-query'
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { getBlob } from '../api/jobs'
+import { send } from '../api/client'
+import { assertLiveReceiptBinding } from '../api/deliveryReceipt'
 import {assertBlobSha} from '../api/verifiedBlob'
 import { startNewAdLink, useBlobUrl, useJob, useLiveSnapshot } from '../api/useJob'
 import {retryCompose} from '../api/liveFlow'
@@ -30,6 +32,8 @@ export default function ExportPage() {
   const [shared,setShared]=useState(false)
   const [sharing,setSharing]=useState(false)
   const [shareError,setShareError]=useState('')
+  const [receiptSaving,setReceiptSaving]=useState(false)
+  const [receiptError,setReceiptError]=useState('')
   const live=useLiveSnapshot()
   const publications=useQuery({
     queryKey:['live-shared-results'],
@@ -94,6 +98,29 @@ export default function ExportPage() {
     setTimeout(() => URL.revokeObjectURL(url), 1000)
   }
 
+  async function saveReceipt() {
+    if (!job || mock || !artifactReady || !live.data?.image_sha) return
+    setReceiptSaving(true)
+    setReceiptError('')
+    try {
+      // HTTP authorization, complete-state and 3-file integrity checks are
+      // enforced by the Owner-scoped server. FE additionally checks bytes
+      // against the server SHA and binds the genuine model to this Job.
+      const response=await send('/demo/api/live/jobs/' +
+        encodeURIComponent(job.job_id)+'/artifacts/receipt')
+      const expectedSha=response.headers.get('X-IT-TEM-Artifact-SHA256') ?? ''
+      const blob=await assertBlobSha(await response.blob(),expectedSha)
+      assertLiveReceiptBinding(JSON.parse(await blob.text()),job.job_id,live.data.image_sha)
+      const url=URL.createObjectURL(blob)
+      download(url, 'ad_receipt_'+job.job_id+'.json')
+      setTimeout(()=>URL.revokeObjectURL(url),1000)
+    } catch {
+      setReceiptError('생성 증빙을 검증하거나 저장하지 못했습니다. 다운로드 및 모델 실행 기록을 확인해 주세요.')
+    } finally {
+      setReceiptSaving(false)
+    }
+  }
+
   return (
     <StepPage
       title="최종 결과"
@@ -155,7 +182,10 @@ export default function ExportPage() {
               <div className="button-row">
                 <button className="button secondary small" disabled={!artifactReady} onClick={copyPost}>본문 복사</button>
                 <button className="button secondary small" disabled={!artifactReady} onClick={saveCaption}>텍스트 저장 (.txt)</button>
+                {!mock && <button className="button secondary small" disabled={!artifactReady || receiptSaving}
+                  onClick={() => void saveReceipt()}>{receiptSaving?'증빙 확인 중…':'생성 증빙 저장 (.json)'}</button>}
               </div>
+              {receiptError && <p className="field-error" role="alert">{receiptError}</p>}
               <p className="field-hint" role="status">
                 {copied === 'done' ? '✓ 본문과 해시태그를 복사했습니다.' : copied === 'error' ? '복사하지 못했습니다. 텍스트를 직접 선택해 복사해 주세요.' : ''}
               </p>
