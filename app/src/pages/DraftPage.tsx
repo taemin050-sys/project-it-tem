@@ -41,6 +41,11 @@ export default function DraftPage() {
   const previewVerified=mock ? Boolean(imageUrl) : Boolean(
     live?.image_sha && imageBlob && imageUrl && size &&
     live.state==='IMAGE_REVIEW_REQUIRED' && live.approval_current)
+  // FE Owner #32: a manual confirmation binds to the exact reviewed image.
+  // LIVE: Job ID + immutable image SHA. Mock: candidate's Blob URL.
+  const reviewKey=!mock && live?.image_sha ? `${live.job_id}:${live.image_sha}` : mock ? imageUrl : undefined
+  const [verifiedFor,setVerifiedFor]=useState<string>()
+  const imageVerified=Boolean(reviewKey && verifiedFor===reviewKey)
   const [revising, setRevising] = useState(false)
   const [instruction, setInstruction] = useState('')
 
@@ -64,6 +69,7 @@ export default function DraftPage() {
   }
 
   function onApprove() {
+    if(!imageVerified)return
     if(!mock){
       if(!jobId||!live||!previewVerified)return
       void getLiveSnapshot(jobId).then(current=>{
@@ -112,7 +118,7 @@ export default function DraftPage() {
                       useProjectStore.getState().setRun({error:String(e)}))}>
                     이미지 거절
                   </button>}
-              <button className="button" disabled={!reviewing || !previewVerified || run.busy} onClick={onApprove}>이 이미지로 광고 완성하기</button>
+              <button className="button" disabled={!reviewing || !previewVerified || !imageVerified || run.busy} onClick={onApprove}>이 이미지로 광고 완성하기</button>
             </div>
           )}
       actionsNote={<>
@@ -192,6 +198,12 @@ export default function DraftPage() {
                   onClick={() => void advance(() => restorePrevious(jobId!, 'image'))}>이전 버전으로 되돌리기</button>
               </div>
             )}
+            {reviewing && <label className="consent" style={{display:'flex',gap:12,alignItems:'flex-start'}}>
+              <input type="checkbox" checked={imageVerified}
+                disabled={!previewVerified || run.busy}
+                onChange={e=>setVerifiedFor(e.target.checked ? reviewKey : undefined)} />
+              <span>원본 제품 사진과 생성 이미지를 비교해 용기 형태·색상·라벨에 왜곡이 없음을 확인했습니다.</span>
+            </label>}
             <div className="notice notice-warning">
               <p className="notice-title">제품을 직접 확인해 주세요</p>
               <p>AI가 만든 이미지라 제품 모양·색·라벨 글자가 원본과 다를 수 있습니다.</p>
