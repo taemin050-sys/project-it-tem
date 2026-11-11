@@ -49,8 +49,9 @@ function useFile(path: string | undefined, sha: string | null | undefined) {
   return {url, query}
 }
 
-export default function ResultRevisionPanel({jobId, mode, canMutate, onCompletedChange}: {
+export default function ResultRevisionPanel({jobId, mode, canMutate, onCompletedChange, showRequestForm = true}: {
   jobId: string; mode: 'composed' | 'freeform'; canMutate: boolean; onCompletedChange?: (completed: boolean) => void
+  showRequestForm?: boolean
 }) {
   const [expanded, setExpanded] = useState<boolean | null>(null)
   const kind: RevisionKind = mode === 'freeform' ? 'image-corrections' : 'composed-copy-edits'
@@ -62,25 +63,28 @@ export default function ResultRevisionPanel({jobId, mode, canMutate, onCompleted
   const completed = [...query.data?.corrections ?? [], ...query.data?.edits ?? []].some(row => row.state === 'COMPLETED')
   const open = expanded ?? completed
   useEffect(() => {onCompletedChange?.(completed)}, [completed, onCompletedChange])
-  return <details className="panel stack" id={`result-revisions-${mode}`} data-testid={`revision-panel-${mode}`} open={open}
+  return <details className="stack" style={{borderTop:'1px solid #ddd',paddingBlock:16}}
+    id={`result-revisions-${mode}`} data-testid={`revision-panel-${mode}`} open={open}
     onToggle={event => setExpanded(event.currentTarget.open)}>
-    <summary>{mode === 'freeform' ? '자유형 오타 부분만 수정 요청' : '합성형 문구 직접 수정'}</summary>
+    <summary>{showRequestForm ? mode === 'freeform' ? '자유형 오타 부분만 수정 요청' : '합성형 문구 직접 수정'
+      : `${mode === 'freeform' ? '자유형' : '합성형'} 수정본 확인·다운로드`}</summary>
     {open && <div className="stack">
-      <p className="field-hint">{mode === 'freeform'
+      {showRequestForm && <p className="field-hint">{mode === 'freeform'
         ? '원본 배경을 유지하며 지정한 글자 영역만 AI에 수정 요청합니다. 이미지 호출 1건이 발생하며 자동 재시도하지 않습니다. 영역 안의 글자와 디자인은 결과를 다시 검수해야 합니다.'
-        : '문구를 직접 고친 뒤 규칙·LLM 검수와 새 카피 승인을 거칩니다. 기존 배경으로 다시 합성하며 이미지 AI는 호출하지 않습니다.'}</p>
+        : '문구를 직접 고친 뒤 규칙·LLM 검수와 새 카피 승인을 거칩니다. 기존 배경으로 다시 합성하며 이미지 AI는 호출하지 않습니다.'}</p>}
       {query.isPending ? <p role="status">수정 기능 확인 중…</p> : query.isError
         ? <div role="alert"><p>수정 상태를 확인하지 못했습니다.</p><button className="button secondary" onClick={() => void query.refetch()}>상태 다시 확인</button></div>
         : query.data?.available ? <RevisionWorkspace key={`${base}:${query.data.source_image_sha}`}
-          snapshot={query.data} kind={kind} base={base} canMutate={canMutate}
+          snapshot={query.data} kind={kind} base={base} canMutate={canMutate} showRequestForm={showRequestForm}
           refresh={() => queryClient.invalidateQueries({queryKey: ['result-revisions', jobId, kind]})} />
           : <p>현재 서버에서 이 수정 기능을 사용할 수 없습니다.</p>}
     </div>}
   </details>
 }
 
-function RevisionWorkspace({snapshot, kind, base, canMutate, refresh}: {
+function RevisionWorkspace({snapshot, kind, base, canMutate, refresh, showRequestForm}: {
   snapshot: Snapshot; kind: RevisionKind; base: string; canMutate: boolean; refresh: () => Promise<void>
+  showRequestForm: boolean
 }) {
   const [copy, setCopy] = useState<CopyFields>(snapshot.approved_copy ?? EMPTY_COPY)
   const [field, setField] = useState<keyof CopyFields>('subline')
@@ -122,6 +126,7 @@ function RevisionWorkspace({snapshot, kind, base, canMutate, refresh}: {
     sourceUrl={source.url} sourceSize={snapshot.source_size} cost={snapshot.cost_summary} refresh={refresh} />
   return <div className="stack">
     {records.filter(row => row.state === 'COMPLETED').map(review)}
+    {showRequestForm && <>
     {freeform ? <>
       {source.url && <TextAreaSelector src={source.url} region={region} setRegion={setRegion} />}
       {source.query.isError && <div role="alert"><p>수정 영역을 고를 원본 이미지를 가져오지 못했습니다.</p>
@@ -157,6 +162,7 @@ function RevisionWorkspace({snapshot, kind, base, canMutate, refresh}: {
       {pending ? '요청 저장 중…' : freeform ? '이 오타 영역만 수정 요청' : '수정 카피 검수 요청'}
     </button>
     {error && <p className="field-error" role="alert">{error}</p>}
+    </>}
     {records.filter(row => row.state !== 'COMPLETED').map(review)}
   </div>
 }
@@ -203,8 +209,8 @@ function RevisionReview({row, base, kind, jobId, canMutate, approvedCopy, source
   }
   const decision = (approve: boolean) => void mutate('decision', {expected_revision:row.revision,
     expected_preview_sha:row.preview_sha,approve,visual_review:{...checks,observed_copy:observed}})
-  return <article className="panel stack" data-testid="result-revision">
-    <h4>{kind === 'image-corrections' ? '자유형 · 텍스트 영역 수정본' : '합성형 · 직접 수정본'}</h4>
+  return <article className={complete ? 'stack' : 'panel stack'} data-testid="result-revision">
+    <h4 style={{margin:0}}>{kind === 'image-corrections' ? '자유형 · 텍스트 영역 수정본' : '합성형 · 직접 수정본'}</h4>
     <p role="status">{STATES[row.state] ?? row.state}</p>
     {row.error_code && <p role="alert" style={{overflowWrap:'anywhere'}}>확인 코드: {row.error_code}</p>}
     {image.url && <a href={image.url} target="_blank" rel="noreferrer"><img className="result-image" src={image.url} alt="새 수정본 · 별도 검수 대상" /></a>}

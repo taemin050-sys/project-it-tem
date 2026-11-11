@@ -55,9 +55,14 @@ def install_image_correction_routes(app, flow, authorized, require_queue):
             raise HTTPException(404, "IMAGE_CORRECTION_DISABLED")
         if write:
             identity = app.state.demo_request_identity(request)
-            if not identity or identity[1] != "admin":
+            if not identity or identity[1] not in ("admin", "evaluator"):
                 raise HTTPException(403, "IMAGE_CORRECTION_REVIEWER_FORBIDDEN")
-            flow.require_live_actor(actor)
+            # Evaluators may edit only their own authenticated Job (the
+            # parent/ledger ACL above remains authoritative), with a paid permit.
+            try:
+                flow.require_live_actor(actor)
+            except LiveNotAuthorized:
+                raise HTTPException(423, "IMAGE_CORRECTION_ACTOR_NOT_APPROVED") from None
         return actor
 
     def call(action):

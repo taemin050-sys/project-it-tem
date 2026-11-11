@@ -226,7 +226,8 @@ function VariantCard({group, mode, stage, variant, canMutate, approvedCopy, onRe
       </details>
     </>}
     {live && variant?.variant_job_id && <ResultRevisionPanel key={`${variant.variant_job_id}:${variant.candidate_sha}`}
-      jobId={variant.variant_job_id} mode={mode} canMutate={canMutate} onCompletedChange={onRevisionCompletedChange} />}
+      jobId={variant.variant_job_id} mode={mode} canMutate={canMutate} showRequestForm={stage === 'draft'}
+      onCompletedChange={onRevisionCompletedChange} />}
     {live && variant?.variant_job_id && (variant.state === 'IMAGE_REJECTED'
       ? <p role="status">원본 시안이 거절되어 이 원본을 사용한 제품 보호 합성본도 승인·저장할 수 없습니다. 오타 수정은 별도의 수정본으로 요청하세요.</p>
       : <DerivedArtifactPanel jobId={variant.variant_job_id} approvedCopy={approvedCopy} target={target} canMutate={canMutate} />)}

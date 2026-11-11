@@ -66,8 +66,15 @@ def install_composed_copy_edit_routes(app, flow, authorized, require_queue):
         if not enabled():
             raise HTTPException(404, "COMPOSED_EDIT_DISABLED")
         identity = app.state.demo_request_identity(request)
-        if write and (not identity or identity[1] != "admin"):
-            raise HTTPException(403, "COMPOSED_EDIT_OWNER_REQUIRED")
+        if write:
+            if not identity or identity[1] not in ("admin", "evaluator"):
+                raise HTTPException(403, "COMPOSED_EDIT_OWNER_REQUIRED")
+            # Signed evaluators remain ordinary owners, never administrators
+            # or delegates. Every write also requires the existing paid allowlist.
+            try:
+                flow.require_live_actor(actor)
+            except LiveNotAuthorized:
+                raise HTTPException(423, "COMPOSED_EDIT_EXECUTION_NOT_AUTHORIZED") from None
         return actor
 
     def call(action):
