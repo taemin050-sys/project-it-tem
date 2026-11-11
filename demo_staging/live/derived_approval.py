@@ -105,8 +105,10 @@ def current_derived_context(state, connection, owner_actor, job_id):
         f09 = {"scope": "OFFLINE_FIXTURE", "review_sha": job["review_sha"]}
         candidate_receipt_sha = None
         provider_attempt_id = None
+        parent = job
     value = {"schema": "bp18-derived-live-context-v1", "owner_actor": owner_actor,
              "job_id": job_id, "mode": job["mode"], "generation": job["generation"],
+             "source_upload_job_id": parent["job_id"], "source_input_sha": parent["input_sha"],
              "input_sha": job["input_sha"], "copy_sha": job["copy_sha"],
              "copy_approval_sha": job["approval_sha"], "f09_review_sha": job["review_sha"],
              "f09": f09, "policy": policy, "raw_candidate_sha": job["image_sha"],

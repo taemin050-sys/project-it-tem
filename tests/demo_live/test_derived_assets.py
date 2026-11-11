@@ -211,3 +211,54 @@ def test_source_binding_cannot_use_reference_image_even_with_same_job_acl(tmp_pa
     with pytest.raises(LiveGateError,match="DERIVED_ORIGINAL_BINDING_INVALID"):
         registry.resolve_recipe("alice",job["job_id"],body,
             upload_bindings={"source_photo":job["assets"][0]["asset_id"]})
+
+
+def test_server_resolved_child_shares_original_upload_but_not_derived_namespace(tmp_path):
+    registry,jobs,parent,raw,_=make_registry(tmp_path)
+    parent_id=parent["job_id"];child_id="c"*32
+    assert not (jobs.root/child_id).exists()
+    acl_checks=[]
+    def owns(actor,job_id):
+        acl_checks.append((actor,job_id))
+        return actor=="alice" and job_id in {parent_id,child_id}
+    registry.owns=owns
+    registry.source_job_resolver=lambda actor,job_id:parent_id if job_id==child_id else job_id
+    original=registry.register_upload("alice",child_id,parent["assets"][0]["asset_id"],
+                                      expected_sha256=sha256(raw).hexdigest())
+    assert original.data==raw and original.image.orientation==6
+    assert ("alice",child_id) in acl_checks and ("alice",parent_id) in acl_checks
+    assert registry.read_content("alice",child_id,original.ref).data==raw
+    assert (registry.root/child_id/(original.ref.sha256+".blob")).read_bytes()==raw
+    assert not (registry.root/parent_id).exists()
+    assert not (jobs.root/child_id).exists()
+
+
+def test_server_resolved_parent_requires_same_caller_acl_before_original_read(tmp_path,monkeypatch):
+    registry,jobs,parent,_,_=make_registry(tmp_path)
+    child_id="c"*32
+    registry.owns=lambda actor,job_id:(job_id==child_id and actor=="alice") or (job_id==parent["job_id"] and actor=="bob")
+    registry.source_job_resolver=lambda actor,job_id:parent["job_id"]
+    def forbidden_read(*args,**kwargs):pytest.fail("Cross-Actor parent was read before source authorization")
+    monkeypatch.setattr(jobs,"get_asset",forbidden_read)
+    with pytest.raises(LiveGateError,match="DERIVED_ASSET_NOT_FOUND"):
+        registry.resolve_upload("alice",child_id,parent["assets"][0]["asset_id"])
+    with pytest.raises(LiveGateError,match="DERIVED_ASSET_NOT_FOUND"):
+        registry.resolve_upload("bob",child_id,parent["assets"][0]["asset_id"])
+
+
+def test_changed_server_source_resolution_cannot_bypass_expected_original_sha(tmp_path):
+    registry,jobs,parent,raw,_=make_registry(tmp_path)
+    other_raw=encoded("green")
+    other=jobs.create_job([ValidatedUpload(name,"image/png",data,12,9,sha256(data).hexdigest())
+        for name,data in (("different-product.png",other_raw),("other.png",encoded("yellow")))],[])
+    child_id="c"*32
+    registry.owns=lambda actor,job_id:actor=="alice" and job_id in {child_id,parent["job_id"],other["job_id"]}
+    current={"source":parent["job_id"]}
+    registry.source_job_resolver=lambda actor,job_id:current["source"]
+    assert registry.resolve_upload("alice",child_id,parent["assets"][0]["asset_id"],
+        expected_sha256=sha256(raw).hexdigest()).data==raw
+    current["source"]=other["job_id"]
+    with pytest.raises(LiveGateError,match="DERIVED_ORIGINAL_ASSET_CHANGED"):
+        registry.resolve_upload("alice",child_id,other["assets"][0]["asset_id"],
+            expected_sha256=sha256(raw).hexdigest())
+    assert not (registry.root/child_id).exists()

@@ -61,7 +61,27 @@ class DerivedService:
         self.font_path = Path(font_path)
         self.license_path = Path(license_path)
         self.source_tree_sha = source_tree_sha
-        self.registry = DerivedAssetRegistry(self.root / "assets", jobs, owns)
+        self.registry = DerivedAssetRegistry(self.root / "assets", jobs, self.owns_job,
+                                             source_job_resolver=self.source_job)
+
+    def source_job(self, actor, job_id, connection=None):
+        """Resolve only the server-validated Live Dual parent, never client paths."""
+        if connection is None:
+            with self.store.connection(readonly=True) as c:
+                return self.source_job(actor, job_id, c)
+        job = self.state._read(connection, job_id, actor)
+        group = self.state._live_dual_row(connection, actor, job_id)
+        parent = self.state._assert_live_dual_binding(connection, job, group) if group else job
+        if not self.owns(actor, parent["job_id"]):
+            raise LiveGateError("DERIVED_JOB_NOT_FOUND")
+        return parent["job_id"]
+
+    def owns_job(self, actor, job_id):
+        try:
+            self.source_job(actor, job_id)
+            return True
+        except LiveGateError:
+            return False
 
     def owner(self, job_id, connection):
         row = connection.execute("SELECT actor FROM live_jobs WHERE job_id=?", (job_id,)).fetchone()
@@ -73,6 +93,8 @@ class DerivedService:
         owner = self.owner(job_id, connection)
         policy = self.authority.authorize(actor, auth_role, owner, job_id, scope)
         job, binding, _ = current_derived_context(self.state, connection, owner, job_id)
+        if self.source_job(owner, job_id, connection) != binding["source_upload_job_id"]:
+            raise LiveGateError("DERIVED_SOURCE_PARENT_CHANGED")
         # Business-role/delegation revision is effective authority and belongs
         # in approval context. Content recipes remain location/actor independent.
         binding["authority_policy_sha"] = policy["authority_policy_sha"]
@@ -120,7 +142,7 @@ class DerivedService:
     def proposal(self, owner, job, binding, options=None):
         options = options or {}
         inputs = json.loads(job["input_json"])
-        photos = [a for a in self.jobs.get_job(job["job_id"])["assets"] if a["role"] == "product"]
+        photos = [a for a in self.jobs.get_job(binding["source_upload_job_id"])["assets"] if a["role"] == "product"]
         source_id = options.get("source_asset_id") or photos[0]["asset_id"]
         expected = next((a for a in inputs["ordered_asset_hashes"] if a["asset_id"] == source_id and a["role"] == "product"), None)
         if expected is None:
@@ -225,7 +247,7 @@ class DerivedService:
                     "can_review": can_admit, "context_sha": context_sha, "revision": job["generation"],
                     "hold_code": hold, "proposals": proposals, "renders": [self.public_render(row, context_sha) for row in rows],
                     "selected_derived_id": next((r["derived_id"] for r in rows if r["selected"]), None),
-                    "source_assets": [{k: a[k] for k in ("asset_id", "sha256", "width", "height")} for a in self.jobs.get_job(job_id)["assets"] if a["role"] == "product"]}
+                    "source_assets": [{k: a[k] for k in ("asset_id", "sha256", "width", "height")} for a in self.jobs.get_job(binding["source_upload_job_id"])["assets"] if a["role"] == "product"]}
 
     @staticmethod
     def public_proposal(value):

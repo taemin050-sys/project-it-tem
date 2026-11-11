@@ -138,7 +138,7 @@ def register_derived_api(app, ledger, flow, runtime_root):
             cached["service"].jobs = flow.jobs
             cached["service"].owns = ledger.owns
             cached["service"].registry.jobs = flow.jobs
-            cached["service"].registry.owns = ledger.owns
+            cached["service"].registry.owns = cached["service"].owns_job
             app.state.derived_service = cached["service"]
         return cached["service"]
 

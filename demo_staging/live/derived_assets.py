@@ -125,9 +125,13 @@ def _check_document(data, media_type):
 class DerivedAssetRegistry:
     """Private per-Job immutable content; content SHA never grants access."""
     def __init__(self, root: Path, jobs: JobStore,
-                 owns: Callable[[str, str], bool], *, max_bytes=MAX_BYTES, max_pixels=MAX_PIXELS):
+                 owns: Callable[[str, str], bool], *,
+                 source_job_resolver: Callable[[str, str], str] | None = None,
+                 max_bytes=MAX_BYTES, max_pixels=MAX_PIXELS):
         if not callable(owns) or type(max_bytes) is not int or not 0 < max_bytes <= 64 * 1024 * 1024:
             raise ValueError("Explicit ownership resolver and bounded asset limit required")
+        if source_job_resolver is not None and not callable(source_job_resolver):
+            raise ValueError("Source Job resolver must be server-controlled and callable")
         if type(max_pixels) is not int or not 0 < max_pixels <= MAX_PIXELS:
             raise ValueError("Image pixel limit must be positive and bounded")
         path = Path(root).expanduser().absolute()
@@ -137,6 +141,7 @@ class DerivedAssetRegistry:
         self.root = path.resolve()
         self.jobs = jobs
         self.owns = owns
+        self.source_job_resolver = source_job_resolver
         self.max_bytes = max_bytes
         self.max_pixels = max_pixels
 
@@ -187,7 +192,12 @@ class DerivedAssetRegistry:
         self._authorize(actor, job_id)
         if not isinstance(upload_asset_id, str) or not ID.fullmatch(upload_asset_id):
             raise LiveGateError("DERIVED_ASSET_NOT_FOUND")
-        path, record = self.jobs.get_asset(job_id, upload_asset_id)
+        # A Live Dual Freeform child has its own approvals and derived namespace
+        # but shares the parent's original uploads. Neither child ownership nor
+        # content equality grants access to a different owner's source Job.
+        source_job_id = self.source_job_resolver(actor, job_id) if self.source_job_resolver else job_id
+        self._authorize(actor, source_job_id)
+        path, record = self.jobs.get_asset(source_job_id, upload_asset_id)
         raw = self._read_regular(self.jobs.root, path)
         actual = sha256(raw).hexdigest()
         if (actual != record.get("sha256") or len(raw) != record.get("size_bytes")
