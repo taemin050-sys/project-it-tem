@@ -18,6 +18,30 @@ export default function CreateLayout() {
   return (
     <div className="create">
       <a className="skip-link" href="#create-main">본문 바로가기</a>
+      <div className="track-a-owner-shell">
+        <aside className="track-a-owner-side" aria-label="광고 제작 단계 메뉴">
+          <Link to="/" className="track-a-owner-brand">{SERVICE_NAME}<small>AI AD STUDIO</small></Link>
+          <p className="track-a-owner-label">생성 워크플로우 · {current + 1}/{STEPS.length}</p>
+          <div className="track-a-owner-progress" aria-hidden="true">
+            <span style={{ width: `${((current + 1) / STEPS.length) * 100}%` }} />
+          </div>
+          <nav aria-label="광고 제작 순서">
+            <ol>
+              {STEPS.map((step, i) => {
+                const state = i < current ? 'done' : i === current ? 'current' : 'todo'
+                const content = <><span className="track-a-owner-number" aria-hidden="true">{i + 1}</span>{step.label}</>
+                return <li key={step.path} className={state}>
+                  {state === 'done'
+                    ? <Link to={step.path}>{content}</Link>
+                    : <span aria-current={state === 'current' ? 'step' : undefined}>{content}</span>}
+                </li>
+              })}
+            </ol>
+          </nav>
+          <p className="track-a-owner-label track-a-owner-review-label">검수 및 평가</p>
+          <Link className="track-a-owner-review" to="/team/evaluations">팀 공동 품질 평가</Link>
+        </aside>
+        <div className="track-a-owner-workspace">
       <header className="site-header create-header">
         <div className="container create-header-inner">
           <Link to="/" className="logo" aria-label={`${SERVICE_NAME} 홈`}>{SERVICE_NAME}</Link>
@@ -65,6 +89,8 @@ export default function CreateLayout() {
       <main id="create-main" className="create-main">
         <Outlet />
       </main>
+        </div>
+      </div>
     </div>
   )
 }

@@ -475,3 +475,29 @@ mark.risk-warning { background: var(--warning-bg); box-shadow: inset 0 -2px 0 va
 .ad-headline { font-size: 72px; font-weight: 800; line-height: 1.25; }
 .ad-subline { font-size: 38px; font-weight: 500; line-height: 1.4; white-space: pre-line; }
 .ad-cta { padding: 14px 32px; border-radius: 999px; background: #fff; color: #1f2328; font-size: 32px; font-weight: 700; }
+
+/* FE Owner PR #32 navigation recovery: isolated and progressive.
+   Existing stepper remains available on mobile; no API/state changes. */
+.track-a-owner-shell { display:grid; grid-template-columns:224px minmax(0,1fr); flex:1; min-height:0; }
+.track-a-owner-workspace { display:flex; flex-direction:column; min-width:0; }
+.track-a-owner-side { padding:26px 14px; background:var(--surface); border-right:1px solid var(--border); min-width:0; }
+.track-a-owner-brand { display:flex; flex-direction:column; gap:3px; margin:0 10px 30px; font-weight:800; font-size:21px; color:var(--text); text-decoration:none; }
+.track-a-owner-brand small { font:600 10px/1.6 var(--sans); letter-spacing:.1em; color:var(--text-2); }
+.track-a-owner-label { margin:0 10px 9px; font-size:12px; font-weight:650; color:var(--text-2); }
+.track-a-owner-progress { margin:0 10px 22px; height:5px; overflow:hidden; border-radius:999px; background:var(--border); }
+.track-a-owner-progress span { display:block; height:100%; border-radius:999px; background:var(--accent); }
+.track-a-owner-side ol { display:flex; flex-direction:column; gap:5px; list-style:none; margin:0; padding:0; }
+.track-a-owner-side li > a, .track-a-owner-side li > span, .track-a-owner-review { display:flex; align-items:center; gap:10px; min-height:44px; padding:9px 12px; border-radius:var(--radius); color:var(--text-2); font-size:13px; text-decoration:none; }
+.track-a-owner-side li.done > a:hover, .track-a-owner-review:hover { background:var(--bg); color:var(--text); }
+.track-a-owner-side li.current > span { background:var(--accent); color:var(--text); font-weight:700; }
+.track-a-owner-side li.todo > span { opacity:.6; }
+.track-a-owner-number { display:grid; place-items:center; flex:none; width:23px; height:23px; border:1px solid currentColor; border-radius:50%; font-size:12px; }
+.track-a-owner-review-label { margin-top:26px; }
+.track-a-owner-review { font-weight:650; }
+@media(min-width:960px) {
+  .track-a-owner-workspace .stepper, .track-a-owner-workspace .stepper-bar { display:none; }
+}
+@media(max-width:959px) {
+  .track-a-owner-shell { display:flex; flex-direction:column; }
+  .track-a-owner-side { display:none; }
+}
