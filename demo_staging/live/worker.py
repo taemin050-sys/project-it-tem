@@ -203,7 +203,7 @@ def authorize_worker_item(flow:LivePipeline,item:dict) -> dict:
             raise LiveGateError("A51C_HARD_CAP_PRODUCT_RIGHTS_NOT_AUTHORIZED")
         # Even an attacker-forged DB row with all four booleans True cannot
         # substitute for a genuine reverified Owner+PM profile decision.
-        verify_frozen_runtime_activation(frozen)
+        verified_profile=verify_frozen_runtime_activation(frozen)
         # A51F independent human legal/brand authority: Even if a future
         # versioned Owner profile legitimately turns the four current
         # hard-coded product flags on, paid work still requires an exact
@@ -215,7 +215,10 @@ def authorize_worker_item(flow:LivePipeline,item:dict) -> dict:
         validate_signed_source_rights(
             store=flow.jobs,job=original,actor=actor,
             generation_mode=immutable_request["generation_mode"],
-            image_size=immutable_request["image_size"])
+            image_size=immutable_request["image_size"],
+            expected_policy_epoch=verified_profile["safe_zone"]["policy_epoch"],
+            expected_profile_decision_sha=verified_profile[
+                "safe_zone"]["signed_owner_pm_decision_sha256"])
     if job["state"] not in _STAGE_STATES[stage] or (
             job["mode"]!="LIVE" and
             not (stage=="analysis" and job["mode"]=="INPUT_ONLY")):

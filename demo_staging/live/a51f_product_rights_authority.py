@@ -22,6 +22,13 @@ from .a51b_signed_beta_contract import (
 from .contracts import LiveGateError
 
 CONTRACT="IT_TEM_P03_A51F_DUAL_SIGNED_SOURCE_RIGHTS_V1"
+SKU_CONTRACT="IT_TEM_P03_A51FR1_DUAL_SIGNED_IMMUTABLE_SKU_ASSET_BINDING_V1"
+_SKU_FIELDS=frozenset((
+    "contract","job_id","actor","product_sku","assets_sha256",
+    "profile_policy_epoch","signed_profile_decision_sha256",
+    "deployed_source_commit","review_decision",
+    "valid_from_utc","expires_utc",
+))
 _SHA40=re.compile(r"^[0-9a-f]{40}$")
 _SHA32=re.compile(r"^[0-9a-f]{32}$")
 _ALLOWED_MODES=frozenset(("composed","freeform"))
@@ -31,7 +38,7 @@ _DECISION="APPROVE_LIMITED_GCP_A_PROVIDER_TRANSFER"
 _REQUIRED=frozenset((
     "contract","decision_id","deployment_scope","deployed_source_commit",
     "actor","job_id","policy_epoch","product_sku",
-    "generation_mode","image_size","assets_sha256","rights_evidence_sha256",
+    "signed_profile_decision_sha256","generation_mode","image_size","assets_sha256","rights_evidence_sha256",
     "rights_scope","provider_id","grant_basis","review_decision",
     "valid_from_utc","expires_utc",
 ))
@@ -93,8 +100,53 @@ def _assets_hash(store,job):
         sequence,sort_keys=True,separators=(",",":")).encode()).hexdigest()
 
 
+def _authoritative_sku_binding(*,sku_root:Path,public:dict,job_id:str,
+                               actor:str,source_commit:str,asset_sha:str,
+                               profile_epoch:str,profile_decision_sha:str,
+                               instant:datetime)->dict:
+    """Independent *server-trusted* source↔SKU approval, not browser metadata.
+
+    Human Owner and PM have each signed the actual ordered stored B0 assets
+    for THIS Job and exact frozen signed v3 decision. The SKU source cannot
+    be solely the rights manifest we are about to check. A missing binding
+    is a non-negotiable pre-provider failure.
+    """
+    path=_regular(sku_root,job_id+".sku_binding.json")
+    raw=path.read_bytes()
+    try:binding=json.loads(raw)
+    except (TypeError,UnicodeError,ValueError):
+        _deny("SKU_BINDING_JSON_INVALID")
+    if type(binding) is not dict or set(binding)!=_SKU_FIELDS:
+        _deny("SKU_BINDING_SCHEMA_INVALID")
+    if (binding["contract"]!=SKU_CONTRACT or
+        binding["job_id"]!=job_id or binding["actor"]!=actor or
+        binding["deployed_source_commit"]!=source_commit or
+        binding["assets_sha256"]!=asset_sha or
+        binding["profile_policy_epoch"]!=profile_epoch or
+        binding["signed_profile_decision_sha256"]!=profile_decision_sha or
+        binding["review_decision"]!="APPROVED_SKU_AND_ORDERED_INPUT_ASSETS" or
+        type(binding["product_sku"]) is not str or
+        not IDENTIFIER.fullmatch(binding["product_sku"])):
+        _deny("SKU_BINDING_CONTEXT_MISMATCH")
+    start=_utc(binding["valid_from_utc"])
+    end=_utc(binding["expires_utc"])
+    if not start<=instant<=end or end<start or end-start>timedelta(days=30):
+        _deny("SKU_BINDING_EXPIRED_OR_FUTURE")
+    for role,key in public.items():
+        _verify_signature(raw,
+                          _regular(sku_root,job_id+"."+role+".sku.sig"),
+                          key,path)
+    return {
+        "product_sku":binding["product_sku"],
+        "binding_sha256":sha256(raw).hexdigest(),
+        "assets_sha256":asset_sha,
+    }
+
+
 def validate_signed_source_rights(*,store,job:dict,actor:str,
                                    generation_mode:str,image_size:str,
+                                   expected_policy_epoch:str,
+                                   expected_profile_decision_sha:str,
                                    now:datetime|None=None)->dict:
     """Return audited scope only after real dual signature and source proof.
 
@@ -103,6 +155,14 @@ def validate_signed_source_rights(*,store,job:dict,actor:str,
     Does NOT authorize any live call by itself: worker cost/identity/state,
     queue and separate Owner profile gates remain mandatory.
     """
+    # Only the already re-verified, frozen Owner+PM Profile is allowed to
+    # supply these expectations. A missing/invalid expected scope must never
+    # silently fall back to a signed rights document's own untrusted values.
+    if (type(expected_policy_epoch) is not str or
+        not IDENTIFIER.fullmatch(expected_policy_epoch) or
+        type(expected_profile_decision_sha) is not str or
+        not HEX.fullmatch(expected_profile_decision_sha)):
+        _deny("AUTHORITATIVE_FROZEN_PROFILE_REQUIRED")
     jid=job.get("job_id")
     if type(jid) is not str or not _SHA32.fullmatch(jid):
         _deny("JOB_ID_INVALID")
@@ -114,6 +174,7 @@ def validate_signed_source_rights(*,store,job:dict,actor:str,
         source=os.environ["IT_TEM_A51C_DEPLOYED_SOURCE_SHA"]
         provider=os.environ["IT_TEM_A51F_APPROVED_PROVIDER"]
         rights=_sealed_dir(os.environ["IT_TEM_A51F_RIGHTS_ROOT"])
+        sku_root=_sealed_dir(os.environ["IT_TEM_A51F_SKU_BINDING_ROOT"])
         trust=_sealed_dir(os.environ["IT_TEM_A51F_RIGHTS_TRUST_ROOT"])
         trusted={
             role:os.environ["IT_TEM_A51B_"+role.upper()+"_PUB_SHA"]
@@ -123,7 +184,8 @@ def validate_signed_source_rights(*,store,job:dict,actor:str,
         _deny("OPERATOR_TRUST_CONFIGURATION_MISSING")
     if (source=="" or not _SHA40.fullmatch(source)
         or type(provider) is not str or not IDENTIFIER.fullmatch(provider)
-        or rights==trust or trusted["image_owner"]==trusted["pm"]):
+        or len({rights,sku_root,trust})!=3
+        or trusted["image_owner"]==trusted["pm"]):
         _deny("OPERATOR_SCOPE_INVALID")
     public={k:_verify_trust_anchor(trust,k,trusted[k]) for k in KEYS}
     manifest=_regular(rights,jid+".source_rights.json")
@@ -138,6 +200,8 @@ def validate_signed_source_rights(*,store,job:dict,actor:str,
         record["deployment_scope"]!="GCP_A_ISOLATED_BETA_ONLY" or
         record["deployed_source_commit"]!=source or
         record["actor"]!=actor or record["job_id"]!=jid or
+        record["policy_epoch"]!=expected_policy_epoch or
+        record["signed_profile_decision_sha256"]!=expected_profile_decision_sha or
         type(record["decision_id"]) is not str or
         not IDENTIFIER.fullmatch(record["decision_id"]) or
         type(record["policy_epoch"]) is not str or
@@ -165,6 +229,13 @@ def validate_signed_source_rights(*,store,job:dict,actor:str,
     actual_assets_sha=_assets_hash(store,job)
     if actual_assets_sha!=record["assets_sha256"]:
         _deny("SOURCE_ASSET_SET_CHANGED")
+    sku_binding=_authoritative_sku_binding(
+        sku_root=sku_root,public=public,job_id=jid,actor=actor,
+        source_commit=source,asset_sha=actual_assets_sha,
+        profile_epoch=expected_policy_epoch,
+        profile_decision_sha=expected_profile_decision_sha,instant=instant)
+    if record["product_sku"]!=sku_binding["product_sku"]:
+        _deny("SIGNED_RIGHTS_SKU_NOT_AUTHORIZED_FOR_JOB_ASSETS")
     evidence=_regular(rights,jid+".rights_evidence",max_bytes=2*1024*1024)
     if sha256(evidence.read_bytes()).hexdigest()!=record["rights_evidence_sha256"]:
         _deny("RIGHTS_DOCUMENT_SHA_CHANGED")
@@ -179,6 +250,9 @@ def validate_signed_source_rights(*,store,job:dict,actor:str,
         "decision_sha256":sha256(original).hexdigest(),
         "rights_evidence_sha256":record["rights_evidence_sha256"],
         "assets_sha256":actual_assets_sha,
+        "product_sku_binding_sha256":sku_binding["binding_sha256"],
+        "frozen_profile_policy_epoch":expected_policy_epoch,
+        "frozen_signed_profile_decision_sha256":expected_profile_decision_sha,
         "generation_mode":generation_mode,"image_size":image_size,
         "source_commit":source,
         "verified_signers":["image_owner","pm"],
