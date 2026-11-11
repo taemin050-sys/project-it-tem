@@ -1,8 +1,8 @@
 import { Link, Navigate, useNavigate } from 'react-router-dom'
 import { restorePrevious, review, reviseJob } from '../api/jobs'
 import { approveCopyAndCreateImage, reviseCopyFromInstruction, restorePreviousLiveCopy } from '../api/liveFlow'
-import {getLiveSnapshot,getTextCostEstimate,type TextCostEstimate} from '../api/liveJobs'
-import { useState, useRef,useEffect } from 'react'
+import {getLiveSnapshot} from '../api/liveJobs'
+import { useState, useRef } from 'react'
 import { advance, resetJob, useJob, useLiveProgress, useLiveSnapshot } from '../api/useJob'
 import JobBadges from '../components/JobBadges'
 import RunStatus from '../components/RunStatus'
@@ -76,16 +76,6 @@ export default function CopyPage() {
   const revisionInFlight=useRef(false)
   const [revising,setRevising]=useState(false)
   const [instruction,setInstruction]=useState('')
-  const [revisionEstimate,setRevisionEstimate]=useState<TextCostEstimate>()
-  useEffect(()=>{
-    let active=true
-    if(!mock && revising){
-      void getTextCostEstimate(5,'copy').then(value=>{
-        if(active)setRevisionEstimate(value)
-      }).catch(()=>{if(active)setRevisionEstimate(undefined)})
-    }
-    return ()=>{active=false}
-  },[mock,revising])
   // An acknowledgement is valid only for the exact published copy revision.
   // Nothing is offered during a late Live GET or unhydrated Job display.
   const copyKey=mock?JSON.stringify(job?.copy_output??null):
@@ -292,14 +282,6 @@ export default function CopyPage() {
               <textarea rows={3} maxLength={300} value={instruction} placeholder="예: 헤드라인을 더 짧고 산뜻하게, 할인 이벤트 느낌으로"
                 onChange={e=>setInstruction(e.target.value)}/>
             </label>
-            {!mock && <p className="field-hint" role="status">
-              QA Fixture는 유료 모델을 호출하지 않습니다.
-              실제 Text Owner v0.10 수정은 관리자가 승인한 Live Worker에서만 실행됩니다.
-              {revisionEstimate
-                ? <> 텍스트 수정 1회 예상 비용: <strong>{revisionEstimate.display}</strong>.</>
-                : ' 텍스트 수정 예상 비용을 확인 중이거나 조회할 수 없습니다.'}
-              {' '}추정액은 이미지 재생성 비용이나 실제 청구 금액이 아닙니다.
-            </p>}
             <div className="button-row">
               <button type="button" className="button"
                 disabled={!instruction.trim() || busy || (!mock && !liveReady)}

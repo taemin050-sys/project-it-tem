@@ -2,8 +2,6 @@ import { useEffect,useRef,useState, type FormEvent } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { isUnreachable } from '../api/client'
 import { createJob } from '../api/jobs'
-import {getTextCostEstimate,getTotalCostEstimate,
-  type TextCostEstimate,type CombinedCostEstimate} from '../api/liveJobs'
 import { advance,hasUnfinishedJob,productPayload,recoverLiveInput,resetJob } from '../api/useJob'
 import Field from '../components/Field'
 import MockFallback from '../components/MockFallback'
@@ -54,32 +52,6 @@ export default function ProductPage() {
   // FE mode and ratio are a single immutable server Job decision. Prevent a
   // second selection while upload/AI is running or a prior Job is active.
   const imageSelectionLocked=uploading || run.busy || (Boolean(jobId) && hasUnfinishedJob())
-  const [textEstimate,setTextEstimate]=useState<{photoCount:number;estimate:TextCostEstimate}>()
-  const [combinedEstimate,setCombinedEstimate]=useState<{key:string;estimate:CombinedCostEstimate}>()
-  useEffect(()=>{
-    let active=true
-    if(!mock && images.length>=2 && images.length<=5){
-      void getTextCostEstimate(images.length).then(value=>{
-        if(active)setTextEstimate({photoCount:images.length,estimate:value})
-      }).catch(()=>{})
-    }
-    return ()=>{active=false}
-  },[images.length,mock])
-  const currentEstimate=(!mock && images.length===textEstimate?.photoCount)
-    ? textEstimate.estimate:undefined
-  const estimateKey=images.length+':'+ratio+':'+generationMode
-  useEffect(()=>{
-    let active=true
-    if(!mock && images.length>=2 && images.length<=5){
-      void getTotalCostEstimate(images.length,ratio,generationMode).then(value=>{
-        if(active)setCombinedEstimate({key:estimateKey,estimate:value})
-      }).catch(()=>{if(active)setCombinedEstimate(undefined)})
-    }
-    return ()=>{active=false}
-  },[estimateKey,images.length,mock,ratio,generationMode])
-  const currentCombined=!mock && combinedEstimate?.key===estimateKey
-    ? combinedEstimate.estimate:undefined
-
   // 사용자가 항목을 고치면 그 항목의 오류는 바로 지운다 (나머지는 다음 제출 때 다시 검사)
   const setError = (key: keyof ProductErrors, message?: string) => setErrors((e) => ({ ...e, [key]: message }))
   function setProduct(patch: Parameters<typeof saveProduct>[0]) {
@@ -144,23 +116,6 @@ export default function ProductPage() {
       }
       actionsNote={
         <>
-          {!mock && <p className="field-hint" role="status">
-            {currentEstimate
-              ? <>텍스트 AI 예상 비용: <strong>{currentEstimate.display}</strong>
-                  {' '}({images.length}장 기준)</>
-              : '텍스트 AI 예상 비용: 제품 사진 2~5장을 선택하면 서버에서 조회합니다.'}
-            {currentCombined && <>
-              {' '}이미지 1장 참고 비용:{' '}
-              {currentCombined.image.reference_median_usd===null
-                ? '동일 생성 방식의 표본 부족으로 산출 불가'
-                : <strong>${currentCombined.image.reference_median_usd.toFixed(4)}</strong>}
-              {currentCombined.total_display && <>
-                {' '}텍스트+이미지 참고 합계: <strong>{currentCombined.total_display}</strong>
-              </>}
-              {' '}(<span>{currentCombined.image.sample_count}건 관측 표본, 실제 청구액·상한 보장 아님</span>)
-            </>}
-            {' '}선택한 모델·품질·화면비·방식이 관측값과 다르면 비용을 추정하지 않습니다.
-          </p>}
         {!import.meta.env.DEV && jobId && !run.busy &&
           <button type="button" className="button secondary small"
             onClick={()=>void recoverLiveInput().then(()=>navigate('/create/copy')).catch(()=>{})}>

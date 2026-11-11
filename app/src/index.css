@@ -258,6 +258,15 @@ img { max-width: 100%; }
   .step-actions-row .button { padding: 0 16px; }
 }
 
+/* On narrow phones a multi-row action area can cover 137-197px of the ad
+ * and caption while scrolling. Keep actions in document flow rather than
+ * obscuring copy review and downloadable preview. */
+@media (max-width: 479px) {
+  .step-actions { position: static; }
+  .step-actions-row { flex-wrap: wrap; }
+  .step-actions .button-row { flex: 1 1 100%; }
+}
+
 /* 공통 요소 */
 .stack { display: flex; flex-direction: column; gap: 20px; min-width: 0; }
 .panel { min-width: 0; padding: clamp(20px, 3vw, 28px); background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-lg); }
