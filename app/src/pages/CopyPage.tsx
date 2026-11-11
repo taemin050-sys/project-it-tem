@@ -38,6 +38,7 @@ const SOURCE_BADGE: Record<SourceType, { label: string; tone: string }> = {
 const BACK = { to: '/create/product', label: '제품 정보' }
 // 검수 리포트가 있으면 서버 notice를 그대로 쓴다. 이 문구는 리포트가 없는 레거시 mock 카피용 (텍스트 모듈 기본 notice와 같은 문장)
 const RESPONSIBILITY = '검수 결과는 참고용이며 법적 판단이 아닙니다. 게시 전 최종 확인 책임은 사용자에게 있습니다.'
+const QUICK_REQUESTS = ['친근한 인스타 말투', '촉촉함 강조', '더 짧고 간결하게'] as const
 
 // 화면에 보여주는 순서. 해시태그는 공백으로 이어 붙인 한 줄로 보여줘야 위치값이 맞는다
 const REVIEW_FIELDS = ['headline', 'subline', 'cta', 'caption', 'hashtags'] as const
@@ -109,6 +110,10 @@ export default function CopyPage() {
   const revisionFeedback=(!mock && liveReady)?live?.revision_feedback:null
 
   // 글자 수를 넘었으면 줄여 달라는 요청을 미리 채워 둔다 (사용자가 기준을 몰라도 바로 보낼 수 있게)
+  // PR #32 quick requests: only fill the textarea, never call AI automatically.
+  function addQuickRequest(text:string) {
+    setInstruction(v=>(v.trim() ? `${v.trim()}, ${text}` : text).slice(0,300))
+  }
   function openRevision() {
     if (overs.length > 0 && !instruction.trim()) {
       setInstruction(`글자 수를 줄여 주세요 (헤드 ${COPY_LIMITS.headline}자 1줄, 서브 ${COPY_LIMITS.subline}자·한 줄 ${SUBLINE_LINE_MAX}자·${SUBLINE_MAX_LINES}줄, CTA ${COPY_LIMITS.cta}자 1줄 이내)`)
@@ -281,6 +286,10 @@ export default function CopyPage() {
               <span className="field-hint">어떻게 바꾸고 싶은지 적어 주세요. AI가 카피를 다시 만들고 다시 검수합니다. 지금 카피는 이전 버전으로 남습니다.</span>
               <textarea rows={3} maxLength={300} value={instruction} placeholder="예: 헤드라인을 더 짧고 산뜻하게, 할인 이벤트 느낌으로"
                 onChange={e=>setInstruction(e.target.value)}/>
+              <div className="owner32-quick-chips" aria-label="카피 수정 요청 예시">
+                {QUICK_REQUESTS.map(q=><button key={q} type="button"
+                  disabled={busy} onClick={()=>addQuickRequest(q)}>+ {q}</button>)}
+              </div>
             </label>
             <div className="button-row">
               <button type="button" className="button"
@@ -354,7 +363,11 @@ export default function CopyPage() {
                             </div>
                           </div>
                           <p className="issue-reason">{r.reason}</p>
-                          {r.basis && <p className="field-hint">근거: {r.basis}</p>}
+                          {r.basis && <p className="field-hint">근거: {
+                            r.basis_url?.startsWith('https://')
+                              ? <a href={r.basis_url} target="_blank" rel="noopener noreferrer">{r.basis}</a>
+                              : r.basis
+                          }</p>}
                         </li>
                       ))}
                     </ul>

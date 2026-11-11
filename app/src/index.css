@@ -501,3 +501,18 @@ mark.risk-warning { background: var(--warning-bg); box-shadow: inset 0 -2px 0 va
   .track-a-owner-shell { display:flex; flex-direction:column; }
   .track-a-owner-side { display:none; }
 }
+
+
+/* Owner PR #32 selective UX restoration: no API/approval/output changes. */
+.owner32-quick-chips { display:flex; flex-wrap:wrap; gap:8px; margin-top:10px; }
+.owner32-quick-chips button { cursor:pointer; font:500 12px/1.4 var(--sans); border:1px solid var(--border-strong); background:var(--bg); color:var(--text); border-radius:999px; padding:8px 12px; }
+.owner32-quick-chips button:hover { background:var(--surface); border-color:var(--text-2); }
+.owner32-quick-chips button:focus-visible { outline:3px solid var(--accent); }
+.owner32-quick-chips button:disabled { opacity:.5; cursor:not-allowed; }
+.owner32-instagram-preview { border:1px solid var(--border); background:#fff; color:#242424; border-radius:12px; overflow:hidden; }
+.owner32-instagram-head { display:flex; gap:10px; align-items:center; padding:12px 14px; }
+.owner32-instagram-head strong { display:block; font-size:13px; }
+.owner32-instagram-head small { display:block; font-size:11px; color:#666; }
+.owner32-instagram-avatar { flex:none; width:32px; height:32px; display:grid; place-items:center; border-radius:50%; background:#222; color:#fff; font-size:12px; font-weight:700; }
+.owner32-instagram-preview .result-image { display:block; width:100%; margin:0; object-fit:contain; }
+.owner32-instagram-caption { margin:0; padding:12px 14px; font-size:12px; line-height:1.55; white-space:pre-wrap; overflow-wrap:anywhere; display:-webkit-box; -webkit-line-clamp:4; -webkit-box-orient:vertical; overflow:hidden; }

@@ -208,6 +208,11 @@ export default function ExportPage() {
 
           <aside>
             <figure className="export-preview">
+              <div className="owner32-instagram-preview" aria-label="인스타그램 게시 전 결과 미리보기">
+                <div className="owner32-instagram-head">
+                  <span className="owner32-instagram-avatar" aria-hidden="true">IT</span>
+                  <span><strong>광고 시안</strong><small>Instagram 게시 전 미리보기</small></span>
+                </div>
               <img
                 className="result-image"
                 src={finalUrl}
@@ -215,6 +220,8 @@ export default function ExportPage() {
                 style={size && { aspectRatio: `${size.width} / ${size.height}` }}
                 onLoad={(e) => setLoaded({url:finalUrl!,width:e.currentTarget.naturalWidth,height:e.currentTarget.naturalHeight})}
               />
+                <p className="owner32-instagram-caption">{caption}</p>
+              </div>
               <figcaption>
                 {!size ? '크기 확인 중…' : sizeOk
                   ? `✓ ${size.width}×${size.height}px`
