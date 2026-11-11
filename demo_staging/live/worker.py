@@ -204,6 +204,18 @@ def authorize_worker_item(flow:LivePipeline,item:dict) -> dict:
         # Even an attacker-forged DB row with all four booleans True cannot
         # substitute for a genuine reverified Owner+PM profile decision.
         verify_frozen_runtime_activation(frozen)
+        # A51F independent human legal/brand authority: Even if a future
+        # versioned Owner profile legitimately turns the four current
+        # hard-coded product flags on, paid work still requires an exact
+        # dual-signed license decision bound to the B0 source image bytes,
+        # Actor, SKU, Job, approved Provider, mode, ratio and source SHA.
+        # Not a substitute for SSO, PM hard cap, Queue/Cost/Owner receipts.
+        from .a51f_product_rights_authority import validate_signed_source_rights
+        immutable_request=json.loads(job["input_json"])
+        validate_signed_source_rights(
+            store=flow.jobs,job=original,actor=actor,
+            generation_mode=immutable_request["generation_mode"],
+            image_size=immutable_request["image_size"])
     if job["state"] not in _STAGE_STATES[stage] or (
             job["mode"]!="LIVE" and
             not (stage=="analysis" and job["mode"]=="INPUT_ONLY")):
