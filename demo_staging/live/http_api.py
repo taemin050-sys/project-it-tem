@@ -414,6 +414,45 @@ def register_live_api(app:FastAPI, ledger, runtime_root:Path, cookie_name:str):
         except (LiveGateError,ValueError) as e:
             raise safe_error(e) from None
 
+    @app.get(prefix+"/jobs")
+    def list_my_jobs(request:Request):
+        """Read-only, Actor-private catalog; deliberately distinct from shared evaluations.
+
+        Reuses the existing B0 claim ledger and LiveStore without migrations.
+        Only jobs with a committed Live input are resumable; uploaded-only
+        B0 records have no durable Live input to recover.
+        """
+        actor=authorized(request)
+        with ledger.connect() as db:
+            owned=db.execute("""SELECT job_id,created_at FROM jobs
+                WHERE actor=? ORDER BY created_at DESC,job_id DESC LIMIT 50""",
+                (actor,)).fetchall()
+        if not owned:
+            return {"jobs":[]}
+        ids=[row["job_id"] for row in owned]
+        marks=",".join("?" for _ in ids)
+        with flow.state.db() as db:
+            rows=db.execute(f"""SELECT job_id,state,mode,input_json
+                FROM live_jobs WHERE actor=? AND job_id IN ({marks})""",
+                (actor,*ids)).fetchall()
+        found={row["job_id"]:row for row in rows}
+        results=[]
+        for entry in owned:
+            row=found.get(entry["job_id"])
+            if row is None:
+                continue
+            details=json.loads(row["input_json"])
+            product=details.get("product") or {}
+            results.append({
+                "job_id":row["job_id"],
+                "state":row["state"],
+                "created_at":entry["created_at"],
+                "product_name":str(product.get("product_name") or "이름 없는 제품")[:100],
+                "image_size":details.get("image_size") or "4:5",
+                "generation_mode":details.get("generation_mode") or "composed",
+            })
+        return {"jobs":results}
+
     @app.get(prefix+"/jobs/{job_id}")
     def get_job(job_id:str,request:Request):
         actor=authorized(request,job_id)
