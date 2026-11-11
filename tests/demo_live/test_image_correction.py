@@ -49,6 +49,10 @@ def wire_transport(flow,child,calls,*,failure=None):
         data={part.get_param("name",header="content-disposition"):part.get_payload(decode=True)
               for part in parts.iter_parts()}
         assert "mask" in data and "image[]" in data
+        with Image.open(BytesIO(data["mask"])) as matte, Image.open(BytesIO(data["image[]"])) as source:
+            assert matte.getchannel("A").getextrema()==(0,255)
+            assert matte.convert("RGB").tobytes()==source.convert("RGB").tobytes()
+        assert "사각형" in data["prompt"].decode("utf-8")
         assert "correct" in data["prompt"].decode("utf-8")
         if failure:
             response=failure(request)

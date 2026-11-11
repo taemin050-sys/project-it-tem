@@ -120,6 +120,9 @@ class ImageCorrections:
             body = {key: payload[key] for key in ("expected_image_sha", "expected_copy_sha",
                 "expected_approval_sha", "field", "observed_text", "region", "request_key", "acknowledge_paid_edit")}
             self._validate_request(body, context)
+            if "edit_prompt" in payload and (payload.get("edit_prompt_version") != "source-style-preserving-text-edit-v2"
+                    or payload["edit_prompt"] != _prompt_v2(payload)):
+                raise ValueError
             return payload
         except (KeyError, ValueError, TypeError):
             raise LiveGateError("IMAGE_CORRECTION_PAYLOAD_INTEGRITY") from None
@@ -149,7 +152,7 @@ class ImageCorrections:
             return self._request_locked(actor, job_id, body, source)
 
     def _request_locked(self, actor, job_id, body, source):
-        job, context, _, _ = source
+        job, context, raw, size = source
         self._validate_request(body, context)
         target = json.loads(job["copy_json"])["ad_copy"][body["field"]]
         if body["observed_text"] == target:
@@ -157,6 +160,17 @@ class ImageCorrections:
         from .image_runtime_profile import effective_image_profile
         payload = {**body, "target_text": target, "approved_copy": json.loads(job["copy_json"])["ad_copy"],
                    "source_context": context, "image_profile": effective_image_profile()}
+        with Image.open(BytesIO(raw)) as image:
+            image = image.convert("RGB")
+            left,top = math.floor(body["region"][0]*size[0]), math.floor(body["region"][1]*size[1])
+            right,bottom = math.ceil(body["region"][2]*size[0]), math.ceil(body["region"][3]*size[1])
+            # Only existing pixel colors guide the model; no local glyph drawing.
+            colors = sorted(image.crop((left,top,right,bottom)).getdata(), key=lambda p: sum(p))
+            payload["source_ink_rgb"] = list(colors[max(0, len(colors)//20)])
+            samples = [image.getpixel((x,max(0,top-2))) for x in range(left,right)]
+            payload["source_background_rgb"] = [sum(pixel[i] for pixel in samples)//len(samples) for i in range(3)]
+        payload["edit_prompt_version"] = "source-style-preserving-text-edit-v2"
+        payload["edit_prompt"] = _prompt_v2(payload)
         request_sha = digest(payload)
         with self.db() as db:
             db.execute("BEGIN IMMEDIATE")
@@ -310,7 +324,7 @@ class ImageCorrections:
         return self.public(result)
 
 
-def _prompt(payload):
+def _prompt_v1(payload):
     # Human-selected observed text is quoted as data, never executable directions.
     return ("한국어 광고의 지정된 마스크 영역 안 문구만 정확하게 고치세요. "
         "원본의 사진, 제품, 라벨, 배경, 색감, 조명, 글꼴, 글자 크기와 배치를 유지하세요. "
@@ -318,6 +332,22 @@ def _prompt(payload):
         + _json({"field": payload["field"], "incorrect": payload["observed_text"], "correct": payload["target_text"],
                  "approved_ad_copy": payload["approved_copy"]})
         + "\n수정할 영역의 잘못된 문구를 지우고 정확한 문구로 대체하세요. 글자 획을 빠뜨리지 마세요.")
+
+
+def _prompt_v2(payload):
+    return (_prompt_v1(payload) + "\n\n이것은 기존 광고의 오타 수정입니다. 새 광고를 디자인하지 마세요. "
+        "마스크 안의 배경을 검은색, 흰색 또는 단색 사각형으로 바꾸지 마세요. "
+        "불투명 텍스트 박스, 배너, 버튼, 하이라이트, 테두리, 새 배경판은 절대 추가하지 마세요. "
+        "수정 글자 사이와 주변은 원본 사진의 배경색·그라디언트·질감이 연속되게 복원하세요. "
+        "원본 문구의 가는 획, 글자 크기, 자간, 색상, 기준선과 위치를 그대로 유지하고 철자만 교정하세요. "
+        "다음은 원본에서 측정한 참고 RGB 색상 데이터입니다. 이 수치는 광고에 쓰지 마세요.\n"
+        + _json({"original_text_rgb": payload["source_ink_rgb"], "original_background_rgb": payload["source_background_rgb"]}))
+
+
+def _prompt(payload):
+    # New requests freeze exact instructions before queue admission. Historical
+    # v1 receipts remain reproducible; no stored request is silently rewritten.
+    return payload.get("edit_prompt") or _prompt_v1(payload)
 
 
 def _masked_provider(flow, row, source, mask, size, payload, transport=None):
@@ -402,8 +432,15 @@ def run_image_correction_once(flow, *, transport=None, recover_only=False):
         region = payload["region"]
         box = (math.floor(region[0]*size[0]), math.floor(region[1]*size[1]),
                math.ceil(region[2]*size[0]), math.ceil(region[3]*size[1]))
-        mask_image = Image.new("RGBA", size, (255,255,255,255))
-        ImageDraw.Draw(mask_image).rectangle((box[0],box[1],box[2]-1,box[3]-1), fill=(0,0,0,0))
+        if payload.get("edit_prompt_version") == "source-style-preserving-text-edit-v2":
+            with Image.open(BytesIO(source)) as original_mask:
+                mask_image = original_mask.convert("RGBA")
+            alpha = Image.new("L", size, 255)
+            ImageDraw.Draw(alpha).rectangle((box[0],box[1],box[2]-1,box[3]-1), fill=0)
+            mask_image.putalpha(alpha)
+        else:
+            mask_image = Image.new("RGBA", size, (255,255,255,255))
+            ImageDraw.Draw(mask_image).rectangle((box[0],box[1],box[2]-1,box[3]-1), fill=(0,0,0,0))
         mask = _png(mask_image)
         fingerprint = {"protocol": PROTOCOL, "correction_id": row["correction_id"], "request_sha": row["request_sha"]}
         output, cost_receipt = flow._guarded(row["actor"], row["job_id"], "image", fingerprint,
