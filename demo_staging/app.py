@@ -229,6 +229,47 @@ def make_demo_app(root: Path, invite_file: Path, frontend: Path,
                   *, secure_cookie: bool = True, code_sha: str = "UNPINNED"):
     root = Path(root)
     a51e_candidate=os.environ.get("IT_TEM_A51E_SIGNED_BETA_INTAKE")=="YES"
+    # A51I is a separate GCP-scoped, WORKER-OFF signed-SSO dev/test
+    # contract. It DOES NOT bypass or promote A51E's /pytest-only guard.
+    a51i_devtest=os.environ.get("IT_TEM_A51I_GCP_SIGNED_SSO_DEVTEST")=="YES"
+    if a51i_devtest:
+        canonical=root.resolve()
+        deployment=canonical.parent
+        source_expected=os.environ.get("IT_TEM_A51I_DEPLOYED_SOURCE_SHA","")
+        try:
+            source_observed=(deployment/"SOURCE_SHA.txt").read_text(
+                encoding="utf8").strip()
+        except OSError:
+            source_observed=""
+        allowed_root=(
+            (str(canonical).startswith(
+                "/home/macstudio/ittem-a51i-signed-sso-devtest-")
+             or "/pytest-" in str(canonical))
+            and canonical.name=="runtime" and canonical.is_dir()
+            and deployment.is_dir() and not root.is_symlink()
+            and not deployment.is_symlink()
+            and not (deployment.stat().st_mode & 0o077))
+        if (a51e_candidate or not secure_cookie or not allowed_root
+            or not re.fullmatch(r"[a-f0-9]{40}",source_expected)
+            or source_expected!=source_observed or code_sha!=source_expected
+            or os.environ.get("IT_TEM_A51I_MPO_POLICY")!="REJECT_MULTIFRAME_V1"
+            or os.environ.get("IT_TEM_A51D_SIGNED_BETA_RUNTIME")!="YES"
+            or os.environ.get("IT_TEM_TAILNET_SSO_ONLY")!="YES"
+            or os.environ.get("IT_TEM_TAILNET_AUTH_ENABLED")!="YES"
+            or not os.environ.get("IT_TEM_TAILNET_EXPECTED_HOST","").endswith(
+                ".ts.net:10444")
+            or os.environ.get("IT_TEM_LIVE_COST_POLICY")!="HARD_CAP"
+            or os.environ.get("IT_TEM_A51C_HARD_CAP_ENABLE")!="YES"
+            or any(os.environ.get(k)!="NO" for k in (
+                "IT_TEM_LIVE_ENABLED","IT_TEM_LIVE_EXECUTION_APPROVED",
+                "IT_TEM_LIVE_WEB_QUEUE_ENABLED",
+                "IT_TEM_ENABLE_BILLABLE_TEXT_CALLS",
+                "IT_TEM_QA_FIXTURE_ENABLED","IT_TEM_A51D_MPO_FIXTURE_BRIDGE"))
+            or any(os.environ.get(k) for k in (
+                "OPENAI_API_KEY","ANTHROPIC_API_KEY",
+                "GOOGLE_API_KEY","GEMINI_API_KEY"))):
+            raise RuntimeError("A51I_GCP_SIGNED_SSO_WORKER_OFF_GATES_NOT_MET")
+    signed_beta_ingress=a51e_candidate or a51i_devtest
     if a51e_candidate:
         # This is a sealed NONBILLABLE signed-SSO integration rehearsal, NOT
         # an authorized GCP or paid beta. No MPO policy or asset-use grant
@@ -284,7 +325,7 @@ def make_demo_app(root: Path, invite_file: Path, frontend: Path,
         raise RuntimeError("TAILNET_SSO_ONLY_REQUIRES_SIGNED_AUTH")
     tailnet_expected_host=os.environ.get("IT_TEM_TAILNET_EXPECTED_HOST") if tailnet_sso_only else None
     if tailnet_sso_only and not (tailnet_expected_host and
-            re.fullmatch(r"[a-z0-9.-]+\.ts\.net:(?:10443|10500)",tailnet_expected_host)):
+            re.fullmatch(r"[a-z0-9.-]+\.ts\.net:(?:10443|10444|10500)",tailnet_expected_host)):
         raise RuntimeError("TAILNET_SSO_ONLY_HOST_NOT_PINNED")
     if tailnet_enabled:
         key_path=os.environ.get("IT_TEM_TAILNET_AUTH_KEY_FILE","")
@@ -345,7 +386,7 @@ def make_demo_app(root: Path, invite_file: Path, frontend: Path,
         # In the isolated signed beta candidate, forbid direct B0 POST
         # creation (its legacy MPO/frame-zero codec is v2-only). All new
         # uploads must enter a separate audited signed-Actor route.
-        if a51e_candidate and path=="/api/v1/jobs" and request.method=="POST":
+        if signed_beta_ingress and path=="/api/v1/jobs" and request.method=="POST":
             return JSONResponse({"detail":"A51E_USE_SIGNED_BETA_INGRESS"},
                                 status_code=423,
                                 headers={"Cache-Control":"no-store"})
@@ -503,7 +544,7 @@ def make_demo_app(root: Path, invite_file: Path, frontend: Path,
     from .live.http_api import register_live_api
     register_live_api(app,ledger,root,cookie_name)
 
-    if a51e_candidate:
+    if signed_beta_ingress:
         # Operator must preinitialize a private, isolated candidate ledger.
         # Never create/migrate current GCP or historical Job/Provider DB here.
         from .live.a51e_signed_beta_ingress_ledger import BetaUploadLedger

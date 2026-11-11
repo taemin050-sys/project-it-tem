@@ -113,4 +113,5 @@ def test_sso_gateway_a_b_ports_scoped_exact_not_live_gateway():
     assert SERVICES["8443"]==(18987,18988)
     assert SERVICES["10443"]==(19097,19096)
     assert SERVICES["10500"]==(19101,19100)
-    assert len(set(SERVICES.values()))==3
+    assert SERVICES["10444"]==(19103,19102)
+    assert len(set(SERVICES.values()))==4

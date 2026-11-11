@@ -16,7 +16,7 @@ export async function shrinkImage(file: File, limits: { maxSide: number; maxByte
     // Product/brand fidelity: do not browser-transcode *any* signed beta
     // image before the server commits to the actual source byte SHA.
     if (await isPendingMpo(file))
-      throw Error('다중 프레임 MPO는 Owner 승인 전 Signed Beta에 사용할 수 없습니다.')
+      throw Error('MPO 형식은 업로드할 수 없습니다. 원하는 사진을 일반 JPG 또는 PNG 파일로 저장한 뒤 다시 올려 주세요.')
     if (file.size>limits.maxBytes)
       throw Error('이 베타에서는 사진 원본을 자동 압축하지 않습니다. 더 작은 원본을 선택해 주세요.')
     return file

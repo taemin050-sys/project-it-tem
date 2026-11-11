@@ -142,6 +142,8 @@ class Gateway(BaseHTTPRequestHandler):
 SERVICES = {
     "8443": (18987, 18988),
     "10443": (19097, 19096),
+    # A51I distinct gateway port and SSH tunnel; existing A/B unchanged.
+    "10444": (19103, 19102),
     "10500": (19101, 19100),
 }
 

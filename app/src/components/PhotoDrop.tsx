@@ -51,7 +51,7 @@ export default function PhotoDrop({ id, title, limits, hint, files, error, onCha
       try {
         for (const file of next) {
           if (await isPendingMpo(file)) {
-            onError('다중 프레임 MPO는 현재 Owner 승인 대기 중입니다. 단일 프레임 원본을 선택해 주세요.')
+            onError('선택한 사진 파일 하나에 여러 이미지가 포함된 형식(MPO)이어서 업로드할 수 없습니다. 휴대폰 갤러리에서 원하는 사진을 일반 JPG 또는 PNG 파일로 저장한 뒤 다시 업로드해 주세요.')
             return
           }
         }
