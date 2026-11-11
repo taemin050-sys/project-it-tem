@@ -584,6 +584,26 @@ class LivePipeline:
         from src.image_generation import compose_ad_png,CompositionInput
         from .template_contract import canonical
         before=self.state.get(actor,job_id)
+        # R6: NEVER infer a future candidate-mask approval before the model
+        # returns. Separate source/rights preflight from the signed review of
+        # actual post-Provider candidate bytes, before final publication.
+        a51j_review=None
+        with self.state.db() as cx:
+            a51j_marked=cx.execute(
+                "SELECT 1 FROM live_events WHERE job_id=? "
+                "AND event='template_a51j_paid_visual_only_ingress' LIMIT 1",
+                (job_id,)).fetchone() is not None
+        if a51j_marked and (
+                os.environ.get("IT_TEM_A51J_PAID_SCOPE_RUNTIME")!="YES" or
+                before["mode"]!="LIVE" or not self.live_enabled or
+                not self.pm_authorized):
+            raise LiveGateError("A51J_PAID_JOB_COMPOSE_RUNTIME_DOWNGRADE_FORBIDDEN")
+        if a51j_marked:
+            from .a51j_paid_job_scope import (
+                verify_worker_paid_scope,verify_post_candidate_signed_review)
+            verify_worker_paid_scope(flow=self,actor=actor,job_id=job_id)
+            a51j_review=verify_post_candidate_signed_review(
+                flow=self,actor=actor,job_id=job_id)
         selected_mode=json.loads(before["input_json"]).get("generation_mode","composed")
         if selected_mode=="freeform" and layout is not None:
             raise LiveGateError("FREEFORM_MUST_NOT_COMPOSE_TEXT")
@@ -607,9 +627,14 @@ class LivePipeline:
         if prior_template and prior_template["profile_id"].startswith(BETA_PREFIX):
             verify_frozen_runtime_activation(prior_template)
             from .a5_beta_profile_v3 import PRETENDARD_139_SHA
-            if (before["mode"]!="OFFLINE_FIXTURE" or self.live_enabled
-                    or font_hash!=PRETENDARD_139_SHA):
-                raise LiveGateError("A51B_ACTUAL_BETA_RUNTIME_NOT_AUTHORIZED")
+            if a51j_review is None:
+                if (before["mode"]!="OFFLINE_FIXTURE" or self.live_enabled
+                        or font_hash!=PRETENDARD_139_SHA):
+                    raise LiveGateError("A51B_ACTUAL_BETA_RUNTIME_NOT_AUTHORIZED")
+            elif font_hash!=PRETENDARD_139_SHA:
+                # Separate cryptographic Paid Job authority never weakens the
+                # actual signed Composed 4:5 font and visual SHA requirements.
+                raise LiveGateError("A51J_SIGNED_COMPOSED_FONT_NOT_APPROVED")
         if prior_template and prior_template["profile_id"].startswith(PROFILE_PREFIX):
             from .a5_beta_profile_v3 import PRETENDARD_139_SHA
             if (before["mode"]!="OFFLINE_FIXTURE" or self.live_enabled
@@ -701,7 +726,6 @@ class LivePipeline:
                 # before atomic writes of final PNG, caption, or Receipt.
                 from .a51b_candidate_mask_gate import validate_candidate_review
                 try:
-                    import os
                     authorization={
                         role:os.environ["IT_TEM_A51B_"+role.upper()+"_PUB_SHA"]
                         for role in ("image_owner","pm")}
@@ -718,6 +742,10 @@ class LivePipeline:
                 from .a5_beta_profile_v3 import verify_receipt_for_v3
                 receipt=verify_receipt_for_v3(receipt,plan=plan,
                                                font_sha=font_hash,copy_json=cp)
+            if a51j_review is not None:
+                # Append authenticated post-output HUMAN review; never alter
+                # historical A51B mask's independent hold/quality fields.
+                receipt["a51j_signed_post_candidate_review"]=a51j_review
             expected_size=(tuple(snapshot["safe_zone"]["final_size"])
                if snapshot and snapshot["profile_id"].startswith("OWNER_IMAGE_SIZE_")
                else (1080,1350))

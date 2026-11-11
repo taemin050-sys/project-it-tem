@@ -140,9 +140,18 @@ class LiveStore:
         v3_candidate=selected_dev_profile(snapshot,template_profile=template_profile)
         if v3_candidate is not None:
             a_policy=build_proposal(v3_candidate)
+        # R6 opt-in applies ONLY to new Jobs. This selects existing Owner
+        # visual geometry but NEVER authorizes money, rights or masks.
+        from .a51j_paid_job_scope import select_new_paid_visual
+        paid_visual=select_new_paid_visual(snapshot,template_profile=template_profile)
         from .a51b_signed_beta_contract import select_signed_beta
-        signed_beta=select_signed_beta(snapshot,template_profile=template_profile)
-        if signed_beta is not None:
+        signed_beta=(None if paid_visual is not None else
+                     select_signed_beta(snapshot,template_profile=template_profile))
+        if paid_visual is not None:
+            if v3_candidate is not None:
+                raise LiveGateError("A51J_UNSIGNED_VISUAL_SELECTOR_CONFLICT")
+            a_policy=paid_visual
+        elif signed_beta is not None:
             if v3_candidate is not None:
                 raise LiveGateError("A51B_SIGNED_AND_UNSIGNED_SELECTOR_CONFLICT")
             a_policy=signed_beta
@@ -171,7 +180,8 @@ class LiveStore:
             if template_profile=="A":
                 # Owner Image size v2 and frozen A v1 use distinct immutable
                 # marker events. Neither may be silently imported into the other.
-                self._event(c,r,("template_a51b_signed_beta_ingress" if signed_beta is not None
+                self._event(c,r,("template_a51j_paid_visual_only_ingress" if paid_visual is not None
+                    else "template_a51b_signed_beta_ingress" if signed_beta is not None
                     else "template_a5_v3_beta_ingress" if v3_candidate is not None
                     else "template_owner_size_ingress_v2" if new_size
                     else "template_a_ingress_contract_v1"),r["state"],digest({

@@ -186,7 +186,35 @@ def authorize_worker_item(flow:LivePipeline,item:dict) -> dict:
         raise LiveGateError("WORKER_IDENTITY_UNVERIFIABLE") from None
     except Exception:
         raise LiveGateError("WORKER_ORIGINAL_JOB_UNAVAILABLE") from None
+    # A versioned Paid Job marker is durable, not a process environment
+    # preference. Restarting under MONITOR_ONLY or turning the new gate OFF
+    # must NEVER downgrade the Job to an unguarded paid call.
+    try:
+        with flow.state.db() as cx:
+            marked=cx.execute("SELECT 1 FROM live_events WHERE job_id=? "
+                "AND event='template_a51j_paid_visual_only_ingress' LIMIT 1",
+                (jid,)).fetchone() is not None
+    except sqlite3.Error:
+        raise LiveGateError("A51J_SIGNED_JOB_MARKER_UNVERIFIABLE") from None
+    if marked and (not beta_cap or
+            os.environ.get("IT_TEM_A51J_PAID_SCOPE_RUNTIME")!="YES"):
+        raise LiveGateError("A51J_PAID_JOB_RUNTIME_DOWNGRADE_FORBIDDEN")
     if beta_cap:
+        if marked:
+            # New per-Job paid scope MUST rebind real B0 / LiveStore / actual
+            # source assets / signed PM cost / Owner+PM rights+SKU+protection
+            # plan / dual-signed Paid permit before any Provider dispatch.
+            # This additive path does not mutate historical signed v3 flags.
+            from .a51j_paid_job_scope import verify_worker_paid_scope
+            verified=verify_worker_paid_scope(flow=flow,actor=actor,job_id=jid)
+            if verified.get("signed_paid_preflight_verified") is not True:
+                raise LiveGateError("A51J_PAID_SCOPE_INCOMPLETE")
+            # P1 remains OPEN: this candidate cannot authenticate whether a
+            # localhost caller really came through Tailscale Serve. Never
+            # treat a nonce or runtime toggle as provenance proof.
+            # A later C-A accepted authenticated-origin implementation must
+            # replace THIS fail-closed gate, after real Tailnet + spoof tests.
+            raise LiveGateError("A51J_GATEWAY_IDENTITY_ORIGIN_P1_UNRESOLVED")
         from .a51b_signed_beta_contract import (
             BETA_PREFIX,verify_frozen_runtime_activation)
         frozen=flow.state.template(actor,jid)
