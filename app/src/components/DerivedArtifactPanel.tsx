@@ -104,7 +104,7 @@ function RenderReview({snapshot, render, approvedCopy, target, canMutate}: {
       {render.hold_code === 'PROTECTED_PRODUCT_RECIPE_REVALIDATION_REQUIRED'
         ? '이전 합성은 제품 전체 형태를 보장하지 못해 사용을 중단했습니다. 원본과 전체 윤곽을 확인한 새 배치가 필요합니다.'
         : '제품·시각 품질 또는 승인 근거의 추가 확인이 필요합니다.'}
-      <small>{render.hold_code}</small>
+      <small style={{display: 'block', overflowWrap: 'anywhere'}}>{render.hold_code}</small>
     </p>}
     {image.url && <figure className="dual-preview">
       <img className="result-image" src={image.url} alt={`${derivedModeLabel(render.render_mode)} ${complete ? '최종 이미지' : '검토 이미지'}`}
