@@ -24,7 +24,11 @@ The existing paid Worker lock serializes both stores and the ordinary queue.
 Recovery checks both revision stores before any new dispatch. RUNNING ownership
 lost across restart is never authorization to resend; UNKNOWN stops all claims.
 
-Required opt-in configuration in both Web and paid Worker source policies:
+Required opt-in configuration in the private per-source **beta** policy, loaded
+by both Web and paid Worker. The live model/Actor policy whitelist is unchanged.
+All four fields must be provided together with the exact protocol versions;
+partial configuration and unknown fields fail closed. Historical beta policies
+without these fields keep revision features disabled.
 
 ```
 IT_TEM_IMAGE_CORRECTION_ENABLED=YES
