@@ -177,6 +177,8 @@ def register_live_api(app:FastAPI, ledger, runtime_root:Path, cookie_name:str):
     app.state.live_pipeline=flow
     app.state.live_queue=queue
     prefix="/demo/api/live"
+    from .derived_api import register_derived_api
+    register_derived_api(app, ledger, flow, runtime_root)
 
     def authorized(request,job_id=None):
         ident=app.state.demo_request_identity(request)
@@ -206,7 +208,7 @@ def register_live_api(app:FastAPI, ledger, runtime_root:Path, cookie_name:str):
                          and os.environ.get("IT_TEM_TAILNET_SSO_ONLY")=="YES"
                          and os.environ.get("IT_TEM_TAILNET_EXPECTED_HOST")==B_TAILNET_HOST)
 
-    def live_dual_blocker(actor):
+    def live_dual_blocker(actor,image_size="4:5"):
         if not signed_dual_boundary or os.environ.get("IT_TEM_BP18_LIVE_DUAL_ENABLED")!="YES":
             return "LIVE_DUAL_DISABLED"
         if not policy_enabled() or not llm_required("LIVE"):
@@ -215,12 +217,17 @@ def register_live_api(app:FastAPI, ledger, runtime_root:Path, cookie_name:str):
         if blocker:
             return blocker
         from .dual_worker import live_dual_worker_ready
-        if not live_dual_worker_ready(runtime_root):
+        from .dual_ratio_policy import ratio_admission
+        try:
+            ratio_admission(image_size)
+        except LiveGateError as error:
+            return error.code
+        if not live_dual_worker_ready(runtime_root,image_size):
             return "LIVE_DUAL_WORKER_PROTOCOL_UNAVAILABLE"
         return None
 
-    def require_live_dual_queue(actor):
-        blocker=live_dual_blocker(actor)
+    def require_live_dual_queue(actor,image_size="4:5"):
+        blocker=live_dual_blocker(actor,image_size)
         if blocker:
             raise HTTPException(503 if "UNAVAILABLE" in blocker else 423,blocker)
 
@@ -234,8 +241,10 @@ def register_live_api(app:FastAPI, ledger, runtime_root:Path, cookie_name:str):
 
     def shared_text_queue_mode(actor,job_id):
         if live_dual_parent(actor,job_id):
-            require_live_dual_queue(actor)
-            return "LIVE_DUAL_V1"
+            from .dual_worker import live_dual_profile
+            size=json.loads(flow.state.get(actor,job_id)["input_json"])["image_size"]
+            require_live_dual_queue(actor,size)
+            return live_dual_profile(size)["protocol"]
         require_queue(actor)
         return "LIVE"
 
@@ -746,6 +755,17 @@ def register_live_api(app:FastAPI, ledger, runtime_root:Path, cookie_name:str):
     def capabilities(request:Request):
         actor=authorized(request)
         blocker = queue_blocker(actor)
+        from .dual_ratio_policy import ratio_admission
+        supported=["4:5"]
+        cta_policy_9x16=None
+        if signed_dual_boundary and os.environ.get("IT_TEM_BP18_LIVE_DUAL_ENABLED")=="YES":
+            for ratio in ("3:4","9:16"):
+                try:
+                    ratio_admission(ratio)
+                except LiveGateError:
+                    continue
+                supported.append(ratio)
+                if ratio=="9:16":cta_policy_9x16="IMAGE_CTA_BOTH"
         return {"live_enabled":blocker is None,
                 "mode":"LIVE_QUEUE_READY" if blocker is None else "LIVE_BLOCKED",
                 "source_sha":app.state.demo_code_sha,
@@ -754,6 +774,7 @@ def register_live_api(app:FastAPI, ledger, runtime_root:Path, cookie_name:str):
                 "dual_qa_enabled":bool(dual_qa_enabled and qa_client(request) and actor in qa_actors),
                 "live_dual_enabled":live_dual_blocker(actor) is None,
                 "live_dual_configured":bool(signed_dual_boundary and os.environ.get("IT_TEM_BP18_LIVE_DUAL_ENABLED")=="YES"),
+                "supported_ratios":supported,"cta_policy_9x16":cta_policy_9x16,
                 "provisional_wire":True,"mock_fallback":False}
 
     live_dual_prefix=prefix+"/jobs/{job_id}/dual"
@@ -890,7 +911,7 @@ def register_live_api(app:FastAPI, ledger, runtime_root:Path, cookie_name:str):
         selected=variants.get(preferred)
         if not selected or selected["state"]!="COMPLETED" or selected["final_sha"]!=group["preferred_final_sha"]:
             preferred=None
-        return {"job_id":parent_id,"state":state,"provenance":"LIVE_DUAL","image_size":"4:5",
+        return {"job_id":parent_id,"state":state,"provenance":"LIVE_DUAL","image_size":json.loads(parent["input_json"])["image_size"],
                 "copy_sha":parent["copy_sha"],"copy_approval_sha":group["approval_sha"],
                 "preferred_variant":preferred,"hold_code":hold_code,"image_request_count":2,
                 "shared_text_cost":attempt_cost(actor,parent_id,shared_text=True),"variants":variants}
@@ -898,11 +919,9 @@ def register_live_api(app:FastAPI, ledger, runtime_root:Path, cookie_name:str):
     @app.post(live_dual_prefix+"/input")
     def live_dual_input(job_id:str,body:InputPayload,request:Request):
         actor=live_dual_access(request,job_id)
-        if body.image_size=="9:16":
-            raise HTTPException(423,"LIVE_DUAL_9_16_CTA_HOLD")
-        if body.image_size!="4:5" or body.generation_mode not in (None,"composed"):
-            raise HTTPException(422,"LIVE_DUAL_4_5_REQUIRED")
-        require_live_dual_queue(actor)
+        if body.image_size not in {"3:4","4:5","9:16"} or body.generation_mode not in (None,"composed"):
+            raise HTTPException(422,"LIVE_DUAL_RATIO_REQUIRED")
+        require_live_dual_queue(actor,body.image_size)
         payload=body.model_dump(mode="json")
         payload["generation_mode"]="composed"
         try:
@@ -921,17 +940,18 @@ def register_live_api(app:FastAPI, ledger, runtime_root:Path, cookie_name:str):
         live_dual_group(actor,job_id)
         if body.acknowledge_two_images is not True:
             raise HTTPException(409,"LIVE_DUAL_TWO_IMAGES_ACK_REQUIRED")
-        require_live_dual_queue(actor)
+        current=flow.state.get(actor,job_id)
+        size=json.loads(current["input_json"])["image_size"]
+        require_live_dual_queue(actor,size)
         from .dual_worker import live_dual_profile
         try:
-            current=flow.state.get(actor,job_id)
             if current["generation"]!=body.expected_generation or current["review_sha"]!=body.expected_review_sha:
                 raise LiveGateError("STALE_REVIEW_OR_REVISION")
             flow.verify_live_dual_f09(actor,job_id)
             group=flow.state.start_live_dual(actor,job_id,
                 expected_generation=body.expected_generation,expected_review_sha=body.expected_review_sha,
                 acknowledge_evidence=body.acknowledge_evidence,acknowledge_two_images=body.acknowledge_two_images,
-                execution_profile=live_dual_profile())
+                execution_profile=live_dual_profile(size))
             # The Worker projects the durable intent. HTTP never claims or
             # performs a provider request, including on a duplicate start.
             return live_dual_snapshot(request,actor,group)

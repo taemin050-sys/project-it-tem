@@ -51,7 +51,7 @@ class MockOwnerImage(BackendImageAdapter):
         return replace(super().generate(*args, **kwargs), mock=False)
 
 
-def mock_owner_adapter(root, profile, calls, *, outcome=None):
+def mock_owner_adapter(root, profile, calls, *, outcome=None,native_size=(1152,1440)):
     def wire(request):
         header = b"Content-Type: " + request.headers["content-type"].encode()
         parts = BytesParser(policy=policy.default).parsebytes(
@@ -63,7 +63,7 @@ def mock_owner_adapter(root, profile, calls, *, outcome=None):
             failure = outcome(request, len(calls))
             if failure is not None:
                 return failure
-        raw = png((120 + len(calls), 143, 164), size=(1152, 1440))
+        raw = png((120 + len(calls), 143, 164), size=native_size)
         return httpx.Response(200, json={
             "data": [{"b64_json": base64.b64encode(raw).decode()}],
             "usage": {"input_tokens": 8, "output_tokens": 12, "total_tokens": 20}},

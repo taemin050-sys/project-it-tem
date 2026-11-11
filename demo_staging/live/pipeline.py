@@ -820,7 +820,7 @@ class LivePipeline:
                     raise LiveGateError("COMPOSITION_RENDER_FAILED") from None
             receipt=result.receipt
             expected_size=(tuple(snapshot["safe_zone"]["final_size"])
-               if snapshot and snapshot["profile_id"].startswith("OWNER_IMAGE_SIZE_")
+               if snapshot and snapshot["profile_id"].startswith(("OWNER_IMAGE_SIZE_","BP18_DUAL_IMAGE_CTA_","BP18_BETA_EDITORIAL_"))
                else (1080,1350))
             if (result.copy_hash!=job["copy_sha"] or
                 result.copy_revision!=job["generation"] or

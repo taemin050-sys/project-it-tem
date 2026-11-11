@@ -1,10 +1,11 @@
-import { useEffect,useState, type FormEvent } from 'react'
+import { useEffect,useRef,useState, type FormEvent } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { useNavigate } from 'react-router-dom'
 import { isUnreachable } from '../api/client'
 import { createJob } from '../api/jobs'
 import {getTextCostEstimate,getTotalCostEstimate,getLiveCapabilities,
   type TextCostEstimate,type CombinedCostEstimate} from '../api/liveJobs'
+import { requireLiveDualRatio, supportedLiveDualRatios } from '../api/liveCapabilities'
 import { advance,hasUnfinishedJob,productPayload,recoverLiveInput,resetJob } from '../api/useJob'
 import Field from '../components/Field'
 import MockFallback from '../components/MockFallback'
@@ -47,6 +48,7 @@ export default function ProductPage() {
   const { images, references, product, ratio, generationMode, mock, run, jobId, setImages, setReferences, setRatio, setGenerationMode, setProduct: saveProduct } = useProjectStore()
   const [errors, setErrors] = useState<ProductErrors>({})
   const [uploading, setUploading] = useState(false)
+  const submitInFlight=useRef(false)
   const [uploadError, setUploadError] = useState<{ message: string; offline: boolean }>()
   const [textEstimate,setTextEstimate]=useState<{photoCount:number;estimate:TextCostEstimate}>()
   const [combinedEstimate,setCombinedEstimate]=useState<{key:string;estimate:CombinedCostEstimate}>()
@@ -93,6 +95,7 @@ export default function ProductPage() {
 
   async function onSubmit(e: FormEvent) {
     e.preventDefault()
+    if(submitInFlight.current)return
     const errs = validateProduct(images, references, product, LIMITS)
     setErrors(errs)
     const first = FOCUS_ORDER.find(([key]) => errs[key])
@@ -100,11 +103,19 @@ export default function ProductPage() {
       document.getElementById(first[1])?.focus()
       return
     }
-    // 진행 중인 작업이 있는데 새로 제출하면 그 작업은 이 화면에서 사라진다 (서버 Job은 남음)
-    if (hasUnfinishedJob() && !window.confirm('진행 중인 광고가 있습니다. 이 정보로 새로 만들면 진행 중인 광고는 이 화면에서 사라집니다. 이전 작업은 서버에 남습니다. 새로 만들까요?')) return
+    submitInFlight.current=true
     setUploading(true)
     setUploadError(undefined)
     try {
+      // Native form submission and restored state obey the visible ratio guard
+      // before any upload. The API boundary checks again before Live input.
+      if(liveDual){
+        requireLiveDualRatio(await getLiveCapabilities(),ratio)
+      }else if(!mock && !QA_OFFLINE_FIXTURE && !capability.data){
+        throw Error('서버의 생성 지원 정보를 확인한 후 시작할 수 있습니다.')
+      }
+      // 진행 중인 작업이 있는데 새로 제출하면 이 화면에서 사라진다 (서버 Job은 남음).
+      if (hasUnfinishedJob() && !window.confirm('진행 중인 광고가 있습니다. 이 정보로 새로 만들면 진행 중인 광고는 이 화면에서 사라집니다. 이전 작업은 서버에 남습니다. 새로 만들까요?')) return
       const [productFiles, referenceFiles] = await Promise.all([
         Promise.all(images.map((f) => shrinkImage(f, SHRINK))),
         Promise.all(references.map((f) => shrinkImage(f, SHRINK))),
@@ -122,13 +133,14 @@ export default function ProductPage() {
     } catch (err) {
       setUploadError({ message: err instanceof Error ? err.message : '사진을 올리지 못했습니다.', offline: isUnreachable(err) })
     } finally {
+      submitInFlight.current=false
       setUploading(false)
     }
   }
 
   const busy = uploading || run.busy
-  // All three ratios are accepted by the Owner #23 size-only contract.
-  const ratioBlocked = liveDual && ratio!=='4:5'
+  const supportedRatios=supportedLiveDualRatios(capability.data)
+  const ratioBlocked = liveDual && !supportedRatios.includes(ratio)
   const capabilityPending = !mock && !QA_OFFLINE_FIXTURE && !capability.data
   const liveDualPaused=liveDual && capability.data?.live_dual_enabled!==true
 
@@ -150,7 +162,8 @@ export default function ProductPage() {
           </p>}
           {liveDualPaused && <p role="status" className="field-hint">두 시안 실행 준비를 확인하고 있습니다. 준비가 완료되면 시작할 수 있습니다.</p>}
           {ratioBlocked && <p role="alert" className="field-error">
-            두 시안 실모델 생성은 현재 4:5만 지원합니다. 9:16 CTA 정책은 Owner/PM 결정 대기입니다.
+            {ratio==='9:16' ? '9:16의 서버 지원과 두 시안의 이미지 CTA 정책을 확인하고 있습니다. 준비 후 선택할 수 있습니다.'
+              : '선택한 비율의 서버 실행 준비를 확인하고 있습니다. 현재 지원되는 비율을 선택해 주세요.'}
           </p>}
           {!mock && !dual && <p className="field-hint" role="status">
             {currentEstimate
@@ -343,12 +356,16 @@ export default function ProductPage() {
             legend="이미지 비율"
             name="ratio"
             value={ratio}
-            options={(Object.keys(RATIOS) as Ratio[]).map((r) => ({ value: r, label: RATIOS[r].label, desc: `${RATIOS[r].desc} · ${RATIOS[r].width}×${RATIOS[r].height}` }))}
-            onChange={setRatio}
+            disabled={busy}
+            options={(Object.keys(RATIOS) as Ratio[]).map((r) => ({value:r,label:RATIOS[r].label,
+              disabled:liveDual && !supportedRatios.includes(r),
+              desc:`${RATIOS[r].desc} · ${RATIOS[r].width}×${RATIOS[r].height}${liveDual && !supportedRatios.includes(r) ? ' · 서버 준비 대기' : liveDual && r==='9:16' ? ' · 두 시안 모두 이미지 내 CTA' : ''}`}))}
+            onChange={value=>{if(!liveDual || supportedRatios.includes(value))setRatio(value)}}
           />
           {!mock && <p className="field-hint" role="status">
             선택한 최종 크기는 Server Job에 저장되어 Image Owner의 생성·합성 프로필로 전달됩니다.
-            3:4·4:5·9:16의 실제 모델 품질은 아직 검증되지 않았습니다.
+            {liveDual ? ' 서버가 지원을 확인한 비율로 두 시안을 생성하며, 광고 품질은 결과별로 검수합니다.'
+              : ' 실제 광고 품질은 결과별로 검수합니다.'}
           </p>}
         </section>
 

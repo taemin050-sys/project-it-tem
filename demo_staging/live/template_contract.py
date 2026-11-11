@@ -19,6 +19,8 @@ SIZE_PREFIX="OWNER_IMAGE_SIZE_"
 SIZE_VERSION="instagram-copy-hierarchy-v2"
 BP18_PREFIX="BP18_PROVISIONAL_SIZE_"
 BP18_VERSION=BP18_V3_LAYOUT_VERSION
+DUAL_CTA_PREFIX="BP18_DUAL_IMAGE_CTA_"
+DUAL_CTA_VERSION="bp18-dual-9x16-image-cta-v1"
 BP18_DESIGN_CONTRACT={
     "style":"BP18_EDITORIAL_WARM_PROVISIONAL",
     "version":BP18_VERSION,
@@ -134,6 +136,23 @@ def owner_size_policy(choice: str):
             "safe_zone":metadata,"layout":layout}
 
 
+def dual_image_cta_policy(cta_policy_sha):
+    """New, explicit 9:16 contract; historical Owner reels remain platform CTA."""
+    from src.image_generation.composition import CompositionTextRegion
+    from src.image_generation.contracts import BP18_DUAL_IMAGE_CTA_VERSION
+    result=owner_size_policy("9:16")
+    result["profile_id"]=DUAL_CTA_PREFIX+"9_16"
+    result["profile_version"]=DUAL_CTA_VERSION
+    result["safe_zone"]["cta_policy_sha"]=cta_policy_sha
+    result["safe_zone"]["layout_selection"]["version"]=BP18_DUAL_IMAGE_CTA_VERSION
+    result["layout"]["cta_placement"]="image"
+    result["layout"]["text_regions"]["cta"]=CompositionTextRegion(
+        left=86/1080,top=900/1920,right=610/1080,bottom=1040/1920,
+        min_font_size=30,max_font_size=48,max_lines=2,vertical_align="center",
+        align="center",padding=12,color="#FFFFFF",background="#203A54").model_dump(mode="json")
+    return result
+
+
 def normalize_layout(value):
     try:
         return _validated_layout(value)
@@ -158,6 +177,9 @@ def verify_policy(row):
         elif row["profile_id"]==LEGACY_ID:
             if zone is not None:
                 raise ValueError("legacy profile cannot carry a new size")
+        elif row["profile_id"].startswith("BP18_BETA_EDITORIAL_"):
+            from .beta_typography import verify_profile
+            verify_profile(row, zone, layout)
         elif row["profile_id"].startswith(BP18_PREFIX):
             # B candidate only. The persisted profile SHA, not the current
             # layout factory, remains historical authority after ingress.
@@ -180,6 +202,22 @@ def verify_policy(row):
                 or layout["text_regions"]["headline"]["min_font_size"]
                    <=layout["text_regions"]["subline"]["max_font_size"]):
                 raise ValueError("BP18 profile geometry or hierarchy invalid")
+        elif row["profile_id"].startswith(DUAL_CTA_PREFIX):
+            from src.image_generation.size_selection import resolve_size_choice
+            from src.image_generation.contracts import BP18_DUAL_IMAGE_CTA_VERSION
+            import re
+            selection,profile=resolve_size_choice("9:16")
+            expected={**selection.model_dump(mode="json"),"version":BP18_DUAL_IMAGE_CTA_VERSION}
+            if (row["profile_id"]!=DUAL_CTA_PREFIX+"9_16" or row["profile_version"]!=DUAL_CTA_VERSION
+                or not isinstance(zone,dict) or zone.get("size")!="9:16"
+                or type(zone.get("cta_policy_sha")) is not str
+                or not re.fullmatch(r"[0-9a-f]{64}",zone["cta_policy_sha"])
+                or zone.get("layout_selection")!=expected
+                or zone.get("native_size")!=list(profile.native)
+                or zone.get("final_size")!=list(profile.final)
+                or tuple(layout.get("canvas_size",()))!=profile.final
+                or layout.get("cta_placement")!="image" or "cta" not in layout["text_regions"]):
+                raise ValueError("Dual image CTA policy invalid")
         elif row["profile_id"].startswith(SIZE_PREFIX):
             # Snapshot-bound v2 image geometry is independent of the mutable
             # current Owner factory; only the original stored hash is authority.

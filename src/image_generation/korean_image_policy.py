@@ -72,12 +72,18 @@ def render_korean_image_policy(request: ExternalImageRequest) -> str:
         from .layout_profiles import get_layout, render_layout_instruction
         selection = request.layout_selection
         profile = get_layout(selection.aspect_ratio, selection.placement)
-        from .contracts import BP18_V3_LAYOUT_VERSION
+        from .contracts import BP18_V3_LAYOUT_VERSION,BP18_DUAL_IMAGE_CTA_VERSION
         is_bp18_v3=selection.version==BP18_V3_LAYOUT_VERSION
+        image_cta_9=selection.version==BP18_DUAL_IMAGE_CTA_VERSION
         if freeform:
             parts.append(f"최종 출력 용도: 인스타그램 {selection.placement}, "
                          f"비율 {selection.aspect_ratio}. 앱 UI와 겹치지 않게 주요 내용을 읽기 쉽게 배치한다.")
-            if is_bp18_v3:
+            if image_cta_9:
+                parts.append("BP18 9:16 이미지 CTA 승인 정책: 승인 Head/Sub/CTA 원문을 모두 "
+                    "이미지 내부에 정확히 한 번씩 그린다. 플랫폼 버튼으로 CTA를 대체하지 않는다. "
+                    "상단 269px·하단 500px UI 영역을 피해 제품·라벨·한글을 읽기 쉽게 구성한다. "
+                    "제품과 문구의 실제 정확성은 별도 사람 검수를 거친다.")
+            elif is_bp18_v3:
                 parts.append(
                     "BP18 실험용 4:5 자유형: 승인된 Head/Sub/CTA 원문을 모델이 직접 "
                     "이미지에 모두 그린다. 합성형 텍스트 박스·서체·Overlay 규칙은 "
@@ -85,6 +91,13 @@ def render_korean_image_policy(request: ExternalImageRequest) -> str:
                     "한글·라벨·브랜드 정확도는 사람 검수 전 승인하지 않는다.")
             elif "cta" not in dict(profile.text):
                 parts.append("CTA는 인스타그램 플랫폼 버튼을 사용한다. 이미지 안에 CTA를 추가하지 않는다.")
+        elif image_cta_9:
+            parts.append("BP18 9:16 합성형 이미지 CTA 승인 정책. 최종 1080×1920 기준 "
+                "상단 Head(86,288,610,550), Sub(86,580,610,830), "
+                "CTA(86,900,610,1040)를 제품·소품·강한 반사 없이 차분하게 비운다. "
+                "제품은 (641,343,803,1139) 목표 영역에 전체가 보이도록 배치한다. "
+                "모델은 광고 글자를 그리지 않는다. 서버가 승인 Head/Sub/CTA를 한 번 합성한다. "
+                "제품 형태·로고·라벨을 바꾸지 않는다.")
         elif is_bp18_v3:
             # The persisted per-Job layout SHA is the Serving authority;
             # provider prompt uses the same provisional design intent.

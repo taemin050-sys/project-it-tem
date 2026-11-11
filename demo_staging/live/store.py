@@ -19,10 +19,56 @@ from .review_policy import (enabled as policy_enabled, current as current_policy
     review_digest, sources_fingerprint, llm_required)
 from .template_contract import (A_ID,A_VERSION,LEGACY_ID,LEGACY_VERSION,SIZE_PREFIX,BP18_PREFIX,
     owner_a_policy,owner_size_policy,bp18_provisional_4x5_policy,historical_a_v1_layout,
-    normalize_layout,verify_policy,canonical)
+    normalize_layout,verify_policy,canonical,DUAL_CTA_PREFIX,dual_image_cta_policy)
 
 
 class LiveStore:
+    @classmethod
+    def open_existing(cls, filename: Path):
+        """Open an explicitly migrated runtime without startup DDL or activation.
+
+        Local derived workers share approval transactions with this store. They
+        must never create a missing database or silently activate a new policy.
+        """
+        filename=Path(filename).absolute()
+        if filename.is_symlink() or not filename.is_file():
+            raise LiveGateError("LIVE_EXISTING_DATABASE_REQUIRED")
+        instance=cls.__new__(cls)
+        instance.filename=filename
+        instance._open_existing_only=True
+        required={
+            "live_jobs":{"job_id","actor","state","mode","generation","input_json","input_sha",
+                         "copy_json","copy_sha","compliance_json","review_sha","approval_sha",
+                         "approved_generation","prompt_json","image_sha","image_approval_sha"},
+            "live_events":{"id","job_id","generation","event","status","payload_sha"},
+            "live_job_templates":{"job_id","profile_id","profile_version","safe_zone_json",
+                                  "safe_zone_sha","layout_json","layout_sha","bound_font_sha","bound_context_sha"},
+            "live_compose_manifests":{"job_id","receipt_json","envelope_json","receipt_sha","final_sha"},
+            "live_copy_previous":{"job_id","copy_json","copy_sha","origin_generation","reason_sha"},
+            "live_copy_revision_feedback":{"job_id","generation","request_context_sha","source"},
+            "live_image_attempts":{"job_id","attempt_version","attempt_id","request_key","state"},
+            "live_review_policy":{"job_id","generation","policy_sha","review_sha","activation_epoch"},
+            "live_policy_activation":{"singleton","epoch","policy_version","policy_sha"},
+            "live_queue":{"job_id","stage","context_sha","state","attempt_id"},
+            "live_dual_groups":{"parent_job_id","actor","child_job_id","approval_sha"},
+            "live_paid_dual_groups":{"parent_job_id","actor","child_job_id","authority_json","authority_sha"},
+            "live_paid_dual_intents":{"parent_job_id","actor","job_id","stage","context_sha","state"},
+            "live_paid_dual_visual_reviews":{"job_id","record_json","record_sha"},
+            "live_dual_variants":{"job_id","parent_job_id","dispatch_state","visual_review_sha"},
+        }
+        try:
+            with instance.db() as c:
+                for table,columns in required.items():
+                    kind=c.execute("SELECT type FROM sqlite_master WHERE name=?",(table,)).fetchone()
+                    actual={row["name"] for row in c.execute(f"PRAGMA table_info({table})")}
+                    if kind is None or kind["type"]!="table" or not columns <= actual:
+                        raise LiveGateError("LIVE_EXISTING_SCHEMA_REQUIRED")
+        except sqlite3.Error:
+            raise LiveGateError("LIVE_EXISTING_SCHEMA_REQUIRED") from None
+        instance._source_at_init=sources_fingerprint() if policy_enabled() else None
+        instance._policy_at_init=current_policy() if policy_enabled() else None
+        return instance
+
     def __init__(self, filename: Path):
         self.filename=Path(filename)
         self.filename.parent.mkdir(parents=True,exist_ok=True,mode=0o700)
@@ -146,7 +192,9 @@ class LiveStore:
                 c.commit()
 
     def db(self):
-        c=sqlite3.connect(str(self.filename),timeout=15)
+        target=(self.filename.as_uri()+"?mode=rw" if getattr(self,"_open_existing_only",False)
+                else str(self.filename))
+        c=sqlite3.connect(target,timeout=15,uri=getattr(self,"_open_existing_only",False))
         c.execute("PRAGMA busy_timeout=15000")
         c.row_factory=sqlite3.Row
         return c
@@ -170,9 +218,11 @@ class LiveStore:
         # No migration/overwrite of stored A v1 Jobs. Explicit new FE input
         # selects an Owner #23 size profile before the immutable Job is saved.
         new_size=snapshot.get("image_size")
-        if live_dual and (dual or template_profile!="A" or new_size!="4:5" or
-                          snapshot.get("generation_mode")!="composed"):
-            raise LiveGateError("LIVE_DUAL_REQUIRES_COMPOSED_4X5")
+        if live_dual:
+            from .dual_ratio_policy import ratio_admission
+            cta_sha=ratio_admission(new_size)
+            if dual or template_profile!="A" or snapshot.get("generation_mode")!="composed":
+                raise LiveGateError("LIVE_DUAL_REQUIRES_COMPOSED_4X5")
         if dual and (template_profile!="A" or new_size is None or
                      snapshot.get("generation_mode")!="composed"):
             raise LiveGateError("DUAL_REQUIRES_COMPOSED_SIZE")
@@ -182,6 +232,13 @@ class LiveStore:
                   else owner_a_policy()) if template_profile=="A" else None
         if (dual or live_dual) and new_size=="4:5":
             a_policy=bp18_provisional_4x5_policy()
+        if live_dual and new_size=="9:16":
+            a_policy=dual_image_cta_policy(cta_sha)
+        if live_dual:
+            import os
+            if os.environ.get("IT_TEM_BP18_BETA_TYPOGRAPHY_ENABLED")=="YES":
+                from .beta_typography import build_policy
+                a_policy=build_policy(new_size,cta_policy_sha=cta_sha)
         with self.db() as c:
             c.execute("BEGIN IMMEDIATE")
             existing=c.execute("SELECT * FROM live_jobs WHERE job_id=?",(job_id,)).fetchone()
@@ -218,7 +275,11 @@ class LiveStore:
             if template_profile=="A":
                 # Owner Image size v2 and frozen A v1 use distinct immutable
                 # marker events. Neither may be silently imported into the other.
-                self._event(c,r,("template_bp18_provisional_v3_ingress"
+                self._event(c,r,("template_bp18_beta_editorial_ingress_v1"
+                    if a_policy["profile_id"].startswith("BP18_BETA_EDITORIAL_")
+                    else "template_bp18_image_cta_ingress_v1"
+                    if a_policy["profile_id"].startswith(DUAL_CTA_PREFIX)
+                    else "template_bp18_provisional_v3_ingress"
                     if a_policy["profile_id"].startswith(BP18_PREFIX)
                     else "template_owner_size_ingress_v2" if new_size
                     else "template_a_ingress_contract_v1"),r["state"],digest({
@@ -302,17 +363,27 @@ class LiveStore:
         return report
 
     def _live_dual_authority(self,c,parent,child,execution_profile):
+        self._validate_live_dual_profile(execution_profile)
+        ratio=json.loads(parent["input_json"]).get("image_size")
+        if execution_profile["image_size"]!=ratio:
+            raise LiveGateError("LIVE_DUAL_EXECUTION_PROFILE_CHANGED")
+        expected_profile={"4:5":BP18_PREFIX+"4_5","3:4":SIZE_PREFIX+"3_4",
+                          "9:16":DUAL_CTA_PREFIX+"9_16"}.get(ratio)
         profiles=[]
         for job in (parent,child):
             template=verify_policy(c.execute("""SELECT * FROM live_job_templates WHERE job_id=?""",
                                              (job["job_id"],)).fetchone())
-            if template is None or template["profile_id"]!=BP18_PREFIX+"4_5":
+            beta=(template is not None and template["profile_id"].startswith("BP18_BETA_EDITORIAL_")
+                  and template["safe_zone"].get("size")==ratio)
+            if template is None or (template["profile_id"]!=expected_profile and not beta):
                 raise LiveGateError("LIVE_DUAL_TEMPLATE_REQUIRED")
+            if ratio=="9:16" and template["safe_zone"]["cta_policy_sha"]!=execution_profile["cta_policy_sha"]:
+                raise LiveGateError("LIVE_DUAL_CTA_POLICY_CHANGED")
             profiles.append({"layout_sha":template["layout_sha"],
                              "safe_zone_sha":template["safe_zone_sha"]})
         if profiles[0]!=profiles[1]:
             raise LiveGateError("LIVE_DUAL_TEMPLATE_CHANGED")
-        return {"protocol":"LIVE_DUAL_V1","actor":parent["actor"],
+        return {"protocol":execution_profile["protocol"],"actor":parent["actor"],
                 "acknowledge_two_images":True,"planned_image_attempts":2,
                 "parent_job_id":parent["job_id"],"child_job_id":child["job_id"],
                 "generation":parent["generation"],"copy_sha":parent["copy_sha"],
@@ -321,6 +392,27 @@ class LiveStore:
                 "child_review_sha":child["review_sha"],"f09":self._live_dual_f09_proof(parent),
                 "template":profiles[0],"execution_profile":execution_profile}
 
+    @staticmethod
+    def _validate_live_dual_profile(profile):
+        base={"protocol","release_sha","policy_sha","text_model","image_profile","image_size"}
+        if not isinstance(profile,dict):
+            raise LiveGateError("LIVE_DUAL_EXECUTION_PROFILE_REQUIRED")
+        ratio=profile.get("image_size")
+        expected_keys=base if ratio=="4:5" else base|{"cta_policy_sha"}
+        protocol="LIVE_DUAL_V1" if ratio=="4:5" else "LIVE_DUAL_V2"
+        cta=profile.get("cta_policy_sha")
+        if (ratio not in {"3:4","4:5","9:16"} or set(profile)!=expected_keys or
+            profile.get("protocol")!=protocol or
+            not isinstance(profile.get("release_sha"),str) or
+            re.fullmatch(r"[0-9a-f]{40}",profile["release_sha"]) is None or
+            not isinstance(profile.get("policy_sha"),str) or
+            re.fullmatch(r"[0-9a-f]{64}",profile["policy_sha"]) is None or
+            not isinstance(profile.get("text_model"),str) or
+            not isinstance(profile.get("image_profile"),dict) or
+            (ratio=="3:4" and cta is not None) or
+            (ratio=="9:16" and (not isinstance(cta,str) or re.fullmatch(r"[0-9a-f]{64}",cta) is None))):
+            raise LiveGateError("LIVE_DUAL_EXECUTION_PROFILE_REQUIRED")
+
     def start_live_dual(self,actor,parent_id,*,expected_generation,expected_review_sha,
                         acknowledge_evidence=False,acknowledge_two_images=False,execution_profile):
         """Commit canonical approval, derived authority, and the first queue intent together."""
@@ -328,16 +420,7 @@ class LiveStore:
             raise LiveGateError("REVISION_TYPE_INVALID")
         if acknowledge_two_images is not True:
             raise LiveGateError("LIVE_DUAL_TWO_IMAGES_ACKNOWLEDGEMENT_REQUIRED")
-        if (not isinstance(execution_profile,dict) or set(execution_profile)!={
-            "protocol","release_sha","policy_sha","text_model","image_profile","image_size"} or
-            execution_profile["protocol"]!="LIVE_DUAL_V1" or execution_profile["image_size"]!="4:5" or
-            not isinstance(execution_profile["release_sha"],str) or
-            re.fullmatch(r"[0-9a-f]{40}",execution_profile["release_sha"]) is None or
-            not isinstance(execution_profile["policy_sha"],str) or
-            re.fullmatch(r"[0-9a-f]{64}",execution_profile["policy_sha"]) is None or
-            not isinstance(execution_profile["text_model"],str) or
-            not isinstance(execution_profile["image_profile"],dict)):
-            raise LiveGateError("LIVE_DUAL_EXECUTION_PROFILE_REQUIRED")
+        self._validate_live_dual_profile(execution_profile)
         with self.db() as c:
             c.execute("BEGIN IMMEDIATE")
             parent=self._read(c,parent_id,actor)
@@ -357,7 +440,7 @@ class LiveStore:
             if group["hold_code"]:
                 raise LiveGateError("LIVE_DUAL_GROUP_HELD")
             source=json.loads(parent["input_json"])
-            if (source.get("generation_mode")!="composed" or source.get("image_size")!="4:5"
+            if (source.get("generation_mode")!="composed" or source.get("image_size")!=execution_profile["image_size"]
                     or digest(source)!=parent["input_sha"]
                     or digest(json.loads(parent["copy_json"]))!=parent["copy_sha"]):
                 raise LiveGateError("LIVE_DUAL_SOURCE_INPUT_CHANGED")
@@ -1313,7 +1396,7 @@ class LiveStore:
             snapshot=json.loads(parent["input_json"])
             expected_child={**snapshot,"generation_mode":"freeform"}
             if (parent["mode"]!="LIVE" or child["mode"]!="LIVE" or
-                snapshot.get("generation_mode")!="composed" or snapshot.get("image_size")!="4:5" or
+                snapshot.get("generation_mode")!="composed" or snapshot.get("image_size") not in {"3:4","4:5","9:16"} or
                 digest(snapshot)!=parent["input_sha"] or digest(expected_child)!=child["input_sha"] or
                 expected_child!=json.loads(child["input_json"]) or
                 digest(json.loads(parent["copy_json"]))!=parent["copy_sha"] or
@@ -1488,7 +1571,8 @@ class LiveStore:
             policy=verify_policy(profile_row)
             metadata={}
             if policy is not None and (policy["profile_id"].startswith(SIZE_PREFIX) or
-                policy["profile_id"].startswith(BP18_PREFIX)):
+                policy["profile_id"].startswith(BP18_PREFIX) or policy["profile_id"].startswith(DUAL_CTA_PREFIX)
+                or policy["profile_id"].startswith("BP18_BETA_EDITORIAL_")):
                 from src.image_generation.size_selection import resolve_size_choice
                 size=json.loads(job["input_json"]).get("image_size")
                 if size!=policy["safe_zone"]["size"]:
@@ -1499,6 +1583,12 @@ class LiveStore:
                     selection=type(selection).model_validate({
                         **selection.model_dump(mode="json"),
                         "version":BP18_V3_LAYOUT_VERSION},strict=True)
+                if policy["profile_id"].startswith(DUAL_CTA_PREFIX):
+                    from src.image_generation.contracts import BP18_DUAL_IMAGE_CTA_VERSION
+                    selection=type(selection).model_validate({
+                        **selection.model_dump(mode="json"),"version":BP18_DUAL_IMAGE_CTA_VERSION},strict=True)
+                if policy["profile_id"].startswith("BP18_BETA_EDITORIAL_"):
+                    selection=type(selection).model_validate(policy["safe_zone"]["layout_selection"],strict=True)
                 metadata["layout_selection"]=selection.model_dump(mode="json")
             elif policy is not None:
                 metadata["safe_zone"]=policy["safe_zone"]
@@ -1787,6 +1877,10 @@ class LiveStore:
                 policy=verify_policy(row)
             else:
                 layout=policy["layout"]
+                if (policy["profile_id"].startswith("BP18_BETA_EDITORIAL_")
+                    and json.loads(job["input_json"]).get("generation_mode","composed")=="composed"
+                    and font_sha!=policy["safe_zone"]["required_font_sha"]):
+                    raise LiveGateError("BETA_TYPOGRAPHY_FONT_SHA_MISMATCH")
                 if provided_layout is not None:
                     normalized=(historical_a_v1_layout(provided_layout)
                         if policy["profile_id"]==A_ID
@@ -1874,6 +1968,8 @@ class LiveStore:
             managed_marker=c.execute("""SELECT 1 FROM live_events WHERE job_id=?
                 AND event IN ('template_a_ingress_contract_v1',
                               'template_owner_size_ingress_v2',
+                              'template_bp18_beta_editorial_ingress_v1',
+                              'template_bp18_image_cta_ingress_v1',
                               'compose_contract_frozen_v1') LIMIT 1""",
                 (job_id,)).fetchone()
             if r is None:

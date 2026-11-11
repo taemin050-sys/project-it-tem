@@ -21,7 +21,7 @@ from deploy.systemd.bp18_live_launch import private_text, release_sha
 from .contracts import LiveGateError, digest
 from .dual_worker import POST_APPROVAL_STAGES, TEXT_COST_STAGES, image_cost_fingerprint
 from .pipeline import DEFAULT_LIVE_PROJECT_ID, live_dual_owner_project
-from .queue import (DUAL_BILLING_DISPOSITIONS, LIVE_DUAL_PROTOCOL, LIVE_DUAL_STAGES,
+from .queue import (DUAL_BILLING_DISPOSITIONS, LIVE_DUAL_PROTOCOL, LIVE_DUAL_PROTOCOLS, LIVE_DUAL_STAGES,
                     LiveQueue, incident_identity)
 
 
@@ -201,7 +201,7 @@ def inspect_incident(root, task_id):
     _, live = _paths(root)
     with _db(live / "queue.sqlite") as db:
         row = db.execute("SELECT * FROM queued_ops WHERE id=?", (task_id,)).fetchone()
-        if (not row or row["mode"] != LIVE_DUAL_PROTOCOL or row["state"] != "BILLING_UNKNOWN"
+        if (not row or row["mode"] not in LIVE_DUAL_PROTOCOLS or row["state"] != "BILLING_UNKNOWN"
                 or row["stage"] not in LIVE_DUAL_STAGES
                 or not _hex(row["job_id"], 32) or not _hex(row["context_sha"], 64)):
             raise LiveGateError("LIVE_DUAL_INCIDENT_NOT_HELD")

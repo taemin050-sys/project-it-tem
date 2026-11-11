@@ -15,6 +15,8 @@ from .contracts import LiveGateError, digest
 
 
 LIVE_DUAL_PROTOCOL = "LIVE_DUAL_V1"
+LIVE_DUAL_V2_PROTOCOL = "LIVE_DUAL_V2"
+LIVE_DUAL_PROTOCOLS = frozenset({LIVE_DUAL_PROTOCOL,LIVE_DUAL_V2_PROTOCOL})
 LIVE_DUAL_STAGES = frozenset({"analysis", "copy_revision", "copy_review", "image_prompt", "image"})
 INCIDENT_FIELDS = ("id", "actor", "job_id", "stage", "context_sha", "mode",
                    "state", "started_at", "ended_at", "error_code")
@@ -64,8 +66,8 @@ class LiveQueue:
                 review_payload=None):
         if (stage not in {"analysis","research","copy","image_prompt","image",
                           "copy_revision","copy_review"} or
-                mode not in {"LIVE","OFFLINE_FIXTURE",LIVE_DUAL_PROTOCOL} or
-                (mode == LIVE_DUAL_PROTOCOL and stage not in LIVE_DUAL_STAGES) or
+                mode not in {"LIVE","OFFLINE_FIXTURE",*LIVE_DUAL_PROTOCOLS} or
+                (mode in LIVE_DUAL_PROTOCOLS and stage not in LIVE_DUAL_STAGES) or
                 type(context_sha) is not str or len(context_sha)!=64 or
                 any(ch not in "0123456789abcdef" for ch in context_sha)):
             raise LiveGateError("QUEUE_INVALID_REQUEST")
@@ -158,7 +160,14 @@ class LiveQueue:
         except (ValueError,TypeError):
             raise LiveGateError("REVISION_PAYLOAD_CORRUPTED") from None
 
-    def claim(self,worker_mode="LIVE",*,include_dual=False):
+    def claim(self,worker_mode="LIVE",*,include_dual=False,dual_protocols=(LIVE_DUAL_PROTOCOL,)):
+        # V2 requires a new Worker capability. A legacy caller opting into V1
+        # cannot accidentally claim a newer protocol.
+        if (type(dual_protocols) not in (tuple,list) or
+                any(value not in LIVE_DUAL_PROTOCOLS for value in dual_protocols)):
+            raise LiveGateError("QUEUE_WORKER_PROTOCOL_INVALID")
+        modes=(worker_mode,*(dual_protocols if include_dual else ()))
+        placeholders=",".join("?" for _ in modes)
         with self.db() as db:
             db.execute("BEGIN IMMEDIATE")
             in_progress=db.execute("""SELECT 1 FROM queued_ops
@@ -169,12 +178,12 @@ class LiveQueue:
             # the original parent and child even after unrelated work resumes.
             if self._dual_unknown(db):
                 return None
-            item=db.execute("""SELECT q.* FROM queued_ops q
-                WHERE q.state='QUEUED' AND (q.mode=? OR (? AND q.mode=?))
+            item=db.execute(f"""SELECT q.* FROM queued_ops q
+                WHERE q.state='QUEUED' AND q.mode IN ({placeholders})
                 AND NOT EXISTS (SELECT 1 FROM dual_billing_resolutions r
                     WHERE r.parent_job_id=q.job_id OR r.child_job_id=q.job_id)
                 ORDER BY q.created_at,q.id LIMIT 1""",
-                (worker_mode,include_dual,LIVE_DUAL_PROTOCOL)).fetchone()
+                modes).fetchone()
             if not item:
                 return None
             db.execute("""UPDATE queued_ops SET state='RUNNING',
@@ -220,7 +229,7 @@ class LiveQueue:
             return (record["version"]==1 and digest(record)==row["record_sha"]
                     and record["acknowledge_no_replay"] is True
                     and record["task"]==incident_identity(item)
-                    and item["mode"]==LIVE_DUAL_PROTOCOL and item["state"]=="BILLING_UNKNOWN"
+                    and item["mode"] in LIVE_DUAL_PROTOCOLS and item["state"]=="BILLING_UNKNOWN"
                     and record["disposition"] in DUAL_BILLING_DISPOSITIONS
                     and group["parent_job_id"]==row["parent_job_id"]
                     and group["child_job_id"]==row["child_job_id"]
@@ -231,12 +240,12 @@ class LiveQueue:
     @classmethod
     def _dual_unknown(cls,db):
         if db.execute("""SELECT 1 FROM dual_billing_resolutions r LEFT JOIN queued_ops q
-            ON q.id=r.task_id WHERE q.id IS NULL OR q.mode!=? OR q.state!='BILLING_UNKNOWN'
-            LIMIT 1""",(LIVE_DUAL_PROTOCOL,)).fetchone():
+            ON q.id=r.task_id WHERE q.id IS NULL OR q.mode NOT IN (?,?) OR q.state!='BILLING_UNKNOWN'
+            LIMIT 1""",(LIVE_DUAL_PROTOCOL,LIVE_DUAL_V2_PROTOCOL)).fetchone():
             return True
         rows=db.execute("""SELECT q.*,r.record_json,r.record_sha,r.parent_job_id,r.child_job_id
             FROM queued_ops q LEFT JOIN dual_billing_resolutions r ON q.id=r.task_id
-            WHERE q.mode=? AND q.state='BILLING_UNKNOWN'""",(LIVE_DUAL_PROTOCOL,))
+            WHERE q.mode IN (?,?) AND q.state='BILLING_UNKNOWN'""",(LIVE_DUAL_PROTOCOL,LIVE_DUAL_V2_PROTOCOL))
         return any(not cls._valid_resolution(row,row) for row in rows)
 
     def record_dual_billing_resolution(self, record):
@@ -272,15 +281,15 @@ class LiveQueue:
     def running_dual(self):
         with self.db() as db:
             return [dict(row) for row in db.execute("""SELECT * FROM queued_ops
-                WHERE mode=? AND state='RUNNING'""", (LIVE_DUAL_PROTOCOL,))]
+                WHERE mode IN (?,?) AND state='RUNNING'""", (LIVE_DUAL_PROTOCOL,LIVE_DUAL_V2_PROTOCOL))]
 
     def fail_dual(self,task_id,error_code):
         """Terminal failure with dispatch and billing certainty; never a retry."""
         with self.db() as db:
             db.execute("BEGIN IMMEDIATE")
             changed=db.execute("""UPDATE queued_ops SET state='FAILED',error_code=?,
-                ended_at=CURRENT_TIMESTAMP WHERE id=? AND mode=? AND state='RUNNING'""",
-                (error_code,task_id,LIVE_DUAL_PROTOCOL)).rowcount
+                ended_at=CURRENT_TIMESTAMP WHERE id=? AND mode IN (?,?) AND state='RUNNING'""",
+                (error_code,task_id,LIVE_DUAL_PROTOCOL,LIVE_DUAL_V2_PROTOCOL)).rowcount
             if changed != 1:
                 raise LiveGateError("QUEUE_ATTEMPT_NOT_RUNNING")
 

@@ -14,6 +14,7 @@ import { download } from '../lib/download'
 import { useObjectUrls } from '../lib/useObjectUrls'
 import { useProjectStore } from '../store/projectStore'
 import AssetThumb from './AssetThumb'
+import DerivedArtifactPanel from './DerivedArtifactPanel'
 import StepPage from './StepPage'
 
 type Stage = 'draft' | 'export'
@@ -106,7 +107,8 @@ function VariantCard({group, mode, stage, variant, canMutate, approvedCopy}: {
   }
 
   const stem = `ad_${mode}_${target.width}x${target.height}`
-  return <article className="panel dual-variant stack" data-testid={`dual-variant-${mode}`} aria-labelledby={`dual-title-${mode}`}>
+  return <article className="panel dual-variant stack" id={`dual-variant-${mode}`} tabIndex={-1}
+    data-testid={`dual-variant-${mode}`} aria-labelledby={`dual-title-${mode}`}>
     <header>
       <h2 className="panel-title" id={`dual-title-${mode}`}>{title}</h2>
       <p className="muted" data-testid={`dual-state-${mode}`}>{variant ? VARIANT_STATUS[variant.state] ?? '시안 준비 중' : '시안 준비 대기'}</p>
@@ -128,7 +130,9 @@ function VariantCard({group, mode, stage, variant, canMutate, approvedCopy}: {
         </figcaption>
       </figure> : <ArtifactStatus artifact={image} name="이미지" />}
     </>}
-    {reviewing && <>
+    {reviewing && <details className="dual-review">
+      <summary>이 원본 시안 검수하기</summary>
+      <div className="stack dual-review-body">
       {live ? <fieldset className="stack">
         <legend>원본과 후보의 시각 검수</legend>
         {([
@@ -161,7 +165,8 @@ function VariantCard({group, mode, stage, variant, canMutate, approvedCopy}: {
         <button className="button secondary" type="button" disabled={!canMutate || !candidateReady || pending} onClick={() => decide(false)}>이 시안 거절</button>
         <button className="button" type="button" disabled={!canMutate || !candidateReady || pending || !(live?liveReviewReady:checked)} onClick={() => decide(true)}>이 시안 승인</button>
       </div>
-    </>}
+      </div>
+    </details>}
     {composing && variant.candidate_sha && <button className="button secondary" type="button" disabled={!canMutate || pending}
       onClick={() => void change(() => decideDualVariant(group, mode, variant.candidate_sha!, true))}>
       승인된 이미지로 파일 준비 다시 시도
@@ -209,6 +214,8 @@ function VariantCard({group, mode, stage, variant, canMutate, approvedCopy}: {
         </dl>
       </details>
     </>}
+    {live && variant?.variant_job_id && <DerivedArtifactPanel
+      jobId={variant.variant_job_id} approvedCopy={approvedCopy} target={target} canMutate={canMutate} />}
     {variant && <CostDetails cost={variant.cost} live={live} />}
     {pending && <p className="muted" role="status">시안 상태 저장 중…</p>}
     {error && <p className="field-error" role="alert">{error}</p>}
@@ -300,17 +307,22 @@ export default function DualModePage({snapshot, stage}: {snapshot: LiveSnapshot;
           <p>실행 결과 또는 과금 상태를 확인하고 있습니다. 기존에 완료된 시안은 계속 저장할 수 있습니다.</p>
           <small>{group.hold_code}</small>
         </div>}
-        {live && group.shared_text_cost && <section className="panel">
-          <h2 className="panel-title">공통 텍스트 사용량</h2>
+        <nav className="dual-jump" aria-label="광고 시안으로 이동">
+          <a className="button secondary small" href="#dual-variant-composed">합성형 시안 보기</a>
+          <a className="button secondary small" href="#dual-variant-freeform">자유형 시안 보기</a>
+        </nav>
+        {live && group.shared_text_cost && <details className="panel dual-common-cost">
+          <summary>공통 AI 사용량 확인</summary>
           <p className="field-hint">두 이미지 시안의 사용량과 별도로 한 번만 집계됩니다.</p>
           <CostDetails cost={group.shared_text_cost} live />
-        </section>}
+        </details>}
         {canResume && <button className="button secondary" type="button" disabled={resuming} onClick={() => void resume()}>
           {resuming ? '시안 준비 중…' : '승인된 카피로 시안 준비 이어가기'}
         </button>}
         {resumeError && <p className="field-error" role="alert">{resumeError}</p>}
-        {stage === 'draft' && <section className="panel stack">
-          <h2 className="panel-title">두 시안의 공통 검토 기준</h2>
+        {stage === 'draft' && <details className="panel dual-common-review">
+          <summary>승인 카피·제품 원본 확인</summary>
+          <div className="stack dual-review-body">
           {copy && <dl className="dual-copy">
             <dt>헤드라인</dt><dd>{copy.headline}</dd>
             <dt>서브 문구</dt><dd>{copy.subline}</dd>
@@ -321,7 +333,8 @@ export default function DualModePage({snapshot, stage}: {snapshot: LiveSnapshot;
           </ul>}
           {originals.isError && <button className="button secondary small" type="button" onClick={() => void originals.refetch()}>원본 사진 다시 확인</button>}
           <p className="field-hint">{live ? '원본 사진과 승인 카피를 두 시안에 각각 대조하세요. 확인하기 어려운 라벨이나 글자는 승인 전에 보완해야 합니다.' : '시험 이미지의 용기와 라벨은 예시입니다. 한글 가독성, 제품 충실도, 광고 매력도, 브랜드 적합성, CTA를 같은 기준으로 살펴보세요.'}</p>
-        </section>}
+          </div>
+        </details>}
         <div className="dual-grid">
           {MODES.map(mode => {
             const variant = group.variants[mode]

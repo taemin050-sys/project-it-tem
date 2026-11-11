@@ -1,5 +1,5 @@
 import { request } from './client'
-import { dualPath, type DualArtifactKind, type DualProvenance } from './dualArtifacts'
+import { checkedDualSnapshotRatio, dualPath, type DualArtifactKind, type DualProvenance } from './dualArtifacts'
 import { copyApprovalPayload } from './liveJobs'
 import type { LiveSnapshot, LiveState } from './liveMapping'
 import type { Ratio } from '../config'
@@ -63,11 +63,11 @@ export const dualQueryKey = (jobId: string, provenance: DualProvenance = 'OFFLIN
 function mutate(jobId: string, provenance: DualProvenance, action: string, body: unknown) {
   return request<DualSnapshot>(dualPath(jobId, provenance) + action, {
     method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body),
-  })
+  }).then(checkedDualSnapshotRatio)
 }
 
 export const getDualJob = (jobId: string, provenance: DualProvenance = 'OFFLINE_FIXTURE') =>
-  request<DualSnapshot>(dualPath(jobId, provenance))
+  request<DualSnapshot>(dualPath(jobId, provenance)).then(checkedDualSnapshotRatio)
 export function startDualJob(snapshot: LiveSnapshot, acknowledgeEvidence: boolean, acknowledgeTwoImages = false) {
   const provenance = snapshotDualProvenance(snapshot)
   return mutate(snapshot.job_id, provenance, '/start', {

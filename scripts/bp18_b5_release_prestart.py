@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import importlib.util
 import json
 import fcntl
 import os
@@ -392,6 +393,39 @@ def _port_busy(port: int) -> bool:
         return False
 
 
+def required_derived_contract(root: Path, target: str) -> dict | None:
+    """Load the reviewed sibling tool, never Python from a candidate release."""
+    try:
+        if __package__:
+            from .bp18_b5_derived_contract import required_derived_contract as check
+        else:
+            candidate = Path(__file__).with_name("bp18_b5_derived_contract.py")
+            if not candidate.exists() and not candidate.is_symlink():
+                # Historical controls have no derived tool. That is safe only
+                # before any derived schema or protected contract exists.
+                if (root / "config/bp18_required_derived_contract.json").exists():
+                    raise ReleaseUnsafe("DERIVED_TRUSTED_CONTROL_REQUIRED")
+                database = root / "runtime/live/live.sqlite"
+                if database.exists():
+                    with sqlite3.connect(database.resolve().as_uri()+"?mode=ro", uri=True) as c:
+                        c.execute("PRAGMA query_only=ON")
+                        if c.execute("SELECT 1 FROM sqlite_master WHERE name LIKE 'live_derived_%' LIMIT 1").fetchone():
+                            raise ReleaseUnsafe("DERIVED_TRUSTED_CONTROL_REQUIRED")
+                return None
+            path = _regular(candidate, trusted=True)
+            spec = importlib.util.spec_from_file_location("bp18_trusted_derived_guard", path)
+            module = importlib.util.module_from_spec(spec)
+            exec(compile(path.read_bytes(), str(path), "exec"), module.__dict__)
+            check = module.required_derived_contract
+        return check(root, target)
+    except RuntimeError as error:
+        if hasattr(error, "code"):
+            raise ReleaseUnsafe(error.code) from None
+        raise ReleaseUnsafe("DERIVED_TRUSTED_CONTROL_REQUIRED") from None
+    except (OSError, ImportError, sqlite3.Error):
+        raise ReleaseUnsafe("DERIVED_TRUSTED_CONTROL_REQUIRED") from None
+
+
 def validate(root: Path, *, mode: str, port: int = 18100,
              target_override: str | None = None) -> dict:
     root = Path(root)
@@ -428,6 +462,7 @@ def validate(root: Path, *, mode: str, port: int = 18100,
     required_auth=_required_sso_auth_contract(root,target,mode=mode,port=port)
     review_contract=required_review_contract(root,target)
     dual_contract=required_dual_contract(root,target)
+    derived_contract=required_derived_contract(root,target)
     if _worker_lock_busy(root):
         raise ReleaseUnsafe("ACTIVE_PROVIDER_WORKER_BLOCKS_RELEASE")
     if _queue_running(root):
@@ -440,6 +475,7 @@ def validate(root: Path, *, mode: str, port: int = 18100,
             "required_auth": required_auth,
             "required_review": review_contract["required_mode"] if review_contract else None,
             "required_dual": dual_contract["required_mode"] if dual_contract else None,
+            "required_derived": derived_contract["required_mode"] if derived_contract else None,
             "worker_lock": "FREE", "queue_running": 0}
 
 

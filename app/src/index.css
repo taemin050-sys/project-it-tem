@@ -477,3 +477,32 @@ mark.risk-warning { background: var(--warning-bg); box-shadow: inset 0 -2px 0 va
 .ad-headline { font-size: 72px; font-weight: 800; line-height: 1.25; }
 .ad-subline { font-size: 38px; font-weight: 500; line-height: 1.4; white-space: pre-line; }
 .ad-cta { padding: 14px 32px; border-radius: 999px; background: #fff; color: #1f2328; font-size: 32px; font-weight: 700; }
+
+/* 원본 제품 보호 파생본은 기존 두 모드 안에서 별도로 검수한다. */
+.derived-panel { min-width: 0; border-top: 1px solid var(--border); padding-top: 20px; }
+.derived-panel h3, .derived-render h4 { margin: 0; font-size: 16px; line-height: 1.45; }
+.derived-render { min-width: 0; border: 1px solid var(--border); border-radius: var(--radius); padding: 14px; }
+.derived-render + .derived-render { margin-top: 16px; }
+.derived-prepare { margin-top: 14px; }
+.derived-proposal { padding: 12px; border-radius: var(--radius); background: var(--bg); }
+.derived-proposal + .derived-proposal { margin-top: 10px; }
+.derived-proposal p { margin-block: 6px; }
+.derived-provenance dd { margin: 0 0 8px; overflow-wrap: anywhere; }
+.derived-render .button-row .button { white-space: normal; }
+.derived-render fieldset { min-width: 0; }
+.derived-render textarea { width: 100%; }
+
+.derived-config select, .derived-config input[type="file"] { width: 100%; max-width: 100%; }
+.derived-geometry { font-family: var(--font-mono, monospace); font-size: 13px; line-height: 1.6; }
+
+.dual-jump { display: flex; flex-wrap: wrap; gap: 8px; }
+.dual-variant { scroll-margin-top: 20px; }
+.dual-review-body { margin-top: 16px; }
+.dual-common-cost[open] > summary { margin-bottom: 12px; }
+
+/* Separate, visibly labeled loopback fixture entry; normal app does not mount it. */
+.derived-qa-page { max-width: 1320px; margin-inline: auto; padding: clamp(16px, 3vw, 32px); }
+.derived-qa-page .card { min-width: 0; padding: clamp(12px, 2vw, 24px); border: 1px solid var(--border); border-radius: var(--radius); }
+.derived-qa-page h1 { font-size: clamp(24px, 4vw, 36px); }
+.derived-qa-page h2 { font-size: 20px; overflow-wrap: anywhere; }
+.derived-qa-page dd { margin-inline-start: 0; }

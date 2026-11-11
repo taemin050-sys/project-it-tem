@@ -14,12 +14,14 @@ import stat
 from .contracts import LiveGateError, digest
 from .image_runtime_profile import effective_image_profile
 from .pipeline import live_dual_owner_project
-from .queue import LIVE_DUAL_PROTOCOL
+from .queue import LIVE_DUAL_PROTOCOL,LIVE_DUAL_V2_PROTOCOL
+from .dual_ratio_policy import ratio_admission,MULTI_RATIO_FLAG
 from demo_staging.live_safety import LiveNotAuthorized
 
 
 LIVE_DUAL_FLAG = "IT_TEM_BP18_LIVE_DUAL_ENABLED"
 LOCK_NAME = "dual_worker.lock"
+LOCK_V2_NAME = "dual_worker_v2.lock"
 HOLD = "LIVE_STAGE_HELD_FOR_RECONCILIATION"
 COMMITTED = "LIVE_STAGE_COMMITTED"
 FAILED = "LIVE_DUAL_STAGE_FAILED"
@@ -29,7 +31,7 @@ TEXT_COST_STAGES = {"analysis": ("vision", "research", "copy", "copy_review"),
                     "copy_review": ("copy_review",)}
 
 
-def live_dual_profile() -> dict:
+def live_dual_profile(image_size="4:5") -> dict:
     release = os.environ.get("IT_TEM_BP18_LIVE_RELEASE_SHA", "")
     policy = os.environ.get("IT_TEM_BP18_LIVE_POLICY_SHA", "")
     text_model = os.environ.get("IT_TEM_TEXT_MODEL", "gpt-6-luna")
@@ -41,8 +43,12 @@ def live_dual_profile() -> dict:
             not re.fullmatch(r"[0-9a-f]{64}", policy) or
             not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,99}", text_model)):
         raise LiveNotAuthorized("LIVE_DUAL_PROTOCOL_NOT_APPROVED")
-    return {"protocol": LIVE_DUAL_PROTOCOL, "release_sha": release, "policy_sha": policy,
-            "text_model": text_model, "image_profile": effective_image_profile(), "image_size": "4:5"}
+    cta_policy_sha=ratio_admission(image_size)
+    result={"protocol": LIVE_DUAL_PROTOCOL, "release_sha": release, "policy_sha": policy,
+            "text_model": text_model, "image_profile": effective_image_profile(), "image_size": image_size}
+    if image_size!="4:5":
+        result.update(protocol=LIVE_DUAL_V2_PROTOCOL,cta_policy_sha=cta_policy_sha)
+    return result
 
 
 def _check_lock(fd):
@@ -72,14 +78,31 @@ def live_dual_lease(runtime_root: Path):
         lease.write(digest(profile).encode("ascii"))
         lease.flush()
         os.fsync(lease.fileno())
-        yield profile
+        if os.environ.get(MULTI_RATIO_FLAG)=="YES":
+            # Distinct held capability: a V1 lock can never prove V2 support.
+            v2=live_dual_profile("3:4")
+            v2fd=os.open(runtime_root/"live"/LOCK_V2_NAME,
+                        os.O_RDWR|os.O_CREAT|os.O_NONBLOCK|os.O_NOFOLLOW,0o600)
+            with os.fdopen(v2fd,"r+b") as capability:
+                _check_lock(capability.fileno())
+                try:
+                    fcntl.flock(capability.fileno(),fcntl.LOCK_EX|fcntl.LOCK_NB)
+                except BlockingIOError:
+                    raise LiveNotAuthorized("LIVE_DUAL_WORKER_ALREADY_RUNNING") from None
+                capability.seek(0);capability.truncate()
+                capability.write(digest(v2).encode("ascii"));capability.flush();os.fsync(capability.fileno())
+                yield profile
+        else:
+            yield profile
 
 
-def live_dual_worker_ready(runtime_root: Path) -> bool:
+def live_dual_worker_ready(runtime_root: Path,image_size="4:5") -> bool:
     """Check the Worker handshake using no credentials and no write."""
     try:
-        profile = live_dual_profile()
-        fd = os.open(runtime_root / "live" / LOCK_NAME, os.O_RDONLY | os.O_NONBLOCK | os.O_NOFOLLOW)
+        live_dual_profile(image_size)  # Includes current explicit 9:16 decision.
+        profile=live_dual_profile("3:4" if image_size!="4:5" else "4:5")
+        filename=LOCK_V2_NAME if image_size!="4:5" else LOCK_NAME
+        fd = os.open(runtime_root / "live" / filename, os.O_RDONLY | os.O_NONBLOCK | os.O_NOFOLLOW)
         with os.fdopen(fd, "rb") as lease:
             _check_lock(lease.fileno())
             try:
@@ -95,9 +118,10 @@ def project_intents(flow, queue):
     # Durable state precedes queue. A process loss between enqueue and attach
     # reuses the existing row by actor, job, stage and exact context on restart.
     for intent in flow.state.live_dual_intents():
+        group=flow.state.live_dual_group(intent["actor"],intent["parent_job_id"])
         task, _ = queue.enqueue(actor=intent["actor"], job_id=intent["job_id"],
                                 stage=intent["stage"], context_sha=intent["context_sha"],
-                                mode=LIVE_DUAL_PROTOCOL)
+                                mode=group["execution_profile"]["protocol"])
         flow.state.attach_live_dual_task(intent, task["id"])
 
 
@@ -109,10 +133,13 @@ def authorize_shared_text(flow, item):
     if (item["stage"] not in TEXT_COST_STAGES or not group or
             group["child_job_id"] is not None or group["hold_code"]):
         raise LiveGateError("LIVE_DUAL_SHARED_TEXT_NOT_AUTHORIZED")
+    ratio=json.loads(flow.state.get(actor,job_id)["input_json"])["image_size"]
+    if item["mode"]!=live_dual_profile(ratio)["protocol"]:
+        raise LiveGateError("LIVE_DUAL_PROTOCOL_REQUIRED")
 
 
 def image_cost_fingerprint(context_sha, wire_mode, profile):
-    return {"dual_protocol": LIVE_DUAL_PROTOCOL, "context_sha": context_sha,
+    return {"dual_protocol": profile["protocol"], "context_sha": context_sha,
             "mode": wire_mode, "image_size": profile["image_size"],
             "image_profile": profile["image_profile"]}
 
@@ -121,7 +148,7 @@ def execute_live_dual(flow, queue, item, profile, image_adapter):
     try:
         actor, job_id = item["actor"], item["job_id"]
         flow.require_live_actor(actor)
-        if live_dual_profile() != profile:
+        if live_dual_profile(profile["image_size"]) != profile or item["mode"]!=profile["protocol"]:
             raise LiveGateError("LIVE_DUAL_EXECUTION_PROFILE_CHANGED")
         group = flow.state.live_dual_task(item, profile)
         parent = group["parent_job_id"]

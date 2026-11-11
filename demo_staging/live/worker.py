@@ -14,7 +14,7 @@ from uuid import uuid5
 import fcntl
 
 from .pipeline import LivePipeline
-from .queue import LIVE_DUAL_PROTOCOL, LiveQueue
+from .queue import LIVE_DUAL_PROTOCOL,LIVE_DUAL_V2_PROTOCOL,LIVE_DUAL_PROTOCOLS, LiveQueue
 from . import dual_worker
 from .contracts import LiveGateError,digest
 from demo_staging.live_safety import LiveNotAuthorized
@@ -120,17 +120,25 @@ def _run_locked(root:Path,flow:LivePipeline,queue:LiveQueue,*,dual_profile=None)
             dual_worker.project_intents(flow,queue)
         except (LiveGateError,OSError,sqlite3.Error):
             return "LIVE_DUAL_QUEUE_PROJECTION_PENDING"
-    item=queue.claim("LIVE",include_dual=dual_profile is not None)
+    supported=(LIVE_DUAL_PROTOCOL,LIVE_DUAL_V2_PROTOCOL) if (
+        os.environ.get(dual_worker.MULTI_RATIO_FLAG)=="YES") else (LIVE_DUAL_PROTOCOL,)
+    item=queue.claim("LIVE",include_dual=dual_profile is not None,dual_protocols=supported)
     if not item:return "NO_LIVE_TASK"
     actor,jid=item["actor"],item["job_id"]
-    is_dual=item["mode"]==LIVE_DUAL_PROTOCOL
+    is_dual=item["mode"] in LIVE_DUAL_PROTOCOLS
+    if is_dual and item["mode"]==LIVE_DUAL_V2_PROTOCOL:
+        try:
+            ratio=json.loads(flow.state.get(actor,jid)["input_json"])["image_size"]
+            dual_profile=dual_worker.live_dual_profile(ratio)
+        except (LiveGateError,LiveNotAuthorized,ValueError,KeyError) as error:
+            return dual_worker.fail_live_dual(flow,queue,item,error)
     if is_dual and item["stage"] in dual_worker.POST_APPROVAL_STAGES:
         return dual_worker.execute_live_dual(flow,queue,item,dual_profile,live_image_adapter)
     try:
         if actor not in flow.approved_actors:
             raise LiveGateError("LIVE_QUEUE_ACTOR_NOT_AUTHORIZED")
         if is_dual:
-            if dual_worker.live_dual_profile()!=dual_profile:
+            if dual_worker.live_dual_profile(dual_profile["image_size"])!=dual_profile:
                 raise LiveGateError("LIVE_DUAL_EXECUTION_PROFILE_CHANGED")
             dual_worker.authorize_shared_text(flow,item)
         elif flow.state.live_dual_membership(actor,jid):

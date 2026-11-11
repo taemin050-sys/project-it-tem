@@ -33,6 +33,12 @@ POLICY_KEYS = frozenset({
 })
 DUAL_FLAG = "IT_TEM_BP18_LIVE_DUAL_ENABLED"
 OPTIONAL_POLICY_KEYS = frozenset({DUAL_FLAG})
+BETA_KEYS = frozenset({
+    "IT_TEM_DERIVED_ENABLED", "IT_TEM_DERIVED_AUTHORITY_FILE", "IT_TEM_DERIVED_ROOT",
+    "IT_TEM_DERIVED_FONT", "IT_TEM_DERIVED_FONT_LICENSE", "IT_TEM_DERIVED_SOURCE_TREE_SHA",
+    "IT_TEM_BP18_LIVE_DUAL_MULTI_RATIO_ENABLED", "IT_TEM_BP18_9_16_CTA_POLICY",
+    "IT_TEM_BP18_BETA_TYPOGRAPHY_ENABLED",
+})
 RELEASE_POLICY_DIRECTORY = "bp18_live_policies"
 LIVE_FLAGS = (
     "IT_TEM_LIVE_ENABLED", "IT_TEM_LIVE_EXECUTION_APPROVED",
@@ -135,9 +141,43 @@ def read_policy(root: Path, sha: str) -> dict[str, str] | None:
     return policy
 
 
+def read_beta_policy(root: Path, sha: str) -> dict[str, str] | None:
+    """An optional per-release, nonsecret beta policy; historical boots stay off."""
+    path = root / "config/bp18_beta_policies" / f"{sha}.env"
+    if not path.exists():
+        return None
+    values = {}
+    for line in private_text(path).splitlines():
+        if not line or line.startswith("#"):
+            continue
+        name, separator, value = line.partition("=")
+        if (not separator or name not in BETA_KEYS or name in values or not value
+                or not re.fullmatch(r"[A-Za-z0-9_./:-]+", value)):
+            raise LaunchDenied("BETA_POLICY_INVALID")
+        values[name] = value
+    if set(values) != BETA_KEYS:
+        raise LaunchDenied("BETA_POLICY_INCOMPLETE")
+    if any(values[key] not in ("YES", "NO") for key in
+           ("IT_TEM_DERIVED_ENABLED", "IT_TEM_BP18_LIVE_DUAL_MULTI_RATIO_ENABLED", "IT_TEM_BP18_BETA_TYPOGRAPHY_ENABLED")):
+        raise LaunchDenied("BETA_POLICY_FLAG_INVALID")
+    if not re.fullmatch(r"[0-9a-f]{40}", values["IT_TEM_DERIVED_SOURCE_TREE_SHA"]):
+        raise LaunchDenied("BETA_POLICY_TREE_INVALID")
+    for key in BETA_KEYS - {"IT_TEM_DERIVED_ENABLED", "IT_TEM_BP18_LIVE_DUAL_MULTI_RATIO_ENABLED", "IT_TEM_BP18_BETA_TYPOGRAPHY_ENABLED", "IT_TEM_DERIVED_SOURCE_TREE_SHA"}:
+        if not Path(values[key]).is_absolute() or ".." in Path(values[key]).parts:
+            raise LaunchDenied("BETA_POLICY_PATH_INVALID")
+    return values
+
+
+def validate_beta_source(root: Path, sha: str, beta: dict[str, str]) -> None:
+    from scripts.bp18_b5_derived_contract import required_derived_contract
+    evidence = required_derived_contract(root, sha, activating=True)
+    if beta["IT_TEM_DERIVED_SOURCE_TREE_SHA"] != evidence["release_inventories"][sha]["tree_sha"]:
+        raise LaunchDenied("BETA_POLICY_TREE_MISMATCH")
+
+
 def configure(root: Path, *, worker: bool) -> str | None:
     for name in list(os.environ):
-        if name.startswith("OPENAI_") or name in POLICY_KEYS | OPTIONAL_POLICY_KEYS:
+        if name.startswith("OPENAI_") or name in POLICY_KEYS | OPTIONAL_POLICY_KEYS | BETA_KEYS:
             os.environ.pop(name)
     os.environ.update({name: "NO" for name in LIVE_FLAGS})
     os.environ.update({
@@ -153,6 +193,7 @@ def configure(root: Path, *, worker: bool) -> str | None:
         "IT_TEM_BP18_REVIEW_POLICY_ID": "bp18-f11-compliance-policy-v1",
     })
     sha = release_sha(root)
+    beta = read_beta_policy(root, sha)
     from scripts.bp18_b5_release_prestart import required_review_contract
     required_review = required_review_contract(root, sha)
     policy = read_policy(root, sha)
@@ -172,11 +213,15 @@ def configure(root: Path, *, worker: bool) -> str | None:
             or os.environ.get("IT_TEM_TAILNET_EXPECTED_HOST") != HOST):
         raise LaunchDenied("SIGNED_B_SSO_REQUIRED")
     os.environ.update(policy)
+    if beta:
+        validate_beta_source(root, sha, beta)
+        os.environ.update(beta)
     from demo_staging.live.image_runtime_profile import effective_image_profile
     profile = effective_image_profile()
     if profile["complexity"] != (policy["IT_TEM_IMAGE_COMPLEXITY"] or None):
         raise LaunchDenied("LIVE_POLICY_EXPLICIT_COMPLEXITY_REQUIRED")
-    fingerprint = hashlib.sha256(json.dumps(policy, sort_keys=True).encode()).hexdigest()
+    fingerprint = hashlib.sha256(json.dumps({"live": policy, "beta": beta} if beta else policy,
+                                           sort_keys=True).encode()).hexdigest()
     os.environ.update({name: "YES" for name in LIVE_FLAGS})
     os.environ.update({
         "IT_TEM_BP18_LIVE_POLICY_SHA": fingerprint,

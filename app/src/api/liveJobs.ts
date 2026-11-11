@@ -7,6 +7,8 @@ import type {GenerationMode} from '../store/projectStore'
 import { asProductJob,guardCopyApproval,guardCopyReviewMutation,guardImageApproval,
   type LiveSnapshot,type LiveTask,type LivePerformance } from './liveMapping'
 import { getJob } from './jobs'
+import { checkedLiveCapabilities, requireLiveDualRatio } from './liveCapabilities'
+export type { LiveCapabilities } from './liveCapabilities'
 
 const prefix='/demo/api/live'
 const url=(id:string)=>prefix+'/jobs/'+encodeURIComponent(id)
@@ -38,8 +40,7 @@ export function getTextCostEstimate(photoCount:number,revisionTarget?:'copy'|'im
   if(revisionTarget)q.set('revision_target',revisionTarget)
   return request<TextCostEstimate>(prefix+'/text-cost-estimate?'+q.toString())
 }
-export type LiveCapabilities = {live_enabled: boolean; live_dual_enabled?: boolean; live_dual_configured?: boolean; reason?: string; source_sha?: string}
-export const getLiveCapabilities = () => request<LiveCapabilities>(prefix+'/capabilities')
+export const getLiveCapabilities = async () => checkedLiveCapabilities(await request<unknown>(prefix+'/capabilities'))
 
 const json=(v:unknown)=>({method:'POST',headers:{'Content-Type':'application/json'},
   body:JSON.stringify(v)})
@@ -49,7 +50,10 @@ export async function getProductLiveJob(id:string):Promise<Job>{
   return asProductJob(snapshot,original)
 }
 // Owner #26: bind selected ratio at Live input, never submit it again on image queue.
-export function createLiveInput(b0:Job,product:ProductInput,imageSize:Ratio, generationMode:GenerationMode='composed',dual: DualProvenance | false=false){
+export async function createLiveInput(b0:Job,product:ProductInput,imageSize:Ratio, generationMode:GenerationMode='composed',dual: DualProvenance | false=false){
+  // Recheck the server at the API boundary; form state alone cannot authorize
+  // a restored/stale ratio or a stopped Worker to start a new paid workflow.
+  if(dual==='LIVE_DUAL')requireLiveDualRatio(await getLiveCapabilities(),imageSize)
   const input=(dual ? dualPath(b0.job_id,dual) : url(b0.job_id))+'/input'
   return request<LiveSnapshot>(input,
     json({customer_request_id:'product-live-'+b0.job_id,product,image_size:imageSize, generation_mode:dual?'composed':generationMode}))
