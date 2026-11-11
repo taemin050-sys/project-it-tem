@@ -1,6 +1,6 @@
 # IT-TEM P03 / A5-1F — 실제 Owner/PM 베타 계약·승인 요청서
 
-**용도:** 실제 승인자에게 전달할 의사결정 요청. **작성만 완료, 실제 발송/승인/서명 아님.**
+**용도:** 실제 승인자에게 전달할 의사결정 요청. **비공개 팀 GitHub Issue #38에 결정 요청 요약을 게시했으나, 원문 파일을 첨부·외부 공유하지 않았으며 실제 수신·승인·서명은 확인되지 않음.**
 **기준점:** C-A51E 독립 수용 HEAD `60dca54e16a5614318806532d122053ca8246d95`, Tree `b27f7c8889bc352e303f32ef419ce040a44931ac`. 기존 6개 모드·비율·1시안 정책 재승인 불필요.
 
 ## 1. 단일 회신으로 필요한 세 가지 결정 (초안, 권한 없음)
@@ -42,7 +42,20 @@
 
 ## 3. 현재 기술 상태
 
-- 기존 C-A51E 독립 통합 수용은 유지합니다. 신규 A5-1F source-rights verifier는 **미감사 추가 구현**이며 기존 Accepted 범위의 무단 승격이 아닙니다.
+- C-A51E의 로컬 통합 수용을 유지합니다. **C-A51F-R1은 2026-11-11 독립 재감사에서 P1-01 SKU·Policy Epoch·Profile Decision SHA 결속 기술 수정 PASS로 종결**됐습니다. 이는 실제 Owner/PM 서명이나 실제품 라이선스·유료 Worker·배포 승인이 아닙니다.
 - 무료·비과금 개발은 계속 GO. 실제 GCP 및 유료 호출 **HOLD**.
 - 현재 Signed A51B Profile v3는 Composed 4:5 한정, 4개 제품 승인 Boolean false이고, 같은 코드가 실제 LIVE 실행을 차단합니다. 6개 생성 방식·비율의 **전체 유료 Runtime 활성화 계약은 미완성**입니다. C-A/Owner/PM의 versioned 계약 없이 단순 flag 조작으로 해제하지 않습니다.
 - 실모델 독립 6 Job: **0/6**. 실제 팀 UAT: 미수행. `FULL_FEATURE_BETA_DELIVERY_HOLD` / `COMMERCIAL_RELEASE_READY=NO`.
+
+
+## 4. 2026-11-11 실제 팀 채널 전달 증거 (승인과 구분)
+
+- **채널:** 팀의 비공개 GitHub 저장소 taemin050-sys/project-it-tem, Issue #38.
+- **결정 요청 URL:** https://github.com/taemin050-sys/project-it-tem/issues/38
+- **게시 시점:** 2026-11-11 01:56:32 UTC (10:56:32 KST).
+- **배정 확인:** Image Owner PR #24 uyt5041-lab, FE Owner PR #26 hyeoksang1015, PM taemin050-sys — 실제 PR 작성자 및 저장소 Collaborator 확인 후 GitHub Issue에 담당자로 지정함.
+- **최종 조회:** Issue OPEN, 댓글 0건. GitHub Issue의 게시와 담당자 지정은 **읽음·회신·정식 서명·배포 승인 증거가 아닙니다.**
+- **보안:** 원본 제품·라이선스·실제 Owner/PM Private Key·API Secret·사용자 파일을 Issue에 첨부하지 않음. Track A 실행 소스/공식 Owner PR/Track B/GCP A는 이 소통 작업에서 변경하지 않음.
+- **승인 상태:** OWNER_PM_ISSUE_POSTED_NOT_CONFIRMED_READ / MPO_POLICY_PENDING / RIGHTS_PROFILE_APPROVAL_PENDING / GCP_DEPLOYMENT_APPROVAL_PENDING / PM_PAID_PROVIDER_APPROVAL_PENDING. 실제 결정·승인 증거 확인 시 별도 서명 정본과 SHA로 갱신해야 하며, 이 요청서 자체는 계약 승인 원장이 아닙니다.
+
+**현재 검증 기준:** C-A51FR1 독립 수용 HEAD 3bfa643e8ae44638a6b69a1e4a8910857f355728, Tree 93dbbc9cba3066100be90ba7d6827682453d94da.
