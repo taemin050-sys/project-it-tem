@@ -134,7 +134,7 @@ export default function ProductPage() {
             variant="product"
             title="제품 사진 업로드"
             limits={PRODUCT_PHOTOS}
-            hint={`정면 누끼 컷, 45도 앵글, 제형 스와치 컷처럼 같은 제품을 여러 각도에서 찍은 사진 ${PRODUCT_PHOTOS.minFiles}~${PRODUCT_PHOTOS.maxFiles}장을 업로드해 주세요.`}
+            hint={`정면 누끼 컷, 45도 앵글, 제형 스와치 컷처럼 같은 제품을 여러 각도에서 찍은 사진 ${PRODUCT_PHOTOS.minFiles}~${PRODUCT_PHOTOS.maxFiles}장을 업로드해 주세요.${import.meta.env.VITE_A51E_SIGNED_BETA_CANDIDATE === 'YES' ? ' 이번 베타에서 MPO 형식은 업로드할 수 없습니다. 휴대폰 갤러리에서 원하는 사진을 일반 JPG 또는 PNG 파일로 저장한 뒤 다시 업로드해 주세요.' : ''}`}
             files={images}
             error={errors.images}
             onChange={(files) => { setImages(files); setError('images') }}
