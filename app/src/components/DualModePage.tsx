@@ -288,10 +288,13 @@ export default function DualModePage({snapshot, stage}: {snapshot: LiveSnapshot;
     staleTime: Infinity, retry: false,
   })
   const group = groupQuery.data?.job_id === jobId && groupQuery.data.provenance === provenance ? groupQuery.data : undefined
-  const complete = group?.state === 'COMPLETED'
   const completedRevisions = revisionCompletion.jobId === jobId && live
     ? {composed: revisionCompletion.composed, freeform: revisionCompletion.freeform}
     : {composed: false, freeform: false}
+  // Customer completion can use an independently approved revision. This does
+  // not mutate or relabel the original dual group's partial/rejected state.
+  const complete = group?.state === 'COMPLETED' || Boolean(group &&
+    (completedRevisions.composed || completedRevisions.freeform))
   const canExport = group && (MODES.some(mode => group.variants[mode]?.state === 'COMPLETED') ||
     completedRevisions.composed || completedRevisions.freeform)
   const products = originals.data?.assets?.filter(asset => asset.role === 'product') ?? []

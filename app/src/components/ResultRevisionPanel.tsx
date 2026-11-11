@@ -163,13 +163,14 @@ function RevisionWorkspace({snapshot, kind, base, canMutate, refresh}: {
 
 function TextAreaSelector({src, region, setRegion}: {src: string; region: TextRegion; setRegion: (region: TextRegion) => void}) {
   const start = useRef<[number, number] | null>(null)
-  return <div style={{position: 'relative', touchAction: 'none'}}
+  return <div style={{position: 'relative', touchAction: 'none', width:'100%', maxWidth:560, marginInline:'auto'}}
     onPointerDown={e => {const b = e.currentTarget.getBoundingClientRect(); start.current = [(e.clientX-b.left)/b.width, (e.clientY-b.top)/b.height]; e.currentTarget.setPointerCapture(e.pointerId)}}
     onPointerMove={e => {if (!start.current) return; const b=e.currentTarget.getBoundingClientRect();
       const x=Math.max(0,Math.min(1,(e.clientX-b.left)/b.width)), y=Math.max(0,Math.min(1,(e.clientY-b.top)/b.height));
       setRegion([Math.min(start.current[0],x),Math.min(start.current[1],y),Math.max(start.current[0],x),Math.max(start.current[1],y)])}}
     onPointerUp={() => {start.current=null}} onPointerCancel={() => {start.current=null}}>
-    <img className="result-image" src={src} alt="오타 수정 영역을 선택할 원본 · 승인 광고가 아닙니다" draggable={false} />
+    <img className="result-image" src={src} alt="오타 수정 영역을 선택할 원본 · 승인 광고가 아닙니다" draggable={false}
+      style={{display:'block', width:'100%', maxWidth:'none', height:'auto', aspectRatio:'auto'}} />
     <div aria-hidden="true" style={{position:'absolute',pointerEvents:'none',border:'2px solid #d63838',background:'#e8383826',
       left:`${region[0]*100}%`,top:`${region[1]*100}%`,width:`${(region[2]-region[0])*100}%`,height:`${(region[3]-region[1])*100}%`}} />
   </div>
