@@ -874,4 +874,5 @@ def register_live_api(app:FastAPI, ledger, runtime_root:Path, cookie_name:str):
             raise HTTPException(status_code=503,detail="Artifact integrity error")
         return FileResponse(target,media_type=media[kind],filename=target.name,
                             headers={"Cache-Control":"private,no-store",
-                                     "X-IT-TEM-Artifact-SHA256":expected})
+                                     "X-IT-TEM-Artifact-SHA256":expected,
+                                     "X-IT-TEM-Job-ID":job_id})

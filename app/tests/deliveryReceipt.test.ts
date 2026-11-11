@@ -13,6 +13,11 @@ const genuine=()=>({
 
 test('completed genuine Job receipt binds the exact model response and bytes',()=>{
   assert.doesNotThrow(()=>assertLiveReceiptBinding(genuine(),jid,image))
+  // Existing Image Owner receipt has no job_id; HTTP signed Actor route and
+  // X-IT-TEM-Job-ID bind the unmodified receipt bytes to this Job.
+  const {job_id: omitted, ...ownerNative}=genuine()
+  assert.equal(omitted,jid)
+  assert.doesNotThrow(()=>assertLiveReceiptBinding(ownerNative,jid,image))
   assert.throws(()=>assertLiveReceiptBinding(genuine(),'c'.repeat(32),image),
                 /LIVE_RECEIPT_JOB_PROVIDER_BINDING_INVALID/)
   assert.throws(()=>assertLiveReceiptBinding(genuine(),jid,'d'.repeat(64)),

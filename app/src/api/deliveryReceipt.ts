@@ -11,7 +11,9 @@ export function assertLiveReceiptBinding(
   if (!ev || typeof ev !== 'object' || Array.isArray(ev))
     throw Error('LIVE_RECEIPT_PROVIDER_EVIDENCE_MISSING')
   const proof=ev as Record<string, unknown>
-  if (receipt.job_id !== jobId ||
+  // The Owner composition receipt does not contain a Job ID. The authenticated
+  // artifact endpoint binds it via X-IT-TEM-Job-ID, checked before this call.
+  if ((receipt.job_id !== undefined && receipt.job_id !== jobId) ||
       proof.image_sha256 !== imageSha ||
       typeof proof.owner_attempt_id !== 'string' || !proof.owner_attempt_id ||
       typeof proof.provider_request_id !== 'string' || !proof.provider_request_id ||

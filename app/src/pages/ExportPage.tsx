@@ -108,6 +108,8 @@ export default function ExportPage() {
       // against the server SHA and binds the genuine model to this Job.
       const response=await send('/demo/api/live/jobs/' +
         encodeURIComponent(job.job_id)+'/artifacts/receipt')
+      if (response.headers.get('X-IT-TEM-Job-ID') !== job.job_id)
+        throw Error('LIVE_RECEIPT_HTTP_JOB_BINDING_INVALID')
       const expectedSha=response.headers.get('X-IT-TEM-Artifact-SHA256') ?? ''
       const blob=await assertBlobSha(await response.blob(),expectedSha)
       assertLiveReceiptBinding(JSON.parse(await blob.text()),job.job_id,live.data.image_sha)
@@ -147,6 +149,8 @@ export default function ExportPage() {
           원본 사진과 법률 표시사항을 사람이 확인한 뒤 게시해 주세요.</p>
       </div>}
       <RunStatus />
+      {job?.status === 'COMPLETED' && !artifactReady &&
+        <p className="field-hint" role="status">최종 PNG·Caption 파일의 무결성과 이미지 크기를 확인하고 있습니다.</p>}
 
       {composeFailed && (
         <div className="notice notice-warning" role="status">

@@ -78,13 +78,13 @@ export default function DemoGate() {
       <span><strong>{TRACK_LABEL} · {SIGNED_NONBILLABLE_CANDIDATE
         ? 'Signed SSO 비과금 후보 · 실모델 기술 게이트 미충족'
         : QA_OFFLINE_FIXTURE ? 'IT-TEM QA OFFLINE_FIXTURE · 실제 AI 아님'
-        : 'IT-TEM 제품 검증 · 실모델 Worker 비활성'}</strong>
+        : 'IT-TEM 내부 발표 · Owner AI 광고 제작'}</strong>
         {' · '}{SIGNED_NONBILLABLE_CANDIDATE
           ? 'MPO 업로드 거절 정책 적용 · Worker 비활성 · 합성 시험 데이터 전용'
           : QA_OFFLINE_FIXTURE
             ? '시험 데이터 / 유료 호출 없음'
-            : '승인된 팀원용 입력 검증 · 실제 AI 호출 비활성 · MONITOR_ONLY'}{' · '}
-        <small>Build {import.meta.env.VITE_IT_TEM_CODE_SHA?.slice(0,8) || 'UNPINNED'}</small></span>
+            : '제품 입력 · 기획·카피 · AI 이미지 생성 · 검수 · 다운로드'}{' · '}
+        <small>Build {import.meta.env.VITE_IT_TEM_CODE_SHA?.slice(0,8) || 'DEMO BETA'}</small></span>
       <span>{identity.evaluator_id} · {identity.auth_provider==='TAILSCALE_SERVE'
         ? <span aria-label="Tailscale 신원 확인 완료">Tailscale 인증됨</span>
         : <button type="button" onClick={() => void logout()}>로그아웃</button>}</span>
