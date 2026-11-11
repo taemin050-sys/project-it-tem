@@ -1,9 +1,9 @@
 import { useQuery } from '@tanstack/react-query'
 import { useId, useMemo, useRef, useState } from 'react'
 import {
-  belongsToDerivedContext, configureDerivedProposal, decideDerivedRender, derivedArtifactPath, derivedFinalizeReady,
+  belongsToDerivedContext, canRevokeDerivedAdmission, configureDerivedProposal, decideDerivedRender, derivedArtifactPath, derivedFinalizeReady,
   derivedModeLabel, derivedProposalReady, derivedQueryKey, derivedReviewReady,
-  finalizeDerivedRender, getDerivedJob, parseDerivedGeometry, prepareDerivedRender, selectDerivedRender, uploadDerivedMask,
+  finalizeDerivedRender, getDerivedJob, parseDerivedGeometry, prepareDerivedRender, revokeDerivedAdmission, selectDerivedRender, uploadDerivedMask,
   type DerivedArtifactKind, type DerivedRender, type DerivedSnapshot, type DerivedVisualReview,
 } from '../api/derivedJobs'
 import { getBlob } from '../api/jobs'
@@ -17,7 +17,7 @@ const STATUS: Record<DerivedRender['state'], string> = {
   QUEUED: '원본 제품 보호 시안 준비 대기', RENDERING: '원본 제품 보호 시안 준비 중',
   REVIEW_REQUIRED: '원본 제품 보호 시안 검수 필요', APPROVED: '시안 승인됨 · 파일 발급 가능',
   COMPLETED: '원본 제품 보호 시안 완료', REJECTED: '시안 거절됨', HOLD: '시각 품질·승인 확인 보류',
-  FAILED: '시안을 준비하지 못했습니다', STALE: '변경된 원본·카피로 다시 검수해야 합니다',
+  FAILED: '시안을 준비하지 못했습니다', STALE: '이 보호 시안은 현재 사용할 수 없습니다',
 }
 const CHECKS = [
   ['source_pixels_preserved', '원본 사진의 제품·용기·브랜드·라벨이 보존됐는지 확대해 대조했습니다.'],
@@ -66,7 +66,7 @@ function RenderReview({snapshot, render, approvedCopy, target, canMutate}: {
   const [pending, setPending] = useState(false)
   const [error, setError] = useState('')
   const inFlight = useRef(false)
-  const current = belongsToDerivedContext(snapshot, render)
+  const current = belongsToDerivedContext(snapshot, render) && render.state !== 'STALE'
   const complete = render.state === 'COMPLETED' && current
   const imageKind = complete ? 'final' : 'preview'
   const image = useDerivedArtifact(render, imageKind, current && Boolean(complete ? render.final_sha : render.preview_sha))
@@ -157,11 +157,11 @@ function RenderReview({snapshot, render, approvedCopy, target, canMutate}: {
     </button>}
     {complete && <>
       <div className="button-row">
-        <button className="button" type="button" disabled={!image.url || !sizeReady}
+        <button className="button" type="button" disabled={pending || !image.url || !sizeReady}
           onClick={() => download(image.url!, `ad_${render.render_mode}_${target.width}x${target.height}.png`)}>보호 시안 PNG 저장</button>
-        <button className="button secondary" type="button" disabled={!caption.url}
+        <button className="button secondary" type="button" disabled={pending || !caption.url}
           onClick={() => download(caption.url!, 'caption_protected_product.txt')}>본문 TXT 저장</button>
-        <button className="button secondary" type="button" disabled={!receipt.url}
+        <button className="button secondary" type="button" disabled={pending || !receipt.url}
           onClick={() => download(receipt.url!, 'receipt_protected_product.json')}>Receipt 저장</button>
       </div>
       {(caption.query.isError || receipt.query.isError) && <div role="alert">
@@ -191,6 +191,17 @@ function RenderReview({snapshot, render, approvedCopy, target, canMutate}: {
         <dt>Receipt SHA-256</dt><dd>{render.receipt_sha ?? '발급 대기'}</dd>
       </dl>
     </details>
+    {canMutate && canRevokeDerivedAdmission(snapshot, render) && <details className="derived-access">
+      <summary>보호 시안 사용 권한 관리</summary>
+      <div className="stack derived-prepare">
+        <p>이 시안의 Recipe 수용 권한을 철회합니다. 같은 수용 기록을 공유하는 보호 시안들도 서버에서 조회·저장할 수 없게 되며 선택이 해제됩니다.</p>
+        <p className="field-hint">원본 합성형·자유형 결과와 Provider 기록은 유지됩니다. 이미 기기에 저장한 파일은 삭제되지 않습니다.</p>
+        <button className="button secondary" type="button" disabled={pending}
+          onClick={() => void change(() => revokeDerivedAdmission(snapshot, render))}>
+          {pending ? '보호 시안 사용 중지 중…' : '이 보호 시안 사용 중지'}
+        </button>
+      </div>
+    </details>}
     {pending && <p className="muted" role="status">보호 시안 상태 저장 중…</p>}
     {error && <p className="field-error" role="alert">{error}</p>}
   </section>

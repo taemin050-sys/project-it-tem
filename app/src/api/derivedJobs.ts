@@ -6,9 +6,13 @@ import {
   type DerivedRender, type DerivedSnapshot, type DerivedVisualReview,
 } from './derivedContract'
 import type { AdCopy } from '../types/textSchema'
+import { sendDerivedAdmissionRevocation } from './derivedRevocation'
 
 export * from './derivedContract'
 const SHA = /^[a-f0-9]{64}$/
+
+export const revokeDerivedAdmission = (snapshot: DerivedSnapshot, render: DerivedRender) =>
+  sendDerivedAdmissionRevocation(snapshot, render, (path, options) => request<DerivedRender>(path, options))
 
 async function mutate<T>(jobId: string, action: string, body: unknown): Promise<T> {
   return request<T>(derivedPath(jobId) + action, {

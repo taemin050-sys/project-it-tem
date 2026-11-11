@@ -1,10 +1,11 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import {
-  belongsToDerivedContext, checkedDerivedSnapshot, derivedArtifactPath, derivedFinalizeReady,
+  belongsToDerivedContext, canRevokeDerivedAdmission, checkedDerivedSnapshot, derivedArtifactPath, derivedFinalizeReady,
   derivedModeLabel, derivedPath, derivedProposalReady, derivedReviewReady,
   parseDerivedGeometry, type DerivedRender, type DerivedSnapshot, type DerivedVisualReview,
 } from '../src/api/derivedContract.ts'
+import { sendDerivedAdmissionRevocation } from '../src/api/derivedRevocation.ts'
 
 const sha = (letter: string) => letter.repeat(64)
 const copy = {headline: '매일의 샴푸 시간', subline: '차분하게 씻어내는', cta: '일상을 만나보세요'}
@@ -126,4 +127,49 @@ test('a future derived proposal cannot silently acquire a known mode label', () 
   const current = snapshot()
   assert.throws(() => checkedDerivedSnapshot({...current,
     proposals: [{...current.proposals[0], render_mode: 'future' as DerivedRender['render_mode']}]}, 'job/a'))
+})
+
+test('derived admission revocation sends one exact current render/context/admission CAS request', async () => {
+  const current = snapshot()
+  const candidate = {...render(), state: 'COMPLETED' as const}
+  const sent: {path: string; options: {method: string; body: string}}[] = []
+  const result = await sendDerivedAdmissionRevocation(current, candidate, async (path, options) => {
+    sent.push({path, options})
+    return {...candidate, state: 'STALE'}
+  })
+  assert.equal(result.state, 'STALE')
+  assert.equal(sent.length, 1)
+  assert.equal(sent[0].path, '/demo/api/live/jobs/job%2Fa/derived/renders/derived-a/revoke-admission')
+  assert.equal(sent[0].options.method, 'POST')
+  assert.deepEqual(JSON.parse(sent[0].options.body), {expected_revision: 3,
+    expected_context_sha: sha('b'), expected_admission_sha: sha('c')})
+})
+
+test('revocation requires can_admit and rejects STALE, crossed or malformed current context', () => {
+  const current = snapshot()
+  const candidate = render()
+  assert.equal(canRevokeDerivedAdmission(current, candidate), true)
+  for (const [source, value] of [
+    [{...current, can_admit: false}, candidate], [{...current, available: false}, candidate],
+    [current, {...candidate, state: 'STALE'}], [current, {...candidate, job_id: 'other'}],
+    [current, {...candidate, context_sha: sha('e')}], [current, {...candidate, admission_sha: 'bad'}],
+    [current, {...candidate, revision: 2.5}],
+  ] as [DerivedSnapshot, DerivedRender][]) {
+    let calls = 0
+    assert.throws(() => sendDerivedAdmissionRevocation(source, value, async () => {calls++; return value}))
+    assert.equal(calls, 0)
+  }
+  // A safety stop remains possible during an unrelated quality/billing HOLD.
+  assert.equal(canRevokeDerivedAdmission({...current, hold_code: 'BILLING_UNKNOWN'}, candidate), true)
+})
+
+test('lost response or conflict never retries a revocation automatically', async () => {
+  for (const message of ['network response lost', '409 stale admission']) {
+    let calls = 0
+    await assert.rejects(sendDerivedAdmissionRevocation(snapshot(), render(), async () => {
+      calls++
+      throw Error(message)
+    }), {message})
+    assert.equal(calls, 1)
+  }
 })

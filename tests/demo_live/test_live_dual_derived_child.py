@@ -57,7 +57,9 @@ def test_signed_freeform_child_derives_from_parent_original_without_child_jobsto
     raw_states={job:flow.state.get(ACTOR,job) for job in (parent,child)}
     raw_outputs=bytes_under(flow.root/"outputs")
     costs=attempts(flow)
-    assert migrate_derived_schema(flow.state.filename)["changed"]
+    migration=migrate_derived_schema(flow.state.filename)
+    assert migration["changed"] and set(migration["added_tables"])=={
+        "live_derived_recipe_admissions","live_derived_renders","live_derived_reviews"}
 
     with TestClient(app,base_url=f"https://{host}") as client:
         base=f"/demo/api/live/jobs/{child}/derived"

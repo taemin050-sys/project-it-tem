@@ -121,6 +121,10 @@ export function derivedFinalizeReady(snapshot: DerivedSnapshot, render: DerivedR
       render.preview_sha && SHA.test(render.preview_sha))
 }
 
+export function canRevokeDerivedAdmission(snapshot: DerivedSnapshot, render: DerivedRender) {
+  return belongsToDerivedContext(snapshot, render) && snapshot.can_admit && render.state !== 'STALE'
+}
+
 export function derivedProposalReady(snapshot: DerivedSnapshot, proposal: DerivedProposal) {
   return snapshot.available && snapshot.can_admit && !snapshot.hold_code && !proposal.hold_code &&
     SHA.test(snapshot.context_sha) && Number.isSafeInteger(snapshot.revision) && snapshot.revision >= 0 &&
