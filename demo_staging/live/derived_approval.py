@@ -89,6 +89,11 @@ class DerivedAuthority:
 def current_derived_context(state, connection, owner_actor, job_id):
     """Validate the current real approval chain under the caller's DB lock."""
     job = state._read(connection, job_id, owner_actor)
+    # Copy approval remains valid after an image rejection for explicit retry.
+    # It cannot authorize derivatives of the rejected image, including grants
+    # and artifacts created before the rejection.
+    if job["state"] == "IMAGE_REJECTED":
+        raise LiveGateError("DERIVED_SOURCE_IMAGE_REJECTED")
     state._approved(job, connection, allow_completed=True)
     if not job["image_sha"] or not job["prompt_json"]:
         raise LiveGateError("DERIVED_RAW_CANDIDATE_REQUIRED")

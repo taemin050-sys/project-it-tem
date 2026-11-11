@@ -202,6 +202,13 @@ def register_live_api(app:FastAPI, ledger, runtime_root:Path, cookie_name:str):
             raise HTTPException(status_code=503 if blocker == "LIVE_WORKER_UNAVAILABLE" else 423,
                                 detail=blocker)
 
+    # Independent revision namespaces preserve the original Dual candidates,
+    # approvals and costs. HTTP can enqueue but never invokes either Provider.
+    from .image_correction_api import install_image_correction_routes
+    from .composed_copy_edit_api import install_composed_copy_edit_routes
+    install_image_correction_routes(app, flow, authorized, require_queue)
+    install_composed_copy_edit_routes(app, flow, authorized, require_queue)
+
     # Historical results remain readable under the same signed parent ACL even
     # when execution is paused or its Worker is stopped.
     signed_dual_boundary=(signed_b and os.environ.get("IT_TEM_TAILNET_AUTH_ENABLED")=="YES"

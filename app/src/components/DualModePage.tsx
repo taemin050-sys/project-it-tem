@@ -15,6 +15,8 @@ import { useObjectUrls } from '../lib/useObjectUrls'
 import { useProjectStore } from '../store/projectStore'
 import AssetThumb from './AssetThumb'
 import DerivedArtifactPanel from './DerivedArtifactPanel'
+import ResultRevisionPanel from './ResultRevisionPanel'
+import { derivedQueryKey } from '../api/derivedJobs'
 import StepPage from './StepPage'
 
 type Stage = 'draft' | 'export'
@@ -93,6 +95,7 @@ function VariantCard({group, mode, stage, variant, canMutate, approvedCopy}: {
       setError(cause instanceof Error ? cause.message : '시안 상태를 저장하지 못했습니다.')
     } finally {
       await queryClient.invalidateQueries({queryKey: dualQueryKey(group.job_id,group.provenance)})
+      if (variant?.variant_job_id) await queryClient.invalidateQueries({queryKey: derivedQueryKey(variant.variant_job_id)})
       inFlight.current = false
       setPending(false)
     }
@@ -220,8 +223,11 @@ function VariantCard({group, mode, stage, variant, canMutate, approvedCopy}: {
         </dl>
       </details>
     </>}
-    {live && variant?.variant_job_id && <DerivedArtifactPanel
-      jobId={variant.variant_job_id} approvedCopy={approvedCopy} target={target} canMutate={canMutate} />}
+    {live && variant?.variant_job_id && <ResultRevisionPanel key={`${variant.variant_job_id}:${variant.candidate_sha}`}
+      jobId={variant.variant_job_id} mode={mode} canMutate={canMutate} />}
+    {live && variant?.variant_job_id && (variant.state === 'IMAGE_REJECTED'
+      ? <p role="status">원본 시안이 거절되어 이 원본을 사용한 제품 보호 합성본도 승인·저장할 수 없습니다. 오타 수정은 별도의 수정본으로 요청하세요.</p>
+      : <DerivedArtifactPanel jobId={variant.variant_job_id} approvedCopy={approvedCopy} target={target} canMutate={canMutate} />)}
     {variant && <CostDetails cost={variant.cost} live={live} />}
     {pending && <p className="muted" role="status">시안 상태 저장 중…</p>}
     {error && <p className="field-error" role="alert">{error}</p>}

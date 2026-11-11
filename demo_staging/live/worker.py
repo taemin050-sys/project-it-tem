@@ -115,6 +115,10 @@ def _reconcile_locked(flow:LivePipeline,queue:LiveQueue)->bool:
 def _run_locked(root:Path,flow:LivePipeline,queue:LiveQueue,*,dual_profile=None)->str:
     if queue.dual_billing_unknown():
         return dual_worker.HOLD
+    from .result_revision_worker import run_result_revision_once
+    revision = run_result_revision_once(flow)
+    if revision != "NO_RESULT_REVISION_TASK":
+        return revision
     if dual_profile is not None:
         try:
             dual_worker.project_intents(flow,queue)
