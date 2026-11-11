@@ -1,0 +1,14 @@
+{
+  "contract": "A51I_R1_TAILNET_10444_SWITCH_TO_NEW_GCP_CANDIDATE_V1",
+  "mac_gateway_listener": "127.0.0.1:19103",
+  "mac_tunnel_listener": "127.0.0.1:19102",
+  "new_gcp_backend_port": 18564,
+  "new_tunnel_pid": 95258,
+  "old_tunnel_pid": 91368,
+  "paid_worker_activated": false,
+  "previous_gcp_backend_port": 18563,
+  "real_signed_session_http": 200,
+  "rollback_action": "rebind only Mac 19102 tunnel to old GCP 18563; no GCP process swap",
+  "signed_identity_provider": "TAILSCALE_SERVE",
+  "tailnet": "https://macstudio-macstudio.tail17dfff.ts.net:10444"
+}

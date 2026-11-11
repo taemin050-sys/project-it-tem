@@ -1,0 +1,12 @@
+{
+  "200_idempotent": 9,
+  "201_new": 1,
+  "actual_tailnet_sso": true,
+  "billable_provider_calls": 0,
+  "contract": "A51I_R1_ACTUAL_SIGNED_TAILNET_10_REQUEST_SQLITE_CAS_V1",
+  "executed_source": "46a8de353ceae557dd8585481c2028fa9451e17c",
+  "job_status_get": 200,
+  "synthetic_assets_only": true,
+  "total_requests": 10,
+  "unique_jobs": 1
+}
