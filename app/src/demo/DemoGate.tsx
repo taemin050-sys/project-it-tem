@@ -76,11 +76,11 @@ export default function DemoGate() {
   return <>
     <aside style={{padding:'9px 14px',background:'#202b3b',color:'white',display:'flex',justifyContent:'space-between',alignItems:'center',flexWrap:'wrap',gap:10}}>
       <span><strong>{TRACK_LABEL} · {SIGNED_NONBILLABLE_CANDIDATE
-        ? 'Signed SSO 비과금 후보 · 실모델 승인 대기'
+        ? 'Signed SSO 비과금 후보 · 실모델 기술 게이트 미충족'
         : QA_OFFLINE_FIXTURE ? 'IT-TEM QA OFFLINE_FIXTURE · 실제 AI 아님'
         : 'IT-TEM 제품 검증 · 실모델 Worker 비활성'}</strong>
         {' · '}{SIGNED_NONBILLABLE_CANDIDATE
-          ? 'MPO Owner 정책 미확정 · Worker 비활성 · 시험 데이터 전용'
+          ? 'MPO 업로드 거절 정책 적용 · Worker 비활성 · 합성 시험 데이터 전용'
           : QA_OFFLINE_FIXTURE
             ? '시험 데이터 / 유료 호출 없음'
             : '승인된 팀원용 입력 검증 · 실제 AI 호출 비활성 · MONITOR_ONLY'}{' · '}
@@ -91,7 +91,7 @@ export default function DemoGate() {
     </aside>
     <nav style={{padding:'10px 18px',display:'flex',gap:18}}>
       <Link to="/">정식 IT-TEM 시작</Link>
-      <Link to="/create" onClick={continueOrStartNew}>{QA_OFFLINE_FIXTURE ? 'QA 시험 광고 생성' : '실제 AI 광고 생성'}</Link>
+      <Link to="/create" onClick={continueOrStartNew}>{QA_OFFLINE_FIXTURE ? 'QA 시험 광고 생성' : SIGNED_NONBILLABLE_CANDIDATE ? '비과금 광고 입력 검증' : '실제 AI 광고 생성'}</Link>
       {!QA_OFFLINE_FIXTURE && <Link to="/team/evaluations">팀 공동 품질 평가</Link>}
       {identity.role==='admin' && <Link to="/internal/live-diagnostics">내부 진단</Link>}
     </nav>

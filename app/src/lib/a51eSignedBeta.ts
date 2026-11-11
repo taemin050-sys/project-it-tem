@@ -1,7 +1,7 @@
 /** A51E SSO-only NONBILLABLE integration candidate.
 
-Owner/PM MPO policy is PENDING, thus reject multi-frame on the UI and on
-the actual server. This feature flag does not authorize real photos,
+PM confirmed REJECT_MULTIFRAME_V1 in Issue #38 on 2026-11-11. The
+existing pre-resize MPO rejection remains the chosen Beta policy. This feature flag does not authorize real photos,
 paid workers, GCP deployment or commercial release.
 */
 import { hasEmbeddedMpoSignature, isMpoFile } from './mpo.ts'
