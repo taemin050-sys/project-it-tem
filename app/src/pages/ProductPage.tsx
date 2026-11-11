@@ -205,7 +205,7 @@ export default function ProductPage() {
           id="photos"
           title="제품 사진"
           limits={PRODUCT_PHOTOS}
-          hint={`같은 제품을 정면·후면·측면 등 여러 각도에서 찍은 사진 ${PRODUCT_PHOTOS.minFiles}~${PRODUCT_PHOTOS.maxFiles}장. JPG·PNG·WEBP, 큰 사진은 자동으로 줄여서 올립니다.`}
+          hint={`같은 제품을 정면·후면·측면 등 여러 각도에서 찍은 사진 ${PRODUCT_PHOTOS.minFiles}~${PRODUCT_PHOTOS.maxFiles}장. JPG·PNG·WEBP·MPO를 지원합니다. 일반 사진은 자동으로 줄이고, MPO는 서버에서 첫 사진과 촬영 방향을 확인해 변환합니다.`}
           files={images}
           error={errors.images}
           onChange={(files) => { setImages(files); setError('images') }}
@@ -215,7 +215,7 @@ export default function ProductPage() {
           id="references"
           title="배경 참고 사진"
           limits={REFERENCE_PHOTOS}
-          hint={`원하는 배경·구도가 담긴 사진 최대 ${REFERENCE_PHOTOS.maxFiles}장. 없으면 비워 두세요.`}
+          hint={`원하는 배경·구도가 담긴 JPG·PNG·WEBP·MPO 사진 최대 ${REFERENCE_PHOTOS.maxFiles}장. 없으면 비워 두세요.`}
           files={references}
           error={errors.references}
           onChange={(files) => { setReferences(files); setError('references') }}
