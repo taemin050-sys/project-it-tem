@@ -40,6 +40,12 @@ export function getTextCostEstimate(photoCount:number,revisionTarget?:'copy'|'im
 }
 const json=(v:unknown)=>({method:'POST',headers:{'Content-Type':'application/json'},
   body:JSON.stringify(v)})
+export type MyLiveJob={
+  job_id:string;state:LiveSnapshot['state'];created_at:string;
+  product_name:string;image_size:'3:4'|'4:5'|'9:16';
+  generation_mode:'composed'|'freeform'
+}
+export const listMyLiveJobs=()=>request<{jobs:MyLiveJob[]}>(prefix+'/jobs')
 export const getLiveSnapshot=(id:string)=>request<LiveSnapshot>(url(id))
 export async function getProductLiveJob(id:string):Promise<Job>{
   const [snapshot,original]=await Promise.all([getLiveSnapshot(id),getJob(id)])

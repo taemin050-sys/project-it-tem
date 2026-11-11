@@ -39,6 +39,7 @@ export default function CreateLayout() {
             </ol>
           </nav>
           <p className="track-a-owner-label track-a-owner-review-label">검수 및 평가</p>
+          <Link className="track-a-owner-review" to="/my/jobs">내 광고 작업</Link>
           <Link className="track-a-owner-review" to="/team/evaluations">팀 공동 품질 평가</Link>
         </aside>
         <div className="track-a-owner-workspace">

@@ -138,6 +138,7 @@ export default function LandingPage() {
             )}
             <div className="hero-actions">
               <Link className="button" to="/create/product" onClick={startNewAdLink}>새 광고 만들기</Link>
+              <Link className="button secondary" to="/my/jobs">기존 작업 이어하기</Link>
               <a className="text-link" href="#how">만드는 방법 보기</a>
             </div>
             <p className="hero-note">제품 사진 업로드부터 PNG 저장까지</p>

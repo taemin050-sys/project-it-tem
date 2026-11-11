@@ -6,6 +6,7 @@ import ExportPage from './pages/ExportPage'
 import LandingPage from './pages/LandingPage'
 import ProductPage from './pages/ProductPage'
 import LiveEvaluationBoard from './demo/LiveEvaluationBoard'
+import MyJobsPage from './pages/MyJobsPage'
 import { useProjectStore } from './store/projectStore'
 
 // /create로 들어오면: 진행 중인 작업은 카피 검토(현재 진행 상황과 다음 단계 링크가 있는 곳)로, 없으면 제품 정보로
@@ -25,6 +26,7 @@ export default function App() {
         <Route path="draft" element={<DraftPage />} />
         <Route path="export" element={<ExportPage />} />
       </Route>
+      <Route path="my/jobs" element={<MyJobsPage />} />
       <Route path="team/evaluations" element={<LiveEvaluationBoard />} />
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>

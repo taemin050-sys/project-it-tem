@@ -37,7 +37,7 @@ type ProjectState = {
   jobId: string | null
   /** 결과(COMPLETED)까지 끝난 작업. 지금 작업이 이 값이면 새 광고를 확인 없이 시작한다 */
   finishedJobId: string | null
-  setFinishedJob: (jobId: string) => void
+  setFinishedJob: (jobId: string | null) => void
   identityScope: string | null
   liveTaskId: string | null
   setIdentityScope: (scope: string | null) => void
