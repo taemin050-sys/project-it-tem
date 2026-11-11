@@ -1,0 +1,61 @@
+{
+  "a_only_deployment_root": "/home/macstudio/ittem-a51h-isolated-nonbillable-20261111",
+  "actual_signed_tailnet_sso_e2e": "NOT_IMPLEMENTED_NOT_AUDITED",
+  "artifacts": {
+    "backend_serve_py_sha256": "7a9132ec6ea37091a3d87d0e7d2f2c180d3bbcdd13cae3428810835d956c2208",
+    "backend_worker_py_sha256": "555d7c9eb2ba2e42d20ce5803e91d96cb40896d34d870c4d026f08c18d46ef8a",
+    "frontend_index_sha256": "03c7194f4d3c1c5e7cf3e28e56b1f016f9e5266da30539d3784b9c2dd9a3203b",
+    "source_878_sha256_manifest": "93107db55a747242b196f3d43d28ddd4ada772aa46b512ce0f0436ef7a7b50bf"
+  },
+  "beta_profile_real_owner_pm_signatures": "PENDING",
+  "cost_policy_status": "NOT_ACTIVATED_WORKER_DISABLED",
+  "executing_pid": 193793,
+  "existing_runtime": {
+    "root": "/home/macstudio/ittem-e2e-baseline-20261107",
+    "source_sha": "9879eb0f85747312a224ecd898aaff84d834590b"
+  },
+  "frontend_actual_team_browser": "NOT_AUDITED",
+  "full_feature_beta_ready": false,
+  "gcp_current_vm_reused": true,
+  "gcp_extra_compute_resource_created": false,
+  "http": {
+    "health": {
+      "body_bytes": 60,
+      "cache_control": "no-store",
+      "status": 200
+    },
+    "homepage": {
+      "body_bytes": 788,
+      "cache_control": "no-cache",
+      "status": 200
+    },
+    "unauthenticated_b0_job": {
+      "body_bytes": 27,
+      "cache_control": "no-store",
+      "status": 401
+    },
+    "unauthenticated_session": {
+      "body_bytes": 23,
+      "cache_control": "private, no-store",
+      "status": 401
+    }
+  },
+  "localhost_only_listener": "127.0.0.1:18561",
+  "machine_hostname": "team2-vm",
+  "observation_utc": "2026-11-11T02:56:10.208440+00:00",
+  "provider_api_invoked_from_this_candidate": false,
+  "python_runtime": "/home/macstudio/ittem-a51h-isolated-nonbillable-20261111/.venv/bin/python",
+  "qa_prod_b_services_reconfigured": false,
+  "real_provider_six_jobs": "0/6",
+  "runtime_env_billable_flags": {
+    "IT_TEM_A51E_SIGNED_BETA_INTAKE": "NO",
+    "IT_TEM_ENABLE_BILLABLE_TEXT_CALLS": "NO",
+    "IT_TEM_LIVE_ENABLED": "NO",
+    "IT_TEM_LIVE_EXECUTION_APPROVED": "NO",
+    "IT_TEM_LIVE_WEB_QUEUE_ENABLED": "NO"
+  },
+  "schema": "IT_TEM_A51H_GCP_ACTUAL_ISOLATED_NONBILLABLE_SMOKE_V1",
+  "source_git_head": "73ff3708c355df51add0c37caa57a984027b4c21",
+  "source_git_tree": "f8bf3bd3ddfdf70c4add16e2f611ee4f1660fed8",
+  "worker_enabled_for_this_candidate": false
+}
