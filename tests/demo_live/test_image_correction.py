@@ -484,3 +484,55 @@ def test_context_crop_retains_exact_wire_inputs_and_restores_native_geometry(rep
     for y in range(original.height):
         for x in range(original.width):
             if not (box[0]<=x<box[2] and box[1]<=y<box[3]):assert original.getpixel((x,y))==result.getpixel((x,y))
+
+
+def test_source_stroke_retouch_is_one_to_one_nonbillable_and_has_no_background_box():
+    from demo_staging.live.image_correction import _retouch_stroke,_change_span,_png
+    from PIL import ImageDraw
+    src=Image.new('RGB',(200,200),(230,235,220));ImageDraw.Draw(src).rectangle((30,52,43,55),fill=(96,113,81))
+    result=Image.open(BytesIO(_retouch_stroke(_png(src),src.size,(100,80,114,87),[30,50,44,57],_change_span('자분','차분'))))
+    changed=[]
+    for y in range(200):
+        for x in range(200):
+            if src.getpixel((x,y))!=result.getpixel((x,y)):changed.append((x,y))
+    assert len(changed)==56
+    assert all(100<=x<114 and 82<=y<=85 for x,y in changed)
+    assert result.getpixel((105,83))==src.getpixel((35,53))
+    with pytest.raises(LiveGateError):_retouch_stroke(_png(src),src.size,(100,80,115,87),[30,50,44,57],_change_span('자분','차분'))
+    with pytest.raises(LiveGateError):_retouch_stroke(_png(src),src.size,(100,80,114,87),[30,50,44,57],_change_span('가','나'))
+
+
+def test_local_stroke_worker_never_calls_provider_and_replays_before_approval(repair,monkeypatch):
+    from demo_staging.live.image_correction import _png
+    from demo_staging.live.revision_costs import revision_cost_summary
+    from PIL import ImageDraw
+    flow,service,parent,child,body=repair
+    original=ImageCorrections.source
+    picture=Image.new('RGB',(200,250),(230,235,220));ImageDraw.Draw(picture).rectangle((30,52,43,55),fill=(96,113,81));raw=_png(picture)
+    def isolated_source(self,actor,job_id):
+        job,context,_,_=original(self,actor,job_id)
+        from demo_staging.live.contracts import digest
+        cp=json.loads(job['copy_json']);cp['ad_copy']['subline']='차분하게 시작해요'
+        job={**job,'copy_json':json.dumps(cp,ensure_ascii=False),'copy_sha':digest(cp)}
+        context={**context,'source_image_sha':sha256(raw).hexdigest(),'copy_sha':digest(cp)}
+        return job,context,raw,picture.size
+    monkeypatch.setattr(ImageCorrections,'source',isolated_source)
+    def forbidden(*a,**k):raise AssertionError('NO_PROVIDER_PERMITTED')
+    initial=attempts(flow)
+    request={**body,'expected_image_sha':sha256(raw).hexdigest(),'expected_copy_sha':service.source(ACTOR,child)[1]['copy_sha'],'region':[.5,.32,.57,.348],
+        'stroke_source_box':[30,50,44,57],'acknowledge_paid_edit':False}
+    row=service.request(ACTOR,child,request)
+    assert run_image_correction_once(flow,transport=forbidden)=='IMAGE_CORRECTION_REVIEW_REQUIRED'
+    assert attempts(flow)==initial
+    state=service.snapshot(ACTOR,child)['corrections'][0]
+    assert state['render_mode']=='freeform_source_stroke_corrected_v1'
+    assert state['cost_status']=='NO_NEW_PROVIDER_CALL'
+    assert revision_cost_summary(flow,ACTOR,child)['revisions'][0]['status']=='NO_NEW_PROVIDER_CALL'
+    service.artifact(ACTOR,child,row['correction_id'],'preview',state['preview_sha'])
+    folder=service.root/row['correction_id'];receipt=json.loads((folder/'receipt.json').read_text())
+    assert receipt['provider_calls']==0 and receipt['cost_receipt'] is None
+    out=service.decision(ACTOR,child,row['correction_id'],{'expected_revision':state['revision'],
+        'expected_preview_sha':state['preview_sha'],'approve':True,'visual_review':{
+        'product_matches':True,'label_matches':True,'cta_policy_matches':True,'no_extra_text':True,
+        'observed_copy':state['approved_copy']}})
+    assert out['state']=='COMPLETED' and attempts(flow)==initial

@@ -109,7 +109,7 @@ def _image_revision(row, actor, job_id):
     return {"revision_id": row["correction_id"], "kind": "image_correction", "state": row["state"],
         "fingerprints": {digest({"protocol": _IMAGE_PROTOCOL, "correction_id": row["correction_id"],
                                 "request_sha": row["request_sha"]})},
-        "stage": "image", "evidence": None}
+        "stage": "image", "evidence": None, "nonbillable":"stroke_source_box" in payload}
 
 
 def _copy_revision(row, actor, job_id):
@@ -188,6 +188,9 @@ def revision_cost_summary(flow, actor, job_id):
             if not rows and revision["state"] in ("RUNNING", "BILLING_UNKNOWN"):
                 classification = "PENDING_LEDGER_BINDING"
             aggregate = _aggregate(attempts)
+            if revision.get("nonbillable"):
+                if rows:raise ValueError
+                aggregate["status"]="NO_NEW_PROVIDER_CALL"
             if revision["state"] == "BILLING_UNKNOWN":
                 aggregate["status"] = "BILLING_UNKNOWN"
             items.append({"revision_id": revision["revision_id"], "kind": revision["kind"],

@@ -147,12 +147,18 @@ class ImageCorrections:
                 raise ValueError
             body = {key: payload[key] for key in ("expected_image_sha", "expected_copy_sha",
                 "expected_approval_sha", "field", "observed_text", "region", "request_key", "acknowledge_paid_edit")}
+            if "stroke_source_box" in payload:
+                body["stroke_source_box"] = payload["stroke_source_box"]
             if payload.get("preserve_style_context") is True:
                 body["preserve_style_context"] = True
             self._validate_request(body, context)
             if "edit_prompt" in payload or "edit_prompt_version" in payload:
                 version = payload.get("edit_prompt_version")
-                if version == "source-style-preserving-text-edit-v2":
+                if version == "source-stroke-retouch-v1":
+                    if (payload["edit_prompt"] != "LOCAL_SOURCE_STROKE_RETOUCH_NO_PROVIDER" or "stroke_source_box" not in payload
+                            or payload["change_span"] != _change_span(payload["observed_text"],payload["target_text"])):
+                        raise ValueError
+                elif version == "source-style-preserving-text-edit-v2":
                     if payload["edit_prompt"] != _prompt_v2(payload):
                         raise ValueError
                 elif version in ("source-style-preserving-glyph-edit-v3", "context-crop-glyph-edit-v4"):
@@ -170,7 +176,7 @@ class ImageCorrections:
     def _validate_request(self, body, context):
         fields = {"expected_image_sha", "expected_copy_sha", "expected_approval_sha", "field", "observed_text",
                   "region", "request_key", "acknowledge_paid_edit"}
-        if not isinstance(body, dict) or set(body) not in (fields, fields | {"preserve_style_context"}) or ("preserve_style_context" in body and body["preserve_style_context"] is not True):
+        if not isinstance(body, dict) or set(body) not in (fields, fields | {"preserve_style_context"}, fields | {"stroke_source_box"}) or ("preserve_style_context" in body and body["preserve_style_context"] is not True):
             raise LiveGateError("IMAGE_CORRECTION_REQUEST_INVALID")
         if any(body[name] != context[target] for name, target in (
                 ("expected_image_sha", "source_image_sha"), ("expected_copy_sha", "copy_sha"),
@@ -179,7 +185,7 @@ class ImageCorrections:
         region = body["region"]
         if (body["field"] not in ("headline", "subline", "cta")
                 or type(body["observed_text"]) is not str or not 1 <= len(body["observed_text"]) <= 600
-                or not _ID.fullmatch(body["request_key"]) or body["acknowledge_paid_edit"] is not True
+                or not _ID.fullmatch(body["request_key"]) or body["acknowledge_paid_edit"] is not (False if "stroke_source_box" in body else True)
                 or type(region) is not list or len(region) != 4
                 or any(type(x) not in (int, float) or not math.isfinite(x) or not 0 <= x <= 1 for x in region)
                 or region[0] >= region[2] or region[1] >= region[3]
@@ -216,6 +222,10 @@ class ImageCorrections:
         if body.get("preserve_style_context") is True:
             payload["edit_prompt_version"] = "context-crop-glyph-edit-v4"
             payload["edit_prompt"] = _prompt_v4(payload)
+        if "stroke_source_box" in body:
+            _retouch_stroke(raw, size, (left,top,right,bottom), body["stroke_source_box"], payload["change_span"])
+            payload["edit_prompt_version"] = "source-stroke-retouch-v1"
+            payload["edit_prompt"] = "LOCAL_SOURCE_STROKE_RETOUCH_NO_PROVIDER"
         request_sha = digest(payload)
         with self.db() as db:
             db.execute("BEGIN IMMEDIATE")
@@ -271,6 +281,14 @@ class ImageCorrections:
             if row["state"] == "COMPLETED" and sha256(candidate).hexdigest() != json.loads(current).get("candidate_receipt_sha"):
                 raise LiveGateError("IMAGE_CORRECTION_RECEIPT_INTEGRITY")
             evidence = json.loads(candidate)
+            if payload.get("edit_prompt_version") == "source-stroke-retouch-v1":
+                box=(math.floor(payload["region"][0]*size[0]),math.floor(payload["region"][1]*size[1]),math.ceil(payload["region"][2]*size[0]),math.ceil(payload["region"][3]*size[1]))
+                if evidence["region_pixels"]!=list(box):raise LiveGateError("SOURCE_STROKE_GEOMETRY_CHANGED")
+                expected = _retouch_stroke(raw,size,box,payload["stroke_source_box"],payload["change_span"])
+                if (evidence["provider_calls"] != 0 or evidence["cost_receipt"] is not None
+                        or evidence["preview_sha"] != sha256(expected).hexdigest()):
+                    raise LiveGateError("IMAGE_CORRECTION_LOCAL_REPLAY_INTEGRITY")
+                return job, context, raw, size
             from .revision_receipts import verify_revision_cost
             actual = verify_revision_cost(self.flow, evidence["cost_receipt"], row["actor"], row["job_id"], "image",
                 {"protocol": PROTOCOL, "correction_id": row["correction_id"], "request_sha": row["request_sha"]})
@@ -290,7 +308,7 @@ class ImageCorrections:
                         or row["state"] == "COMPLETED"):
                 artifacts[kind] = base + kind + "?sha256=" + sha
         return {"correction_id": row["correction_id"], "job_id": row["job_id"], "state": row["state"], "revision": row["revision"],
-            "render_mode": RENDER_MODE, "source_image_sha": payload["expected_image_sha"],
+            "render_mode": "freeform_source_stroke_corrected_v1" if "stroke_source_box" in payload else RENDER_MODE, "source_image_sha": payload["expected_image_sha"],
             "copy_sha": payload["expected_copy_sha"], "context_sha": row["context_sha"],
             "field": payload["field"], "observed_text": payload["observed_text"], "target_text": payload["target_text"],
             "approved_copy": payload["approved_copy"],
@@ -300,7 +318,8 @@ class ImageCorrections:
             "region": payload["region"], "preview_sha": row["preview_sha"], "final_sha": row["final_sha"],
             "caption_sha": row["caption_sha"], "receipt_sha": row["receipt_sha"], "approval_sha": row["approval_sha"],
             "artifacts": artifacts, "error_code": row["error_code"], "actual_usd": None,
-            "cost_status": "UNPRICED" if row["preview_sha"] else "NOT_RECONCILED",
+            "cost_status": "NO_NEW_PROVIDER_CALL" if "stroke_source_box" in payload else "UNPRICED" if row["preview_sha"] else "NOT_RECONCILED",
+            "stroke_source_box":payload.get("stroke_source_box"),
             "source_for_correction_only": True, "human_review_required": row["state"] != "COMPLETED"}
 
     def snapshot(self, actor, job_id):
@@ -415,6 +434,38 @@ def _prompt_v3(payload):
         "field": payload["field"], "observed_full_field_context": payload["observed_text"],
         "approved_full_field_context": payload["target_text"], "change_span": span,
         "original_text_rgb": payload["source_ink_rgb"], "original_background_rgb": payload["source_background_rgb"]})
+
+
+def _retouch_stroke(source, size, target, reference, span):
+    """Explicit source-pixel retouch, not AI generation or font rendering.
+
+    Supported only for initial ㅈ→ㅊ with unchanged vowel/final. The operator
+    supplies a native 1:1 horizontal stroke and a blank destination rectangle.
+    Never infer label content or reconstruct a whole character.
+    """
+    change = span.get("initial_consonant_change") or {}
+    if change.get("observed_initial") != "ㅈ" or change.get("target_initial") != "ㅊ":
+        raise LiveGateError("SOURCE_STROKE_UNSUPPORTED_CHANGE")
+    if (type(reference) is not list or len(reference)!=4 or any(type(v) is not int for v in reference)
+            or not 0<=reference[0]<reference[2]<=size[0] or not 3<=reference[1]<reference[3]<=size[1]
+            or reference[2]-reference[0]!=target[2]-target[0] or reference[3]-reference[1]!=target[3]-target[1]
+            or not 5<=target[2]-target[0]<=40 or not 3<=target[3]-target[1]<=12):
+        raise LiveGateError("SOURCE_STROKE_GEOMETRY_INVALID")
+    with Image.open(BytesIO(source)) as im:
+        original=im.convert("RGB");out=original.copy();changed=0
+        for y in range(target[1],target[3]):
+            for x in range(target[0],target[2]):
+                destination=original.getpixel((x,y))
+                if min(destination)<160:
+                    raise LiveGateError("SOURCE_STROKE_DESTINATION_NOT_BLANK")
+                sx=reference[0]+x-target[0];sy=reference[1]+y-target[1]
+                ink=original.getpixel((sx,sy));background=original.getpixel((sx,reference[1]-3))
+                delta=[min(0,ink[c]-background[c]) for c in range(3)]
+                if -sum(delta)>=60:
+                    out.putpixel((x,y),tuple(max(0,destination[c]+delta[c]) for c in range(3)));changed+=1
+        if not 5<=changed<=len(range(target[0],target[2]))*len(range(target[1],target[3]))*.8:
+            raise LiveGateError("SOURCE_STROKE_NOT_ISOLATED")
+        return _png(out)
 
 
 def _prompt_v4(payload):
@@ -551,8 +602,14 @@ def run_image_correction_once(flow, *, transport=None, recover_only=False):
         manifest_bytes = _json(input_manifest).encode()
         atomic_write(folder/"input-manifest.json", manifest_bytes)
         fingerprint = {"protocol": PROTOCOL, "correction_id": row["correction_id"], "request_sha": row["request_sha"]}
-        output, cost_receipt = flow._guarded(row["actor"], row["job_id"], "image", fingerprint,
-            lambda: _masked_provider(flow, row, provider_source, mask, provider_size, payload, transport), image=True, include_receipt=True)
+        local = payload.get("edit_prompt_version") == "source-stroke-retouch-v1"
+        if local:
+            output=SimpleNamespace(image_bytes=_retouch_stroke(source,size,box,payload["stroke_source_box"],payload["change_span"]),
+                receipt={"state":"LOCAL_NONBILLABLE","source_sha":payload["expected_image_sha"]})
+            cost_receipt=None
+        else:
+            output, cost_receipt = flow._guarded(row["actor"], row["job_id"], "image", fingerprint,
+                lambda: _masked_provider(flow, row, provider_source, mask, provider_size, payload, transport), image=True, include_receipt=True)
         # Preserve original background exactly; only model pixels inside the ROI
         # enter the new artifact. No code draws or replaces any glyph.
         with Image.open(BytesIO(source)) as original, Image.open(BytesIO(output.image_bytes)) as generated:
@@ -578,16 +635,18 @@ def run_image_correction_once(flow, *, transport=None, recover_only=False):
             "observed_text": payload["observed_text"], "target_text": payload["target_text"],
             "region_normalized": region, "region_pixels": list(box), "outside_region_rgb_sha": outside_sha,
             "outside_region_pixel_count": size[0]*size[1]-(box[2]-box[0])*(box[3]-box[1]),
-            "outside_region_preserved": True, "server_text_overlay": False, "provider_calls": 1,
+            "outside_region_preserved": True, "server_text_overlay": False, "provider_calls": 0 if local else 1,
+            "pixel_retouch":local, "stroke_source_box":payload.get("stroke_source_box"),
             "provider_receipt": output.receipt, "cost_receipt": cost_receipt, "actual_usd": None,
             "input_manifest_sha":sha256(manifest_bytes).hexdigest(), "provider_input_geometry":input_manifest,
-            "billing_status": "UNPRICED", "preview_sha": sha256(preview).hexdigest(),
+            "billing_status": "NO_NEW_PROVIDER_CALL" if local else "UNPRICED", "preview_sha": sha256(preview).hexdigest(),
             "visual_text_fidelity": "HUMAN_REVIEW_PENDING", "label_ground_truth": "PENDING"}
-        if payload.get("edit_prompt_version") in ("source-style-preserving-glyph-edit-v3", "context-crop-glyph-edit-v4"):
+        if payload.get("edit_prompt_version") in ("source-style-preserving-glyph-edit-v3", "context-crop-glyph-edit-v4", "source-stroke-retouch-v1"):
             receipt.update(edit_prompt_version=payload["edit_prompt_version"], change_span=payload["change_span"],
                            source_size=payload["source_size"], style_note="HUMAN_STYLE_REVIEW_REQUIRED")
+        if local:receipt["render_mode"]="freeform_source_stroke_corrected_v1"
         folder = service.root / row["correction_id"]
-        atomic_write(folder/"provider-output.png",output.image_bytes)
+        atomic_write(folder/("local-retouch.png" if local else "provider-output.png"),output.image_bytes)
         atomic_write(folder/"preview.png",preview)
         raw_receipt = _json(receipt).encode(); atomic_write(folder/"receipt.json",raw_receipt)
         with service.source_lock(row["actor"], row["job_id"]), service.db() as db:

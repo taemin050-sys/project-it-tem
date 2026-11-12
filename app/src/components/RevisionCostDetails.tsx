@@ -14,6 +14,7 @@ export type RevisionCostSummary = {
 }
 
 const STATUS: Record<string, string> = {
+  NO_NEW_PROVIDER_CALL: '원본 획 정밀 교정 · 추가 모델 호출 없음',
   NOT_DISPATCHED: '아직 모델을 호출하지 않았습니다.',
   AWAITING_RECEIPT: '요청을 전송했습니다. 사용량 영수증을 기다리고 있습니다.',
   UNPRICED: '사용량은 기록됐으며 실제 USD 청구액은 확인 전입니다.',

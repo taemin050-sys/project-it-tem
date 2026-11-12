@@ -15,7 +15,7 @@ type Revision = {
   preview_sha: string | null; final_sha: string | null; caption_sha: string | null; receipt_sha: string | null
   error_code?: string | null; report?: {passed?: boolean; issues?: Array<{reason?: string}>}
   region?: TextRegion; source_size?: [number, number] | null
-  edit_prompt_version?: string | null
+  render_mode?: string; edit_prompt_version?: string | null
   artifacts: Partial<Record<'preview' | 'final' | 'caption' | 'receipt', string>>
 }
 type Snapshot = {
@@ -92,6 +92,9 @@ function RevisionWorkspace({snapshot, kind, base, canMutate, refresh, showReques
   // No inferred rectangle: the user deliberately selects an area before a paid call.
   const [region, setRegion] = useState<TextRegion>([0, 0, 0, 0])
   const [paid, setPaid] = useState(false)
+  const [localStroke,setLocalStroke]=useState(false)
+  const [strokeText,setStrokeText]=useState('[]')
+  const strokeBox=useMemo(()=>{try{const v=JSON.parse(strokeText);return Array.isArray(v)&&v.length===4&&v.every(Number.isInteger)?v:null}catch{return null}},[strokeText])
   const [pending, setPending] = useState(false)
   const [error, setError] = useState('')
   const [submitted, setSubmitted] = useState('')
@@ -101,7 +104,7 @@ function RevisionWorkspace({snapshot, kind, base, canMutate, refresh, showReques
   const freeform = kind === 'image-corrections'
   const unchanged = FIELDS.every(([key]) => copy[key] === snapshot.approved_copy?.[key])
   const records = snapshot.corrections ?? snapshot.edits ?? []
-  const formFingerprint = JSON.stringify(freeform ? {field, observed, region} : copy)
+  const formFingerprint = JSON.stringify(freeform ? {field, observed, region, localStroke, strokeBox} : copy)
   const waiting = records.some(row => ['QUEUED', 'RUNNING', 'QUEUED_REVIEW', 'BILLING_UNKNOWN'].includes(row.state))
   async function submit() {
     if (flight.current || !canMutate || waiting) return
@@ -113,7 +116,7 @@ function RevisionWorkspace({snapshot, kind, base, canMutate, refresh, showReques
         expected_copy_sha: snapshot.source_copy_sha ?? snapshot.copy_sha,
         expected_approval_sha: snapshot.source_approval_sha ?? snapshot.approval_sha,
         request_key: requestKey.current,
-        ...(freeform ? {field, observed_text: observed, region, acknowledge_paid_edit: paid, preserve_style_context: true} : {ad_copy: copy}),
+        ...(freeform ? {field, observed_text: observed, region, acknowledge_paid_edit: localStroke ? false : paid, ...(localStroke ? {stroke_source_box:strokeBox} : {preserve_style_context:true})} : {ad_copy: copy}),
       })})
       requestKey.current = null; setPaid(false); setSubmitted(formFingerprint)
     } catch (cause) {
@@ -128,6 +131,11 @@ function RevisionWorkspace({snapshot, kind, base, canMutate, refresh, showReques
     {records.filter(row => row.state === 'COMPLETED').map(review)}
     {showRequestForm && <>
     {freeform ? <>
+      <label>교정 방식<select value={localStroke?'stroke':'model'} onChange={e=>{setLocalStroke(e.target.value==='stroke');setPaid(false)}}>
+        <option value="model">AI 확대 영역 교정 · 모델 호출 1회</option><option value="stroke">원본 획 정밀 교정 · 추가 모델 호출 없음</option>
+      </select></label>
+      {localStroke && <label>기준 획 원본 좌표 [왼쪽, 위, 오른쪽, 아래]<input value={strokeText} onChange={e=>setStrokeText(e.target.value)} spellCheck={false}/>
+        <span className="field-hint">ㅈ→ㅊ 초성 교정용입니다. 원본의 짧은 가로 획을 1:1로 복사하며 교정 영역과 크기가 같아야 합니다. 새 글꼴이나 AI 문구를 덧쓰지 않습니다.</span></label>}
       {source.url && <TextAreaSelector src={source.url} region={region} setRegion={setRegion} />}
       {source.query.isError && <div role="alert"><p>수정 영역을 고를 원본 이미지를 가져오지 못했습니다.</p>
         <button className="button secondary" type="button" onClick={() => void source.query.refetch()}>원본 이미지 다시 가져오기</button></div>}
@@ -148,7 +156,7 @@ function RevisionWorkspace({snapshot, kind, base, canMutate, refresh, showReques
         {!validTextRegion(region) && <p className="field-hint">전체 면적의 25% 이하인 사각 영역을 지정해 주세요.</p>}
       </fieldset>
       <label className="consent-label"><input type="checkbox" checked={paid} onChange={e => setPaid(e.target.checked)} />
-        <span>선택 영역과 승인 원문을 확인했습니다. 이미지 모델 수정 호출 1건을 요청합니다.</span></label>
+        <span>{localStroke?'원본 획과 교정 영역을 확인했습니다. 추가 모델 호출 없이 별도 수정본을 만듭니다.':'선택 영역과 승인 원문을 확인했습니다. 이미지 모델 수정 호출 1건을 요청합니다.'}</span></label>
     </> : <>
       {FIELDS.map(([key, label]) => <label key={key}>{label}<textarea rows={key === 'subline' ? 2 : 1}
         maxLength={key === 'headline' ? 100 : 600} value={copy[key]} spellCheck={false}
@@ -157,9 +165,9 @@ function RevisionWorkspace({snapshot, kind, base, canMutate, refresh, showReques
     </>}
     <button className="button secondary" type="button" onClick={() => void submit()}
       disabled={!canMutate || pending || waiting || submitted === formFingerprint || (freeform
-        ? !paid || !validTextRegion(region) || !observed.trim() || observed === snapshot.approved_copy?.[field]
+        ? !paid || (localStroke && !strokeBox) || !validTextRegion(region) || !observed.trim() || observed === snapshot.approved_copy?.[field]
         : unchanged || FIELDS.some(([key]) => !copy[key].trim()))}>
-      {pending ? '요청 저장 중…' : freeform ? '이 오타 영역만 수정 요청' : '수정 카피 검수 요청'}
+      {pending ? '요청 저장 중…' : freeform ? localStroke ? '원본 획으로 비과금 교정' : '이 오타 영역만 수정 요청' : '수정 카피 검수 요청'}
     </button>
     {error && <p className="field-error" role="alert">{error}</p>}
     </>}
@@ -210,7 +218,7 @@ function RevisionReview({row, base, kind, jobId, canMutate, approvedCopy, source
   const decision = (approve: boolean) => void mutate('decision', {expected_revision:row.revision,
     expected_preview_sha:row.preview_sha,approve,visual_review:{...checks,observed_copy:observed}})
   return <article className={complete ? 'stack' : 'panel stack'} data-testid="result-revision">
-    <h4 style={{margin:0}}>{kind === 'image-corrections' ? '자유형 · 텍스트 영역 수정본' : '합성형 · 직접 수정본'}</h4>
+    <h4 style={{margin:0}}>{kind === 'image-corrections' ? row.render_mode === 'freeform_source_stroke_corrected_v1' ? '자유형 · 원본 획 정밀 교정본' : '자유형 · 텍스트 영역 수정본' : '합성형 · 직접 수정본'}</h4>
     <p role="status">{STATES[row.state] ?? row.state}</p>
     {row.error_code && <p role="alert" style={{overflowWrap:'anywhere'}}>확인 코드: {row.error_code}</p>}
     {image.url && <a href={image.url} target="_blank" rel="noreferrer"><img className="result-image" src={image.url} alt="새 수정본 · 별도 검수 대상" /></a>}

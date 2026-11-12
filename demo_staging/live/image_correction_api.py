@@ -24,6 +24,7 @@ class CorrectionRequest(BaseModel):
     request_key: str = Field(pattern=r"^[0-9a-f]{32}$")
     acknowledge_paid_edit: bool
     preserve_style_context: bool = False
+    stroke_source_box: list[int] | None = Field(default=None, min_length=4,max_length=4)
 
 
 class CorrectionVisualReview(BaseModel):
@@ -117,7 +118,7 @@ def install_image_correction_routes(app, flow, authorized, require_queue):
         def read():
             raw, mime = service.artifact(actor, job_id, correction_id, kind, sha256)
             return Response(raw, media_type=mime, headers={"Cache-Control": "no-store",
-                "X-IT-TEM-Render-Mode": "freeform_model_text_corrected_v1", "X-Content-SHA256": sha256})
+                "X-IT-TEM-Render-Mode": "independent-correction-see-receipt", "X-Content-SHA256": sha256})
         return call(read)
 
     @app.post(prefix + "/{correction_id}/decision")
