@@ -23,6 +23,7 @@ class CorrectionRequest(BaseModel):
     region: list[float | int] = Field(min_length=4, max_length=4)
     request_key: str = Field(pattern=r"^[0-9a-f]{32}$")
     acknowledge_paid_edit: bool
+    preserve_style_context: bool = False
 
 
 class CorrectionVisualReview(BaseModel):
@@ -97,7 +98,7 @@ def install_image_correction_routes(app, flow, authorized, require_queue):
     def prepare(job_id: str, body: CorrectionRequest, request: Request):
         actor = actor_for(request, job_id, write=True)
         require_queue(actor)
-        return call(lambda: JSONResponse(service.request(actor, job_id, body.model_dump(mode="json")), status_code=202))
+        return call(lambda: JSONResponse(service.request(actor, job_id, body.model_dump(mode="json", exclude_defaults=True)), status_code=202))
 
     @app.get(prefix + "/source")
     def source(job_id: str, sha256: str, request: Request):

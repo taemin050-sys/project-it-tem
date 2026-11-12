@@ -113,7 +113,7 @@ function RevisionWorkspace({snapshot, kind, base, canMutate, refresh, showReques
         expected_copy_sha: snapshot.source_copy_sha ?? snapshot.copy_sha,
         expected_approval_sha: snapshot.source_approval_sha ?? snapshot.approval_sha,
         request_key: requestKey.current,
-        ...(freeform ? {field, observed_text: observed, region, acknowledge_paid_edit: paid} : {ad_copy: copy}),
+        ...(freeform ? {field, observed_text: observed, region, acknowledge_paid_edit: paid, preserve_style_context: true} : {ad_copy: copy}),
       })})
       requestKey.current = null; setPaid(false); setSubmitted(formFingerprint)
     } catch (cause) {

@@ -457,3 +457,30 @@ def test_stored_v1_unversioned_payload_is_readable_and_not_silently_upgraded(rep
     assert service.request(ACTOR,child,body)==old
     with service.db() as db:assert db.execute('SELECT payload_json FROM image_corrections').fetchone()[0]==raw
     assert len(attempts(flow))==7
+
+
+def test_context_crop_retains_exact_wire_inputs_and_restores_native_geometry(repair):
+    flow,service,parent,child,body=repair
+    row=service.request(ACTOR,child,{**body,'region':[.25,.16,.30,.22],'preserve_style_context':True})
+    captured={}
+    def wire(request):
+        parts=BytesParser(policy=policy.default).parsebytes(b'Content-Type: '+request.headers['content-type'].encode()+b'\r\n\r\n'+request.read())
+        captured.update({p.get_param('name',header='content-disposition'):p.get_payload(decode=True) for p in parts.iter_parts()})
+        assert captured['size']==b'1024x1024'
+        with Image.open(BytesIO(captured['image[]'])) as im:assert im.size==(1024,1024)
+        return httpx.Response(200,json={'data':[{'b64_json':base64.b64encode(captured['image[]']).decode()}],
+            'usage':{'input_tokens':5,'output_tokens':7,'total_tokens':12}},headers={'x-request-id':'mock-context-only'})
+    adapter=OpenAIImagesAdapter(OpenAIImagesConfig(live_calls=False),transport=httpx.MockTransport(wire))
+    assert run_image_correction_once(flow,transport=adapter)=='IMAGE_CORRECTION_REVIEW_REQUIRED'
+    folder=service.root/row['correction_id']
+    for name,key in [('input-source.png','image[]'),('input-mask.png','mask'),('input-prompt.txt','prompt')]:
+        assert (folder/name).read_bytes()==captured[key]
+    receipt=json.loads((folder/'receipt.json').read_text())
+    assert sha256((folder/'input-manifest.json').read_bytes()).hexdigest()==receipt['input_manifest_sha']
+    assert receipt['edit_prompt_version']=='context-crop-glyph-edit-v4'
+    original=Image.open(flow.image_path(child)).convert('RGB');result=Image.open(folder/'preview.png').convert('RGB')
+    assert original.size==result.size
+    box=receipt['region_pixels']
+    for y in range(original.height):
+        for x in range(original.width):
+            if not (box[0]<=x<box[2] and box[1]<=y<box[3]):assert original.getpixel((x,y))==result.getpixel((x,y))

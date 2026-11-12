@@ -147,15 +147,17 @@ class ImageCorrections:
                 raise ValueError
             body = {key: payload[key] for key in ("expected_image_sha", "expected_copy_sha",
                 "expected_approval_sha", "field", "observed_text", "region", "request_key", "acknowledge_paid_edit")}
+            if payload.get("preserve_style_context") is True:
+                body["preserve_style_context"] = True
             self._validate_request(body, context)
             if "edit_prompt" in payload or "edit_prompt_version" in payload:
                 version = payload.get("edit_prompt_version")
                 if version == "source-style-preserving-text-edit-v2":
                     if payload["edit_prompt"] != _prompt_v2(payload):
                         raise ValueError
-                elif version == "source-style-preserving-glyph-edit-v3":
+                elif version in ("source-style-preserving-glyph-edit-v3", "context-crop-glyph-edit-v4"):
                     if (payload["change_span"] != _change_span(payload["observed_text"], payload["target_text"])
-                            or payload["edit_prompt"] != _prompt_v3(payload)
+                            or payload["edit_prompt"] != (_prompt_v4(payload) if version == "context-crop-glyph-edit-v4" else _prompt_v3(payload))
                             or type(payload["source_size"]) is not list or len(payload["source_size"]) != 2
                             or any(type(n) is not int or n < 1 for n in payload["source_size"])):
                         raise ValueError
@@ -168,7 +170,7 @@ class ImageCorrections:
     def _validate_request(self, body, context):
         fields = {"expected_image_sha", "expected_copy_sha", "expected_approval_sha", "field", "observed_text",
                   "region", "request_key", "acknowledge_paid_edit"}
-        if not isinstance(body, dict) or set(body) != fields:
+        if not isinstance(body, dict) or set(body) not in (fields, fields | {"preserve_style_context"}) or ("preserve_style_context" in body and body["preserve_style_context"] is not True):
             raise LiveGateError("IMAGE_CORRECTION_REQUEST_INVALID")
         if any(body[name] != context[target] for name, target in (
                 ("expected_image_sha", "source_image_sha"), ("expected_copy_sha", "copy_sha"),
@@ -211,6 +213,9 @@ class ImageCorrections:
         payload["change_span"] = _change_span(body["observed_text"], target)
         payload["edit_prompt_version"] = "source-style-preserving-glyph-edit-v3"
         payload["edit_prompt"] = _prompt_v3(payload)
+        if body.get("preserve_style_context") is True:
+            payload["edit_prompt_version"] = "context-crop-glyph-edit-v4"
+            payload["edit_prompt"] = _prompt_v4(payload)
         request_sha = digest(payload)
         with self.db() as db:
             db.execute("BEGIN IMMEDIATE")
@@ -412,6 +417,24 @@ def _prompt_v3(payload):
         "original_text_rgb": payload["source_ink_rgb"], "original_background_rgb": payload["source_background_rgb"]})
 
 
+def _prompt_v4(payload):
+    return ("You are editing a magnified crop of existing Korean lettering, not designing an advertisement. "
+        "Preserve the exact flat background, thin stroke width, glyph size, baseline, spacing and color. "
+        "No lighting, shadow, vignette, texture, boxes, restyling or new text. "
+        "The transparent mask identifies the only stroke to fix. Add only the missing small top stroke "
+        "when changing Korean initial ㅈ to ㅊ; keep the existing vowel and neighbouring letters untouched. "
+        "Do not write the full sentence in the mask. The following strings are context only: " + _json({
+        "observed": payload["observed_text"], "approved": payload["target_text"],
+        "change_span": payload["change_span"]}))
+
+
+def _context_crop(size, box):
+    side = min(min(size), max(256, box[2]-box[0]+96, box[3]-box[1]+96))
+    x = max(0, min(size[0]-side, (box[0]+box[2]-side)//2))
+    y = max(0, min(size[1]-side, (box[1]+box[3]-side)//2))
+    return (x, y, x+side, y+side)
+
+
 def _prompt(payload):
     # New requests freeze exact instructions before queue admission. Historical
     # v1 receipts remain reproducible; no stored request is silently rewritten.
@@ -500,7 +523,7 @@ def run_image_correction_once(flow, *, transport=None, recover_only=False):
         region = payload["region"]
         box = (math.floor(region[0]*size[0]), math.floor(region[1]*size[1]),
                math.ceil(region[2]*size[0]), math.ceil(region[3]*size[1]))
-        if payload.get("edit_prompt_version") in ("source-style-preserving-text-edit-v2", "source-style-preserving-glyph-edit-v3"):
+        if payload.get("edit_prompt_version") in ("source-style-preserving-text-edit-v2", "source-style-preserving-glyph-edit-v3", "context-crop-glyph-edit-v4"):
             with Image.open(BytesIO(source)) as original_mask:
                 mask_image = original_mask.convert("RGBA")
             alpha = Image.new("L", size, 255)
@@ -510,14 +533,36 @@ def run_image_correction_once(flow, *, transport=None, recover_only=False):
             mask_image = Image.new("RGBA", size, (255,255,255,255))
             ImageDraw.Draw(mask_image).rectangle((box[0],box[1],box[2]-1,box[3]-1), fill=(0,0,0,0))
         mask = _png(mask_image)
+        provider_source, provider_size, crop = source, size, None
+        if payload.get("edit_prompt_version") == "context-crop-glyph-edit-v4":
+            crop = _context_crop(size, box)
+            with Image.open(BytesIO(source)) as im:
+                provider_source = _png(im.convert("RGB").crop(crop).resize((1024,1024), Image.Resampling.LANCZOS))
+            mask_image = mask_image.crop(crop).resize((1024,1024), Image.Resampling.NEAREST)
+            mask = _png(mask_image)
+            provider_size = (1024,1024)
+        folder = service.root / row["correction_id"]
+        prompt_bytes = _prompt(payload).encode("utf-8")
+        for name, data in (("input-source.png", provider_source), ("input-mask.png", mask), ("input-prompt.txt", prompt_bytes)):
+            atomic_write(folder/name, data)
+        input_manifest = {"source_sha":sha256(provider_source).hexdigest(), "mask_sha":sha256(mask).hexdigest(),
+            "prompt_sha":sha256(prompt_bytes).hexdigest(), "provider_size":list(provider_size),
+            "source_context_sha":row["context_sha"], "original_crop":list(crop) if crop else None}
+        manifest_bytes = _json(input_manifest).encode()
+        atomic_write(folder/"input-manifest.json", manifest_bytes)
         fingerprint = {"protocol": PROTOCOL, "correction_id": row["correction_id"], "request_sha": row["request_sha"]}
         output, cost_receipt = flow._guarded(row["actor"], row["job_id"], "image", fingerprint,
-            lambda: _masked_provider(flow, row, source, mask, size, payload, transport), image=True, include_receipt=True)
+            lambda: _masked_provider(flow, row, provider_source, mask, provider_size, payload, transport), image=True, include_receipt=True)
         # Preserve original background exactly; only model pixels inside the ROI
         # enter the new artifact. No code draws or replaces any glyph.
         with Image.open(BytesIO(source)) as original, Image.open(BytesIO(output.image_bytes)) as generated:
             original = original.convert("RGB"); generated = generated.convert("RGB")
-            corrected = original.copy(); corrected.paste(generated.crop(box), box[:2])
+            if crop is not None:
+                generated = generated.resize((crop[2]-crop[0],crop[3]-crop[1]), Image.Resampling.LANCZOS)
+                patch = generated.crop((box[0]-crop[0],box[1]-crop[1],box[2]-crop[0],box[3]-crop[1]))
+            else:
+                patch = generated.crop(box)
+            corrected = original.copy(); corrected.paste(patch, box[:2])
             preview = _png(corrected)
             outside = Image.new("1", size, 1); ImageDraw.Draw(outside).rectangle((box[0],box[1],box[2]-1,box[3]-1), fill=0)
             original_out = Image.new("RGB",size); original_out.paste(original,mask=outside)
@@ -535,9 +580,10 @@ def run_image_correction_once(flow, *, transport=None, recover_only=False):
             "outside_region_pixel_count": size[0]*size[1]-(box[2]-box[0])*(box[3]-box[1]),
             "outside_region_preserved": True, "server_text_overlay": False, "provider_calls": 1,
             "provider_receipt": output.receipt, "cost_receipt": cost_receipt, "actual_usd": None,
+            "input_manifest_sha":sha256(manifest_bytes).hexdigest(), "provider_input_geometry":input_manifest,
             "billing_status": "UNPRICED", "preview_sha": sha256(preview).hexdigest(),
             "visual_text_fidelity": "HUMAN_REVIEW_PENDING", "label_ground_truth": "PENDING"}
-        if payload.get("edit_prompt_version") == "source-style-preserving-glyph-edit-v3":
+        if payload.get("edit_prompt_version") in ("source-style-preserving-glyph-edit-v3", "context-crop-glyph-edit-v4"):
             receipt.update(edit_prompt_version=payload["edit_prompt_version"], change_span=payload["change_span"],
                            source_size=payload["source_size"], style_note="HUMAN_STYLE_REVIEW_REQUIRED")
         folder = service.root / row["correction_id"]
