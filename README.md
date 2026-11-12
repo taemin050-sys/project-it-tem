@@ -9,7 +9,10 @@
 [**서비스 데모 접속하기**](https://macstudio-macstudio.tail17dfff.ts.net:10444/) · `2026.10.15 ~ 2026.11.13` · **5인 팀 프로젝트**
 
 > 데모 주소는 팀에서 공유한 링크입니다. Tailscale 네트워크 정책에 따라 외부 접속이 제한될 수 있으며, 현재 공개 접속 여부는 확인되지 않았습니다.
+>
 
+
+[**팀 노션 접속하기**](https://app.notion.com/p/_2-3fbb13f77dbd8040b6d3d15c809dfcd9?source=copy_link)
 ---
 
 ## 1. 프로젝트 소개
