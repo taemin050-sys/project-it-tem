@@ -490,13 +490,17 @@ def register_live_api(app:FastAPI, ledger, runtime_root:Path, cookie_name:str):
         try:flow.state.get(actor,job_id)
         except LiveGateError as e:raise safe_error(e) from None
         with queue.db() as db:
-            last=db.execute("""SELECT id,job_id,stage,state,error_code,mode
+            last=db.execute("""SELECT id,job_id,stage,state,error_code,mode,created_at,
+                MAX(0,CAST(strftime('%s','now') AS INTEGER)-
+                      CAST(strftime('%s',created_at) AS INTEGER)) AS age_seconds
                 FROM queued_ops WHERE actor=? AND job_id=?
                 ORDER BY created_at DESC,rowid DESC LIMIT 1""",
                 (actor,job_id)).fetchone()
         return {"task":({"task_id":last["id"],"job_id":last["job_id"],
                          "stage":last["stage"],"state":last["state"],
-                         "mode":last["mode"],"error_code":last["error_code"]}
+                         "mode":last["mode"],"error_code":last["error_code"],
+                         "created_at":last["created_at"],
+                         "age_seconds":last["age_seconds"]}
                         if last is not None else None)}
 
     @app.post(prefix+"/jobs/{job_id}/copy")
@@ -669,9 +673,13 @@ def register_live_api(app:FastAPI, ledger, runtime_root:Path, cookie_name:str):
         task=queue.read(task_id)
         if not task or task["actor"]!=actor:
             raise HTTPException(status_code=404,detail="Task not found")
+        with queue.db() as db:
+            age=db.execute("""SELECT MAX(0,CAST(strftime('%s','now') AS INTEGER)-
+                       CAST(strftime('%s',?) AS INTEGER))""",(task["created_at"],)).fetchone()[0]
         return {"task_id":task_id,"job_id":task["job_id"],"stage":task["stage"],
                 "state":task["state"],"mode":task["mode"],
-                "error_code":task["error_code"]}
+                "error_code":task["error_code"],"created_at":task["created_at"],
+                "age_seconds":age}
 
     @app.post(prefix+"/jobs/{job_id}/approve-image")
     def approve_image(job_id:str,body:ImageApproval,request:Request):

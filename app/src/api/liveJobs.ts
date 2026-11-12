@@ -124,7 +124,8 @@ export async function waitLiveTask(id:string,taskId:string,success:LiveStateExpe
   for(let i=0;i<maxPoll;i++){
     const task=await getLiveTask(taskId)
     if(task.job_id!==id)throw Error('LIVE_TASK_JOB_MISMATCH')
-    if(task.state==='BILLING_UNKNOWN')throw Error('청구 여부 불명확: 자동 재호출 금지. 담당자 확인이 필요합니다.')
+    if(task.state==='BILLING_UNKNOWN')throw Error('처리 기록 확인이 필요합니다. 자동 재호출하지 말고 내 작업 목록에서 상태를 확인해 주세요.')
+    if(task.state==='FAILED_PRE_DISPATCH')throw Error('승인 카피 출처 확인이 실패해 처리가 중단됐습니다. 자동 재호출하지 말고 담당자에게 알려주세요.')
     if(task.state==='SUCCEEDED'){
       const current=await getLiveSnapshot(id)
       if(current.state===success)return current

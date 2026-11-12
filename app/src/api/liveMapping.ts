@@ -26,7 +26,7 @@ export type LiveSnapshot={
   product_protection_status?:'MANUAL_REVIEW_REQUIRED'|'NOT_REVIEWED'
 }
 export type LiveTask={task_id:string;job_id:string;stage:string;state:
-  'QUEUED'|'RUNNING'|'SUCCEEDED'|'BILLING_UNKNOWN';error_code?:string|null}
+  'QUEUED'|'RUNNING'|'SUCCEEDED'|'BILLING_UNKNOWN'|'FAILED_PRE_DISPATCH';error_code?:string|null;created_at?:string;age_seconds?:number|null}
 export type LivePerformance={
   mode:'LIVE';timings:Array<{stage:string;state:string;server_elapsed_s:number|null}>;
   provider_attempts:Array<{stage:string;state:string;model:string|null;
