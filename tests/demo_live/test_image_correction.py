@@ -564,7 +564,12 @@ def test_model_matte_wire_uses_flat_specimen_and_separate_paid_receipt(repair,mo
         data={p.get_param('name',header='content-disposition'):p.get_payload(decode=True) for p in parts.iter_parts()};calls.append(data)
         assert data['size']==b'1536x1024'
         assert b'flat black-on-white' in data['prompt']
-        return httpx.Response(200,json={'data':[{'b64_json':base64.b64encode(data['image[]']).decode()}],
+        provider_png=data['image[]']
+        if legacy:
+            from PIL.PngImagePlugin import PngInfo
+            info=PngInfo();info.add_text('provider_metadata','raw response differs from normalized Owner asset')
+            encoded=BytesIO();Image.open(BytesIO(provider_png)).save(encoded,'PNG',pnginfo=info);provider_png=encoded.getvalue()
+        return httpx.Response(200,json={'data':[{'b64_json':base64.b64encode(provider_png).decode()}],
             'usage':{'input_tokens':5,'output_tokens':7,'total_tokens':12}},headers={'x-request-id':'mock-matte'})
     assert run_image_correction_once(flow,transport=OpenAIImagesAdapter(OpenAIImagesConfig(live_calls=False),transport=httpx.MockTransport(wire)))=='IMAGE_CORRECTION_REVIEW_REQUIRED'
     assert len(calls)==1
@@ -575,6 +580,12 @@ def test_model_matte_wire_uses_flat_specimen_and_separate_paid_receipt(repair,mo
     service.artifact(ACTOR,child,row['correction_id'],'preview',current['preview_sha'])
     if legacy:
         initial=attempts(flow);old_preview=current['preview_sha'];old_receipt=current['receipt_sha']
+        model_path=service.root/row['correction_id']/'provider-output.png';original_model=model_path.read_bytes()
+        modified=Image.open(BytesIO(original_model)).copy();modified.putpixel((0,0),(0,0,0))
+        changed=BytesIO();modified.save(changed,'PNG');model_path.write_bytes(changed.getvalue())
+        with pytest.raises(LiveGateError,match='IMAGE_CORRECTION_FIT_PROVIDER_CHANGED'):
+            service.fit_text(ACTOR,child,row['correction_id'],{'expected_revision':0,'expected_preview_sha':old_preview})
+        model_path.write_bytes(original_model)
         fit=service.fit_text(ACTOR,child,row['correction_id'],{'expected_revision':0,'expected_preview_sha':old_preview})
         assert fit['revision']==1 and fit['text_fit_available'] is False and attempts(flow)==initial
         assert (service.root/row['correction_id']/'receipts'/(old_receipt+'.json')).is_file()

@@ -17,3 +17,5 @@
 기존 미승인 AI 글자 분리 수정본은 `POST /demo/api/live/jobs/{job}/image-corrections/{id}/fit-text`로 추가 모델 호출 없이 재배치할 수 있다. 요청에는 현재 revision 및 preview SHA가 필요하다. 기존 Provider 결과와 영수증 및 CostLedger를 확인한 뒤 원본 Preview/Receipt를 콘텐츠 SHA 경로에 보존하고 새 Preview/Receipt와 revision을 생성한다. 새 영수증의 `local_text_fit.additional_provider_calls`는 0이며 기존 Provider 비용을 새로 계상하지 않는다. 새 결과도 REVIEW_REQUIRED이다. 완료·거절·오래된·다른 Actor의 수정본에는 적용할 수 없다.
 
 기존 운영 및 사용자 산출물은 공개 Git에 포함하지 않는다. 실제 검증 자료와 배포 SHA는 비공개 로컬 C-B 제출서에서 관리한다. CODE/FIXTURE/REAL/HUMAN/RELEASE는 별도이며 제품 상태는 NOT_RELEASE_READY이다.
+
+Native Owner 저장소의 정규화 PNG는 메타데이터 제거·재압축으로 Provider 응답 PNG와 바이트 SHA가 다를 수 있다. 원본 Provider Attempt 및 request SHA를 확인하고 저장소 AssetRef의 SHA를 검증한 뒤, 같은 정규화 규칙을 적용한 응답 픽셀을 대조한다. 콘텐츠 변경 거부와 메타데이터 차이 허용을 각각 회귀 검증한다. 추가 Provider 호출 없이 기존 미승인 수정본만 파생한다.

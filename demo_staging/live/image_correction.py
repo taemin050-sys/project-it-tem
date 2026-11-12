@@ -392,6 +392,8 @@ class ImageCorrections:
     def fit_text(self,actor,job_id,correction_id,body):
         from .glyph_matte import compose
         from src.image_generation.provider_attempts import ProviderAttemptStore
+        from src.image_generation.assets import LocalAssetStore
+        from src.image_generation.contracts import AssetRef
         with self.source_lock(actor,job_id),self.db() as db:
             db.execute('BEGIN IMMEDIATE');row=self._row(db,actor,job_id,correction_id)
             _,_,source,_=self._current(row);payload=self._validate_payload(row)
@@ -401,10 +403,21 @@ class ImageCorrections:
             folder=self.root/correction_id;old=self.candidate_path(row,'receipt').read_bytes();evidence=json.loads(old)
             if evidence.get('matte_report',{}).get('text_fit'):raise LiveGateError('IMAGE_CORRECTION_ALREADY_FITTED')
             model=(folder/'provider-output.png').read_bytes();manifest=(folder/'input-manifest.json').read_bytes()
-            owner=ProviderAttemptStore(self.flow.root/'owner_image/image_attempts.sqlite').get(UUID(correction_id),uuid5(self.flow.project_id,'image-correction/'+job_id))
+            project=uuid5(self.flow.project_id,'image-correction/'+job_id)
+            owner=ProviderAttemptStore(self.flow.root/'owner_image/image_attempts.sqlite').get(UUID(correction_id),project)
             if (not owner or owner['state']!='succeeded' or owner['attempt_id']!=evidence['provider_receipt']['attempt_id']
-                or owner['result']['image']['sha256']!=sha256(model).hexdigest()
+                or owner['request_hash']!=evidence['provider_receipt']['request_sha']
                 or sha256(manifest).hexdigest()!=evidence['input_manifest_sha']):
+                raise LiveGateError('IMAGE_CORRECTION_FIT_PROVIDER_CHANGED')
+            # Native Owner assets strip metadata and re-encode PNGs. Compare
+            # normalized pixels to that independently hash-verified asset, not
+            # raw response bytes to the normalized PNG's different byte SHA.
+            assets=LocalAssetStore(self.flow.root/'owner_image/image_assets')
+            verified=assets.read(AssetRef.model_validate(owner['result']['image']),project_id=project)
+            with Image.open(BytesIO(model)) as raw_model:
+                normalized=assets._normalize(raw_model)
+            if (normalized.mode!=verified.mode or normalized.size!=verified.size
+                or normalized.tobytes()!=verified.tobytes()):
                 raise LiveGateError('IMAGE_CORRECTION_FIT_PROVIDER_CHANGED')
             preview,report=compose(source,model,json.loads(manifest)['matte_geometry'],fit=True,lines=payload['target_text'].count('\n')+1)
             previous=self.candidate_path(row,'preview').read_bytes()
