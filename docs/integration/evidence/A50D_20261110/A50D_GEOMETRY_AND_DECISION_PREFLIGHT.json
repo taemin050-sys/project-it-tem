@@ -1,0 +1,119 @@
+{
+  "candidates": {
+    "A_EDITORIAL_CENTER": {
+      "approved_for_production": false,
+      "comparison_source_sha256": "800e162d6810b23811317792e68e4df545d04ac988baf2d9bfe87c4b22995f0c",
+      "cta_font_px_1080": 47,
+      "cta_font_px_on_360": 15.67,
+      "cta_region_1080": [
+        244,
+        1200,
+        836,
+        1280
+      ],
+      "cta_text_vs_button_bg_contrast_ratio": 10.933,
+      "cta_to_unverified_product_target_1080": 17,
+      "design_file": "A_EDITORIAL_CENTER.png",
+      "mock_sha256": "630ccd5f64e2d525a4562ef16677491e575256072261ac42abc2b395edb565de",
+      "platform_crop_safe_zone": "NOT_AUDITED",
+      "proposed_min_bottom_inset_pass": false,
+      "proposed_min_contrast_pass": true,
+      "proposed_min_font_pass": false,
+      "real_brand_label_protection": "NOT_AUDITED",
+      "safe_frame_bottom_inset_1080": 6,
+      "safe_frame_bottom_inset_360": 2.0
+    },
+    "B_EDITORIAL_LEFT": {
+      "approved_for_production": false,
+      "comparison_source_sha256": "800e162d6810b23811317792e68e4df545d04ac988baf2d9bfe87c4b22995f0c",
+      "cta_font_px_1080": 49,
+      "cta_font_px_on_360": 16.33,
+      "cta_region_1080": [
+        94,
+        1200,
+        810,
+        1280
+      ],
+      "cta_text_vs_button_bg_contrast_ratio": 6.767,
+      "cta_to_unverified_product_target_1080": 17,
+      "design_file": "B_EDITORIAL_LEFT.png",
+      "mock_sha256": "940634bfd74ea86b71b9d1624022874f6a72f552e9ecdd5cc5b84594e8a36693",
+      "platform_crop_safe_zone": "NOT_AUDITED",
+      "proposed_min_bottom_inset_pass": false,
+      "proposed_min_contrast_pass": true,
+      "proposed_min_font_pass": true,
+      "real_brand_label_protection": "NOT_AUDITED",
+      "safe_frame_bottom_inset_1080": 6,
+      "safe_frame_bottom_inset_360": 2.0
+    },
+    "C_CONTRAST_ACTION": {
+      "approved_for_production": false,
+      "comparison_source_sha256": "800e162d6810b23811317792e68e4df545d04ac988baf2d9bfe87c4b22995f0c",
+      "cta_font_px_1080": 50,
+      "cta_font_px_on_360": 16.67,
+      "cta_region_1080": [
+        68,
+        1198,
+        1012,
+        1282
+      ],
+      "cta_text_vs_button_bg_contrast_ratio": 9.964,
+      "cta_to_unverified_product_target_1080": 15,
+      "design_file": "C_CONTRAST_ACTION.png",
+      "mock_sha256": "ca63c30ab2fd98d98425c535b896898911ac9f72651d0f3f2230206de66b524b",
+      "platform_crop_safe_zone": "NOT_AUDITED",
+      "proposed_min_bottom_inset_pass": false,
+      "proposed_min_contrast_pass": true,
+      "proposed_min_font_pass": true,
+      "real_brand_label_protection": "NOT_AUDITED",
+      "safe_frame_bottom_inset_1080": 4,
+      "safe_frame_bottom_inset_360": 1.33
+    }
+  },
+  "canvas": [
+    1080,
+    1350
+  ],
+  "contract": "IT_TEM_P03_A5_0D_DECISION_PREFLIGHT_V1",
+  "findings": [
+    "ALL_MOCKS_INSUFFICIENT_BOTTOM_SAFE_INSET_AT_PROPOSED_12PX_360_THRESHOLD",
+    "A_MOCK_BELOW_PROPOSED_16PX_360_CTA_FONT_THRESHOLD",
+    "V2_PRODUCT_TARGET_NOT_A_DETECTED_PACKAGING_OR_LABEL_MASK",
+    "MODEL_FONT_AND_HUMAN_COMMERCIAL_QUALITY_NOT_AUDITED"
+  ],
+  "goals_proposed_not_approved": {
+    "mobile_reference_width": 360,
+    "proposed_cta_foreground_background_contrast_min": 4.5,
+    "proposed_cta_rendered_font_min_display_px": 16.0,
+    "proposed_safe_frame_bottom_inset_min_display_px": 12.0,
+    "threshold_authority": "PROPOSAL_ONLY_NOT_PM_APPROVED"
+  },
+  "owner_source_v3_implementation": "NOT_STARTED",
+  "product_target_unverified": [
+    466,
+    418,
+    611,
+    1183
+  ],
+  "recommendation_not_a_decision": {
+    "default_first_review": "A_EDITORIAL_CENTER",
+    "editorial_alternative": "B_EDITORIAL_LEFT",
+    "optional_promotional": "C_CONTRAST_ACTION"
+  },
+  "release": "NOT_RELEASE_READY",
+  "replayable_design_assets": "C_A50_DESIGN_MOCKS_REPRODUCIBLE_PROPOSAL_ACCEPTED",
+  "review_status": "OWNER_AND_PM_DECISION_PENDING",
+  "safe_frame_from_owner_v2": [
+    64,
+    64,
+    1016,
+    1286
+  ],
+  "source_audit_head": "3842db04123fc8a8c681a2bf50c90dc82464c143",
+  "source_audit_tree": "03e9d11eaa0d3e02d57f09367fa571f8d0a65580",
+  "source_copy_sha256": {
+    "cta": "29f1185e55a4d3499794d36ada72dda3556cb88a0bd220690a9e0811a5fbc0be",
+    "headline": "fed16d23a8dc3a78ffa55d4412e11866dc687b469f311d153779e67198bff807",
+    "subline": "ba116b354fb1441d0b11556547acc165d155f5389046a978ff814431248a28e6"
+  }
+}

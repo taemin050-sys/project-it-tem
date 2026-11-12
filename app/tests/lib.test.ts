@@ -1,8 +1,13 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { countChars, overLimits } from '../src/lib/copyLimits.ts'
+import { EMOJI_LEVELS } from '../src/types/textSchema.ts'
 import { fitWithin } from '../src/lib/shrinkImage.ts'
 import { validateImages } from '../src/lib/validateImages.ts'
+
+test('Owner Text #25 official emoji enum is transmitted as ProductInput, not ad_purpose prompt text', () => {
+  assert.deepEqual(EMOJI_LEVELS, ['없음','보통','많이'])
+})
 
 const limits = { minFiles: 2, maxFiles: 5, acceptTypes: ['image/png'] }
 const png = (name: string, size = 1) => new File([new Uint8Array(size)], name, { type: 'image/png' })

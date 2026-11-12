@@ -1,0 +1,62 @@
+{
+  "actor": "alice",
+  "approval_sha": "549c0c72ef9f1294c3b55c2a6fbbb69f1c8c2c211a0a0f128da10d814f59cc27",
+  "browser_actual_application": "OFFICIAL_REACT_FE",
+  "browser_flow_gate": "PASS",
+  "browser_screenshot_count": 12,
+  "browser_trace_sha256": "4472256573ab0df3843cdf9c45fc5fd09c96ea859f404f4c3030ee8584a5a082",
+  "caption_sha256": "a2269c826e49dd43406c281935c1fc411e720c278ef24b14f6f9c10ab109c839",
+  "composition_receipt_sha256": "67ea0d18c41beaf647687f861f0dcfdb83569fe8d940fdd23679ff7578d45f4d",
+  "contract": "IT_TEM_A42_OFFLINE_FIXTURE_EVIDENCE_VERIFICATION_V1",
+  "copy_policy_bindings": 1,
+  "copy_sha": "50c1dc6eba5029c8cb8355951aacf8dacd2012351447e198fa7efd5eeee2a98c",
+  "cost_attempt_rows": 0,
+  "download_verified": true,
+  "final_png_pixels": [
+    1080,
+    1920
+  ],
+  "final_png_sha256": "ac63755569a6dfe5b68ac84f26955f0ce91dfc0a0a68e7146e09e80ddb3c9d4d",
+  "gcp_qa_gate": "HOLD",
+  "generation": 3,
+  "generation_mode": "freeform",
+  "human_pm_visual_acceptance": "PENDING",
+  "image_attempt_ids": [
+    "2a5cd70a1aee40c397cfe71d1f0363f6",
+    "908b273f5f1b4be5bdee8c5a55fc396e"
+  ],
+  "image_attempt_shas": [
+    "05b35569f3c4cc2345a52a17e7e9f1c62ec6d5abac9f69ae855410fa398a949e",
+    "12f32838669aa8339b011f984630e90f8dc5d911d0217b6721f259fee5ac1d5f"
+  ],
+  "image_attempt_states": [
+    "REJECTED",
+    "COMPLETED"
+  ],
+  "image_attempt_versions": [
+    1,
+    2
+  ],
+  "image_size": "9:16",
+  "input_sha": "128296c5c4ab727878772937966b281cc127c0b4503ea3ea179cdd9c33af086a",
+  "job_id": "82aac024ee874ef28718840e47bae1dd",
+  "job_state": "COMPLETED",
+  "mode": "OFFLINE_FIXTURE",
+  "paid_worker": "HOLD",
+  "product_quality": {
+    "finding": "FREEFORM_FIXTURE_CANNOT_CERTIFY_GENERATED_KOREAN_COPY",
+    "gate": "HOLD",
+    "reason": "Browser fixture verifies functionality only. Freeform cannot prove model-drawn typography; 9:16 CTA owner/PM undecided; Composed 3:4 still needs visual/human assessment.",
+    "receipt_omitted_image_fields": []
+  },
+  "prompt_context_bindings": 1,
+  "prompt_sha": "615868424014d2e6cb47b397978e42aff7932f6cac480406dc630f6a96937c57",
+  "provider_calls": 0,
+  "provider_e2e": "NOT_AUDITED",
+  "queue_rows": 0,
+  "release": "NOT_RELEASE_READY",
+  "review_sha": "12cee96b0c0142fc0c25497b9e3d7cdbe855b6147019ff2d55a7614f96b51ca9",
+  "scenario": "A4-S06",
+  "scenario_id": "A4-S06",
+  "source_commit": "0a6ab598807f7bd29405d0d5ea983acd744c1b21"
+}

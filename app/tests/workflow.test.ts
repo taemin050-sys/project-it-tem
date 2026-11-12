@@ -23,8 +23,8 @@ test('제품 정보 검사: 누락 항목마다 해당 필드에 오류', () => 
   assert.deepEqual(Object.keys(errors).sort(), ['features', 'images', 'photo_verified', 'product_name', 'references'])
 })
 
-test('제품 정보 검사: 기능성 화장품은 기능성 종류를 하나 이상 골라야 한다', () => {
-  assert.deepEqual(Object.keys(validateProduct([png, png], [], { ...base, is_functional: true }, limits)), ['functional_types'])
+test('Owner Text v0.10: 기능성 여부만 선택해도 제출 가능하며 종류 선택은 선택 사항', () => {
+  assert.deepEqual(validateProduct([png, png], [], { ...base, is_functional: true }, limits), {})
   assert.deepEqual(validateProduct([png, png], [], { ...base, is_functional: true, functional_types: ['미백'] }, limits), {})
 })
 

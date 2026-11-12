@@ -1,0 +1,256 @@
+{
+  "9x16_cta_policy": "DECISION_PENDING_PM_OWNER",
+  "actual_a41_png_sha256": "a43bd648a8803a875d7199b9ca10af70fb585e9f2ed29431d5c516fa62e50179",
+  "candidate_base_original_1152_sha256": "2189010b94ed8ffaec7f2d66d61b0f3345b6396ed326f564fc70413ec07e9282",
+  "candidates": {
+    "A_EDITORIAL_CENTER": {
+      "CTA_one_instruction": true,
+      "cta_policy": "on_image_PROPOSAL_ONLY",
+      "decision": "PENDING_IMAGE_OWNER_AND_PM",
+      "design_rationale": "중앙 정렬·직관적 1차 메시지; 하단 명확한 CTA 버튼",
+      "mobile": {
+        "360": {
+          "cta_text_scaled_px": 15.67,
+          "file": "A_EDITORIAL_CENTER_mobile_360.png",
+          "pixels": [
+            360,
+            450
+          ],
+          "sha256": "f75f6a947be9896e7cfa87cb5fed871ffea49ef07fa2f47f5a58c585bee25971"
+        },
+        "390": {
+          "cta_text_scaled_px": 16.97,
+          "file": "A_EDITORIAL_CENTER_mobile_390.png",
+          "pixels": [
+            390,
+            488
+          ],
+          "sha256": "77f69bc4327dd2cf52ca9b6f0d04f7c2551438dbb2c6ab5897c478bf25c394da"
+        }
+      },
+      "pixels": [
+        1080,
+        1350
+      ],
+      "png": "A_EDITORIAL_CENTER.png",
+      "protected_target_unverified": [
+        466,
+        418,
+        611,
+        1183
+      ],
+      "sha256": "630ccd5f64e2d525a4562ef16677491e575256072261ac42abc2b395edb565de",
+      "text": {
+        "cta": {
+          "font_px": 47,
+          "region": [
+            244,
+            1200,
+            836,
+            1280
+          ],
+          "render_count": 1,
+          "text": "지금 만나보세요",
+          "text_sha256": "29f1185e55a4d3499794d36ada72dda3556cb88a0bd220690a9e0811a5fbc0be"
+        },
+        "headline": {
+          "font_px": 116,
+          "region": [
+            86,
+            86,
+            994,
+            218
+          ],
+          "text": "데일리 크림",
+          "text_sha256": "fed16d23a8dc3a78ffa55d4412e11866dc687b469f311d153779e67198bff807"
+        },
+        "subline": {
+          "font_px": 74,
+          "region": [
+            86,
+            246,
+            994,
+            390
+          ],
+          "text": "매일 촉촉한 사용감",
+          "text_sha256": "ba116b354fb1441d0b11556547acc165d155f5389046a978ff814431248a28e6"
+        }
+      },
+      "visual_quality": "NOT_HUMAN_ACCEPTED"
+    },
+    "B_EDITORIAL_LEFT": {
+      "CTA_one_instruction": true,
+      "cta_policy": "on_image_PROPOSAL_ONLY",
+      "decision": "PENDING_IMAGE_OWNER_AND_PM",
+      "design_rationale": "좌측 정렬·여백 중심 에디토리얼 구조; 브랜드 톤을 담는 아웃라인 CTA",
+      "mobile": {
+        "360": {
+          "cta_text_scaled_px": 16.33,
+          "file": "B_EDITORIAL_LEFT_mobile_360.png",
+          "pixels": [
+            360,
+            450
+          ],
+          "sha256": "ea7576066804eaad913686955ba43a9eceb4dd4078b4b992ca3a3dd5f180b7c4"
+        },
+        "390": {
+          "cta_text_scaled_px": 17.69,
+          "file": "B_EDITORIAL_LEFT_mobile_390.png",
+          "pixels": [
+            390,
+            488
+          ],
+          "sha256": "856a618e6963136f16c3256518888719acc55ee7fd001808783459f698841f69"
+        }
+      },
+      "pixels": [
+        1080,
+        1350
+      ],
+      "png": "B_EDITORIAL_LEFT.png",
+      "protected_target_unverified": [
+        466,
+        418,
+        611,
+        1183
+      ],
+      "sha256": "940634bfd74ea86b71b9d1624022874f6a72f552e9ecdd5cc5b84594e8a36693",
+      "text": {
+        "cta": {
+          "font_px": 49,
+          "region": [
+            94,
+            1200,
+            810,
+            1280
+          ],
+          "render_count": 1,
+          "text": "지금 만나보세요",
+          "text_sha256": "29f1185e55a4d3499794d36ada72dda3556cb88a0bd220690a9e0811a5fbc0be"
+        },
+        "headline": {
+          "font_px": 110,
+          "region": [
+            96,
+            90,
+            970,
+            216
+          ],
+          "text": "데일리 크림",
+          "text_sha256": "fed16d23a8dc3a78ffa55d4412e11866dc687b469f311d153779e67198bff807"
+        },
+        "subline": {
+          "font_px": 75,
+          "region": [
+            96,
+            242,
+            960,
+            392
+          ],
+          "text": "매일 촉촉한 사용감",
+          "text_sha256": "ba116b354fb1441d0b11556547acc165d155f5389046a978ff814431248a28e6"
+        }
+      },
+      "visual_quality": "NOT_HUMAN_ACCEPTED"
+    },
+    "C_CONTRAST_ACTION": {
+      "CTA_one_instruction": true,
+      "cta_policy": "on_image_PROPOSAL_ONLY",
+      "decision": "PENDING_IMAGE_OWNER_AND_PM",
+      "design_rationale": "고대비 하단 액션 바와 단정한 상단 위계, 시선 유도 우선",
+      "mobile": {
+        "360": {
+          "cta_text_scaled_px": 16.67,
+          "file": "C_CONTRAST_ACTION_mobile_360.png",
+          "pixels": [
+            360,
+            450
+          ],
+          "sha256": "8a67c1317576bada49d60d54d5d2f35b9fdf8f2fb12370c723dd7a865654f8ab"
+        },
+        "390": {
+          "cta_text_scaled_px": 18.06,
+          "file": "C_CONTRAST_ACTION_mobile_390.png",
+          "pixels": [
+            390,
+            488
+          ],
+          "sha256": "ab75b0c73715c914f921805b335028a086f145c97bc17a26d8c06354c9b3c64d"
+        }
+      },
+      "pixels": [
+        1080,
+        1350
+      ],
+      "png": "C_CONTRAST_ACTION.png",
+      "protected_target_unverified": [
+        466,
+        418,
+        611,
+        1183
+      ],
+      "sha256": "ca63c30ab2fd98d98425c535b896898911ac9f72651d0f3f2230206de66b524b",
+      "text": {
+        "cta": {
+          "font_px": 50,
+          "region": [
+            68,
+            1198,
+            1012,
+            1282
+          ],
+          "render_count": 1,
+          "text": "지금 만나보세요",
+          "text_sha256": "29f1185e55a4d3499794d36ada72dda3556cb88a0bd220690a9e0811a5fbc0be"
+        },
+        "headline": {
+          "font_px": 105,
+          "region": [
+            78,
+            84,
+            1002,
+            215
+          ],
+          "text": "데일리 크림",
+          "text_sha256": "fed16d23a8dc3a78ffa55d4412e11866dc687b469f311d153779e67198bff807"
+        },
+        "subline": {
+          "font_px": 72,
+          "region": [
+            84,
+            245,
+            996,
+            392
+          ],
+          "text": "매일 촉촉한 사용감",
+          "text_sha256": "ba116b354fb1441d0b11556547acc165d155f5389046a978ff814431248a28e6"
+        }
+      },
+      "visual_quality": "NOT_HUMAN_ACCEPTED"
+    }
+  },
+  "canvas": [
+    1080,
+    1350
+  ],
+  "contract": "IT_TEM_P03_A5_0_DESIGN_PROPOSALS_NOT_OWNER_APPROVED_V1",
+  "copy": {
+    "cta": "지금 만나보세요",
+    "headline": "데일리 크림",
+    "subline": "매일 촉촉한 사용감"
+  },
+  "copy_sha256": {
+    "cta": "29f1185e55a4d3499794d36ada72dda3556cb88a0bd220690a9e0811a5fbc0be",
+    "headline": "fed16d23a8dc3a78ffa55d4412e11866dc687b469f311d153779e67198bff807",
+    "subline": "ba116b354fb1441d0b11556547acc165d155f5389046a978ff814431248a28e6"
+  },
+  "fixture_base_scaled_sha256": "cd7ab3b023e29a5e903ad8d84a7b4b24b439d453c64384a343af6b9e944f0046",
+  "font_license": "MACOS_LOCAL_INTERNAL_DESIGN_ONLY_NOT_COMMERCIAL_CLEARANCE",
+  "font_sha256": "69071005e523e3a2bf276b35b0066f68a7ec0d942c860941ad188ef15ef69c51",
+  "font_source_path": "/System/Library/Fonts/Supplemental/AppleGothic.ttf",
+  "four_up_comparison_sha256": "800e162d6810b23811317792e68e4df545d04ac988baf2d9bfe87c4b22995f0c",
+  "owner_pm_approval": "DECISION_PENDING",
+  "product_region_status": "OWNER_LAYOUT_TARGET_ONLY_NOT_REAL_PRODUCT_SEGMENTATION",
+  "real_provider": "NOT_AUDITED",
+  "runtime_profile_implementation": "NOT_PERFORMED"
+}

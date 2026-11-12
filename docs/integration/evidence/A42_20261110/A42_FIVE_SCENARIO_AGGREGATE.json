@@ -1,0 +1,153 @@
+{
+  "contract": "IT_TEM_A42_FIVE_OFFICIAL_REACT_CHROME_FIXTURE_MANIFEST_V1",
+  "code_commit": "0a6ab598807f7bd29405d0d5ea983acd744c1b21",
+  "owner_pm_quality_acceptance": "PENDING",
+  "C_A42_DIFFERENTIAL_AUDIT": "PENDING",
+  "scenarios": [
+    {
+      "scenario": "A4-S02",
+      "mode": "composed",
+      "ratio": "3:4",
+      "output_pixels": [
+        1080,
+        1440
+      ],
+      "job_id": "b03bf2c85b9c456f87ce5c91e949d1e8",
+      "browser_functional": "PASS",
+      "steps": 15,
+      "screenshots": 12,
+      "image_attempt_versions": [
+        1,
+        2
+      ],
+      "image_attempt_states": [
+        "REJECTED",
+        "COMPLETED"
+      ],
+      "final_sha": "dc2ecd16a30eb4f11c49f1a495a3f7885027d90635f45864ceed78edc92df21e",
+      "caption_sha": "a2269c826e49dd43406c281935c1fc411e720c278ef24b14f6f9c10ab109c839",
+      "provider_calls": 0,
+      "queue_rows": 0,
+      "cost_attempt_rows": 0,
+      "product_quality": "OWNER_PM_3X4_VISUAL_DESIGN_REVIEW_PENDING",
+      "browser_trace_sha256": "537ce42f0bc35c26441f1950378f8242130809a137b345263e362bbf247cec6f"
+    },
+    {
+      "scenario": "A4-S03",
+      "mode": "composed",
+      "ratio": "9:16",
+      "output_pixels": [
+        1080,
+        1920
+      ],
+      "job_id": "f8bfb6c4809a46429bc7a35f95ac47fe",
+      "browser_functional": "PASS",
+      "steps": 15,
+      "screenshots": 12,
+      "image_attempt_versions": [
+        1,
+        2
+      ],
+      "image_attempt_states": [
+        "REJECTED",
+        "COMPLETED"
+      ],
+      "final_sha": "1521ff89376ca0fffbbaa420cb255458852b872f9ac63128ee12a2fecb77e81d",
+      "caption_sha": "a2269c826e49dd43406c281935c1fc411e720c278ef24b14f6f9c10ab109c839",
+      "provider_calls": 0,
+      "queue_rows": 0,
+      "cost_attempt_rows": 0,
+      "product_quality": "DECISION_PENDING_PM_OWNER_9X16_CTA",
+      "browser_trace_sha256": "555481c69cd09a59b95736182d528a5ad5ac0fdfdbf668760a5c98d36b988e5e"
+    },
+    {
+      "scenario": "A4-S04",
+      "mode": "freeform",
+      "ratio": "4:5",
+      "output_pixels": [
+        1080,
+        1350
+      ],
+      "job_id": "cf1bf8a1b708469eaf52aa8390667c48",
+      "browser_functional": "PASS",
+      "steps": 15,
+      "screenshots": 12,
+      "image_attempt_versions": [
+        1,
+        2
+      ],
+      "image_attempt_states": [
+        "REJECTED",
+        "COMPLETED"
+      ],
+      "final_sha": "9d6de84456ae9c19edf7b57e0492f4b1fa22e478a31c8f4b64a981c53f2c0059",
+      "caption_sha": "a2269c826e49dd43406c281935c1fc411e720c278ef24b14f6f9c10ab109c839",
+      "provider_calls": 0,
+      "queue_rows": 0,
+      "cost_attempt_rows": 0,
+      "product_quality": "FREEFORM_FIXTURE_CANNOT_CERTIFY_GENERATED_KOREAN_COPY",
+      "browser_trace_sha256": "8a9eaee70dffaa65902e3a9f10ede4a1d658aaa2fd379557ef37c69cfc17b284"
+    },
+    {
+      "scenario": "A4-S05",
+      "mode": "freeform",
+      "ratio": "3:4",
+      "output_pixels": [
+        1080,
+        1440
+      ],
+      "job_id": "d193341eb5284879af929960c676f4ad",
+      "browser_functional": "PASS",
+      "steps": 15,
+      "screenshots": 12,
+      "image_attempt_versions": [
+        1,
+        2
+      ],
+      "image_attempt_states": [
+        "REJECTED",
+        "COMPLETED"
+      ],
+      "final_sha": "79dcca23ad8985bb545ff71a6045ae39c21674d041c1f5c2749dddd247c22235",
+      "caption_sha": "a2269c826e49dd43406c281935c1fc411e720c278ef24b14f6f9c10ab109c839",
+      "provider_calls": 0,
+      "queue_rows": 0,
+      "cost_attempt_rows": 0,
+      "product_quality": "FREEFORM_FIXTURE_CANNOT_CERTIFY_GENERATED_KOREAN_COPY",
+      "browser_trace_sha256": "89d3365f400fdbea069dc04786482e7adef1473f5fbbcba6d354be0d809b915d"
+    },
+    {
+      "scenario": "A4-S06",
+      "mode": "freeform",
+      "ratio": "9:16",
+      "output_pixels": [
+        1080,
+        1920
+      ],
+      "job_id": "82aac024ee874ef28718840e47bae1dd",
+      "browser_functional": "PASS",
+      "steps": 15,
+      "screenshots": 12,
+      "image_attempt_versions": [
+        1,
+        2
+      ],
+      "image_attempt_states": [
+        "REJECTED",
+        "COMPLETED"
+      ],
+      "final_sha": "ac63755569a6dfe5b68ac84f26955f0ce91dfc0a0a68e7146e09e80ddb3c9d4d",
+      "caption_sha": "a2269c826e49dd43406c281935c1fc411e720c278ef24b14f6f9c10ab109c839",
+      "provider_calls": 0,
+      "queue_rows": 0,
+      "cost_attempt_rows": 0,
+      "product_quality": "FREEFORM_FIXTURE_CANNOT_CERTIFY_GENERATED_KOREAN_COPY",
+      "browser_trace_sha256": "4472256573ab0df3843cdf9c45fc5fd09c96ea859f404f4c3030ee8584a5a082"
+    }
+  ],
+  "succeeded": 5,
+  "expected": 5,
+  "real_provider": "NOT_AUDITED",
+  "paid_worker": "HOLD",
+  "gcp_qa": "HOLD"
+}

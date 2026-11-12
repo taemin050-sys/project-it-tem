@@ -1,0 +1,154 @@
+{
+  "all_source_bytes_equal_head": true,
+  "code_paths": {
+    "app/src/api/jobs.ts": {
+      "bytes": 2639,
+      "git_blob_oid_sha1": "0a470fa2532bbc94d13d945ac0bd081265e1b390",
+      "sha256": "2a4c52125f6765ba53d513e7bc4e50205ec76571a18a0ab29df4cadddfc11096"
+    },
+    "app/src/api/liveFlow.ts": {
+      "bytes": 6807,
+      "git_blob_oid_sha1": "edc003c3615d4deefc5aa375e65bd4e5ac7e0272",
+      "sha256": "63033c5a2da426531b1d20dd2b2a04d0be20f06b5ae9dbe12c5464d68dfd3bf4"
+    },
+    "app/src/api/liveJobs.ts": {
+      "bytes": 7626,
+      "git_blob_oid_sha1": "81e051c330f0f0fb4991dc03d91113a43084a91f",
+      "sha256": "68df79fed7226afa887d6103c7a1d67ec9bb55a306587231dd62282a009acd57"
+    },
+    "app/src/api/liveMapping.ts": {
+      "bytes": 8050,
+      "git_blob_oid_sha1": "26fecfde832c5b1f61e9d0d8ab7df9f221f1f9fc",
+      "sha256": "891d5dba1aa40dff4214b2040c91408fef43fe6bca99667e4d1c7b07a178a24f"
+    },
+    "app/src/api/singleImageContract.ts": {
+      "bytes": 945,
+      "git_blob_oid_sha1": "1e23d5588a4d85dba8352f62a6ff7bba335dfc44",
+      "sha256": "0a2a51e0b4af2bec0e33e22ce7263f0065d39b3bf68c9b112d68e0331731bc9b"
+    },
+    "app/src/api/useJob.ts": {
+      "bytes": 11669,
+      "git_blob_oid_sha1": "6165e3c481db98254d23d8f7a9495d7d596d5bb1",
+      "sha256": "ef371545523f0520f60a5e18bda5b86e76a70034b6f327b27f86ca0fea595362"
+    },
+    "app/src/api/verifiedBlob.ts": {
+      "bytes": 812,
+      "git_blob_oid_sha1": "c993f1306a48e045ac0215d637010eb138fda778",
+      "sha256": "744e9eddbf66c5a68b4059ac8f084eccebe08e6fe57745d4efb60a606de378f4"
+    },
+    "app/src/demo/DemoGate.tsx": {
+      "bytes": 5785,
+      "git_blob_oid_sha1": "19bf330e52f8bde71b18c1f8152213aa386f15dd",
+      "sha256": "47d33da079050494bfe60d6ac9d5cd473827242f3d3dc834864614e24ea6c1ef"
+    },
+    "app/src/pages/CopyPage.tsx": {
+      "bytes": 27099,
+      "git_blob_oid_sha1": "edda562cdd2828f5d3b8ae986350f29fd65db519",
+      "sha256": "99b8ac632a454a3166d1419baf8de054e4bb3a671215f32dd3b6f6ca261985ec"
+    },
+    "app/src/pages/DraftPage.tsx": {
+      "bytes": 12145,
+      "git_blob_oid_sha1": "7dfb2c327e9cf404966a07c23082bf1d029d011d",
+      "sha256": "d998b04941315fcdeef00aafa1061f46e9770e153783e7e3c2e2336b17987449"
+    },
+    "app/src/pages/ExportPage.tsx": {
+      "bytes": 10296,
+      "git_blob_oid_sha1": "ded52194e87b44aa0fd91b71042e92bab8755ebd",
+      "sha256": "929bb5ed5f06b92a926dcacb695e816bf2a01ee6b3aa70dd8d0d80aa3106bb84"
+    },
+    "app/src/pages/ProductPage.tsx": {
+      "bytes": 18095,
+      "git_blob_oid_sha1": "d5fe43bc8cfdfcfa9c186984919a0993dec38f89",
+      "sha256": "580c326a141535254f5a0863f42ec323c642e0f75a17faea1aeb22f7e27ea9d7"
+    },
+    "demo_staging/app.py": {
+      "bytes": 23603,
+      "git_blob_oid_sha1": "5c1e1b4f362fa2d1a1c907355d93d9504c651ede",
+      "sha256": "ddcb1171c26efbb0fa729671d0054fed3eaaaad25c78c9103da71996d1ccc1d2"
+    },
+    "demo_staging/live/checkpoints.py": {
+      "bytes": 6233,
+      "git_blob_oid_sha1": "a7efc5be6e60a145f10ba4c85d1ad115cf6cfd63",
+      "sha256": "723cc9819a5be7034d069076b372adbfff33611523a512289a463bcfba81367a"
+    },
+    "demo_staging/live/contracts.py": {
+      "bytes": 11541,
+      "git_blob_oid_sha1": "6fcc9d0cf320e4483902df554f4e24c49dac07fa",
+      "sha256": "07dd70a74a650797f948671474e4aff7b7514ac67cf95f9d4fb4fc6d6e094b59"
+    },
+    "demo_staging/live/http_api.py": {
+      "bytes": 44430,
+      "git_blob_oid_sha1": "4b959f716877fa5779d676813d7bc456b2b7e9cb",
+      "sha256": "5d2747774a39dee316504538f7120b4f411a5baba8a45e64b2749ab91f32f658"
+    },
+    "demo_staging/live/pipeline.py": {
+      "bytes": 38167,
+      "git_blob_oid_sha1": "5921096bf031d6fb3d6d71701cbfddd8103aa4e8",
+      "sha256": "123b1acc2b1f0a9cd36ee7f956c9a04f7bd10d7f3443e421a66cb122ee0d0d90"
+    },
+    "demo_staging/live/store.py": {
+      "bytes": 55966,
+      "git_blob_oid_sha1": "6d44000be13f7a45e8a571247b7c2df4f4592c5b",
+      "sha256": "3139fcc25634fe3d55eaf394bcab2dc6db88d808e95e9cb0980de86bf1ba3a88"
+    },
+    "demo_staging/live/worker.py": {
+      "bytes": 14353,
+      "git_blob_oid_sha1": "a859643783f39b6ee80a68ba34ce0f5caf973b34",
+      "sha256": "e63648214626970b4cc4c9649771acaf5eab738ae8db78fd944ccd418d613921"
+    },
+    "src/image_generation/backend_adapter.py": {
+      "bytes": 19268,
+      "git_blob_oid_sha1": "09fa2780d693069d1406ebed88d72c1ce2e6592c",
+      "sha256": "46204aacc7d953147c7a0848c8798c5700e14d91a7075a087fac4100ce9e0429"
+    },
+    "src/image_generation/candidate_export.py": {
+      "bytes": 4586,
+      "git_blob_oid_sha1": "c1d108b22f3d55b6279f4b111184591bc5d8fdd7",
+      "sha256": "f868e1fbcd0e7e3f78fb16afcd6838f3f7285e30dde013ea784fedcc99138523"
+    },
+    "src/image_generation/composition.py": {
+      "bytes": 15120,
+      "git_blob_oid_sha1": "c61a6b591b51ee0ab56daf034880f36bf8f665d3",
+      "sha256": "f4151529054536f0e9a8560f72d16c6ea09c21c03e2418ed622365fcfdc68e4b"
+    },
+    "src/text_generation/compliance/rule_checker.py": {
+      "bytes": 8228,
+      "git_blob_oid_sha1": "c606c0bd1f2516bc6c0e39a2892cfb51b31f3125",
+      "sha256": "24628d87cc342ce9789beb57c01cd4336214ac7f5ef11bf96e91e5b5b4ebe3b0"
+    },
+    "src/text_generation/copy_generator.py": {
+      "bytes": 33180,
+      "git_blob_oid_sha1": "4a90d8c3373718402cb3f9854e0bb072acced2a2",
+      "sha256": "839abd9329ebf4a3497a54f4bcd1807f8af6fbe9443c18d0f0b6647cc2d01f5a"
+    },
+    "src/text_generation/product_analyzer.py": {
+      "bytes": 3997,
+      "git_blob_oid_sha1": "e82b311bf837ecdb6536a3f01bcd875a48de81ee",
+      "sha256": "c46c1cb5693ae0afc256220185b5046a4e1dd82ddb6cc3cb80cf61196d0f049a"
+    },
+    "src/text_generation/researcher.py": {
+      "bytes": 10709,
+      "git_blob_oid_sha1": "4d5cb63385010416714b013f0a874880872daa94",
+      "sha256": "ba380207c90ee46181ad262dfc4b0cc8c3619ad045fb1ae666b17b109fb4b653"
+    }
+  },
+  "contract": "IT_TEM_P03_A4_0_READ_ONLY_SOURCE_EVIDENCE_V1",
+  "official_product_browser_e2e": "NOT_AUDITED",
+  "owner_original_independent_recompare_at_A40": "NOT_EXECUTED",
+  "owner_priority": [
+    "FE_PR26",
+    "TEXT_PR27",
+    "IMAGE_PR24",
+    "SERVING_ADAPTER"
+  ],
+  "owner_source_commit_refs": {
+    "FE_PR26": "c9c204b88af5ce1b25dfda501d16446750a41204",
+    "IMAGE_PR24": "b3ee33fd524fbbb83890472be890c96974160e9c",
+    "TEXT_PR27": "33c46b765c17b8f028553c343124f29de2969382"
+  },
+  "paid_worker": "HOLD",
+  "real_provider_e2e": "NOT_AUDITED",
+  "source_commit": "164f592fbd0399c1c464b8ddd0df091d786c3b0e",
+  "source_count": 26,
+  "source_tree": "baf61ce83d5592b7bddeae93cf8ee00badd98551"
+}

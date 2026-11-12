@@ -1,5 +1,6 @@
 """Opt-in shared LIVE result evaluation; no raw inputs or owner job rights."""
 from pathlib import Path
+from datetime import datetime,timezone
 import sqlite3,re
 from .contracts import LiveGateError
 
@@ -16,6 +17,26 @@ class LiveShares:
                 shared_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
             );
             """)
+    @staticmethod
+    def utc_iso8601(value: str | None) -> str | None:
+        """Convert only the known SQLite CURRENT_TIMESTAMP wire format.
+
+        The table's canonical producer is LiveShares.publish. No inference is
+        made for arbitrary timestamps, invalid calendar dates, or offsets.
+        Return None so consumers fail closed rather than guessing a timezone.
+        """
+        if not isinstance(value, str) or not re.fullmatch(
+            r"[0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2}:[0-9]{2}", value
+        ):
+            return None
+        try:
+            parsed = datetime.strptime(value, "%Y-%m-%d %H:%M:%S")
+        except ValueError:
+            return None
+        return parsed.replace(tzinfo=timezone.utc).isoformat(
+            timespec="seconds"
+        ).replace("+00:00", "Z")
+
     def db(self):
         db=sqlite3.connect(self.path,timeout=15)
         db.execute("PRAGMA busy_timeout=15000")

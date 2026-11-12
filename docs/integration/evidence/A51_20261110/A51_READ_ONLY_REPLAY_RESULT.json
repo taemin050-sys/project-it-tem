@@ -1,0 +1,31 @@
+{
+  "result": "A51_A_AND_C_OFFLINE_CHROME_EVIDENCE_PASS",
+  "code_sha": "3db1c124e0c9e56844d249a480f0cbf60aec5fb1",
+  "code_tree": "55315f45e5876b074ede64d9832eebae764a6487",
+  "independent_c_a": "PENDING",
+  "gcp": "NOT_DEPLOYED",
+  "real_provider": "NOT_AUDITED",
+  "commercial_release_ready": false,
+  "profiles": [
+    {
+      "profile": "A",
+      "job": "26cc2d72c0824dcd8457be04e01196d7",
+      "final_sha": "52b05579276f65b1d142bb04e7bf53b3ab8be21f33370275af75bb32d8f329e2",
+      "caption_sha": "a2269c826e49dd43406c281935c1fc411e720c278ef24b14f6f9c10ab109c839",
+      "owner_receipt_sha": "295e72fe6ce329c6d5b14ee97c6252d635f3d59c46bf1b63847c5fcd971c19f1",
+      "layout_sha": "e4a4f09499b0add2b3189b349c1c710bb698db821268a6dbbb0cdcf4f9c3158f",
+      "steps": 15,
+      "screenshots": 12
+    },
+    {
+      "profile": "C",
+      "job": "6e82503cbd0444dd93913f99c03c0428",
+      "final_sha": "f49fc2947d893c4d44bb141553192e02e2813b135cc88ef88536670367e96c22",
+      "caption_sha": "a2269c826e49dd43406c281935c1fc411e720c278ef24b14f6f9c10ab109c839",
+      "owner_receipt_sha": "d045a8765c13f6aae9a121d06d91046fc0088fba3107460aabb82ff65fb77ba9",
+      "layout_sha": "277e0a0f748bfa07d3bc6abd5085375df8935fef89af918b52f67c20f9dd4d90",
+      "steps": 15,
+      "screenshots": 12
+    }
+  ]
+}

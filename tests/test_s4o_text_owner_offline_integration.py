@@ -1,4 +1,7 @@
-"""Official Text v0.8 + Image Owner + PR#10 Offline bridge integration.
+"""Official Text Owner DTO and PR#10 Image offline bridge integration.
+
+This test was introduced with v0.8. It is re-pinned to merged Owner PR #27 v0.11,
+while all original fail-closed contract cases remain enforced.
 
 On dev alone, these integrations SKIP (never count as integrated PASS).
 In an isolated combined checkout, NO SKIP is acceptable. No OpenAI/API calls.
@@ -34,7 +37,10 @@ from src.serving.text_v08_mapper import (
     TextBoundaryError, prepare_offline_stage, verify_analysis, verify_research,
 )
 
-OWNER_SCHEMA_SHA256 = "051aab8b02d461b4d8787053e6af6dfc1267acbd48fd0304ff0f4f090bac18f7"
+# Original v0.8 historical schema hash (not the current Owner source).
+LEGACY_V08_SCHEMA_SHA256 = "051aab8b02d461b4d8787053e6af6dfc1267acbd48fd0304ff0f4f090bac18f7"
+# Official merged Text Owner #27 (33c46b76), source blob 19fdbe5a641d...
+OWNER_SCHEMA_SHA256 = "8ee6f48a8df0ad8d7c0ecd0ec9123cb12ce6752fccc524578c23827edd3c191b"
 FIX = Path(__file__).resolve().parents[1] / "docs/contracts/fixtures"
 
 
@@ -86,7 +92,7 @@ def layout():
     }
 
 
-def test_v08_official_models_and_strict_no_coercion():
+def test_owner_official_models_and_strict_no_coercion():
     assert hashlib.sha256(Path(text_owner.__file__).read_bytes()).hexdigest() == OWNER_SCHEMA_SHA256
     a,r,c,p = official_inputs()
     assert verify_analysis(a, model=text_owner.ProductAnalysisResult).image_owner_input["analysis_succeeded"] is True
@@ -101,7 +107,7 @@ def test_v08_official_models_and_strict_no_coercion():
     assert "src.text_generation.llm_client" not in __import__("sys").modules
 
 
-def test_v08_research_default_error_is_backward_compatible():
+def test_owner_research_default_error_is_backward_compatible():
     legacy=f("research_result_no_search.json")
     legacy.pop("error",None)
     parsed=text_owner.ResearchResult.model_validate(legacy,strict=True)
@@ -123,7 +129,7 @@ def test_image_owner_error_excluded_during_dump_still_blocks():
     assert denied.value.code == "VLM_FAILED"
 
 
-def test_v08_research_error_fallback_is_not_cosmetic_failure():
+def test_owner_research_error_fallback_is_not_cosmetic_failure():
     a,r,c,p=official_inputs()
     r.error="temporary provider issue"
     r.research_performed=False
@@ -197,7 +203,7 @@ def test_s4_stage_mutation_cannot_reach_pr10_stage_copy(tmp_path, mutate):
 
 
 @pytest.mark.parametrize("revision",["1",1])
-def test_real_v08_owner_through_existing_pr10_offline_image_flow(tmp_path,revision):
+def test_real_current_owner_owner_through_existing_pr10_offline_image_flow(tmp_path,revision):
     assert hashlib.sha256(Path(text_owner.__file__).read_bytes()).hexdigest() == OWNER_SCHEMA_SHA256
     source = official_inputs()
     stage=prepare_offline_stage(*source,owner_schemas=text_owner,copy_revision=revision)

@@ -1,0 +1,117 @@
+{
+  "a5_1_implementation_authorized": false,
+  "approval_state": "DRAFT_NOT_APPROVED",
+  "binding_target": {
+    "actual_product_protection_contract": null,
+    "approved_typography": null,
+    "aspect_ratio": "4:5",
+    "bound_fields": [
+      "job_id",
+      "actor",
+      "input_sha",
+      "copy_sha",
+      "review_sha",
+      "generation",
+      "approval_sha",
+      "policy_epoch",
+      "image_attempt_id",
+      "image_attempt_version",
+      "image_sha",
+      "prompt_context_sha",
+      "profile_id",
+      "profile_version",
+      "layout_sha",
+      "font_sha256",
+      "font_license_evidence_sha256",
+      "composition_receipt_sha256",
+      "final_png_sha256",
+      "caption_sha256",
+      "source_commit",
+      "runtime_build_sha"
+    ],
+    "copy_sha256": {
+      "cta": "29f1185e55a4d3499794d36ada72dda3556cb88a0bd220690a9e0811a5fbc0be",
+      "headline": "fed16d23a8dc3a78ffa55d4412e11866dc687b469f311d153779e67198bff807",
+      "subline": "ba116b354fb1441d0b11556547acc165d155f5389046a978ff814431248a28e6"
+    },
+    "cta_expected_render_count": 1,
+    "cta_placement": "image",
+    "fail_closed_on_unresolved": true,
+    "final_canvas_px": [
+      1080,
+      1350
+    ],
+    "generation_mode": "composed",
+    "layout_boxes_ltrb": null,
+    "mobile_crop_and_safe_zone_contract": null
+  },
+  "commercial_font": {
+    "candidates_for_legal_review_not_adopted": [
+      {
+        "family": "Pretendard",
+        "license": "SIL-OFL-1.1",
+        "publisher_license_url": "https://github.com/orioncactus/pretendard/blob/main/LICENSE",
+        "status": "UPSTREAM_LICENSE_FOUND_NO_PINNED_FONT_BINARY"
+      },
+      {
+        "family": "Noto Sans CJK KR",
+        "license": "SIL-OFL-1.1 (verify exact release)",
+        "publisher_license_url": "https://github.com/notofonts/noto-cjk",
+        "status": "UPSTREAM_LICENSE_FOUND_NO_PINNED_FONT_BINARY"
+      }
+    ],
+    "family": null,
+    "file_sha256": null,
+    "license_evidence_sha256": null,
+    "server_runtime_distribution_cleared": false,
+    "weight": null
+  },
+  "contract": "IT_TEM_P03_PROFILE_V3_PROPOSAL_ENVELOPE_V1",
+  "design_revision_required_before_approval": true,
+  "document_type": "DRAFT_REVIEW_ONLY_NON_EXECUTABLE",
+  "effective_policy_epoch": null,
+  "image_owner_source_commit": null,
+  "legacy_preservation": {
+    "9x16_cta_policy": "DECISION_PENDING_PM_OWNER",
+    "automatic_migration": "FORBIDDEN",
+    "automatic_rebill_or_provider_retry": "FORBIDDEN",
+    "existing_completed_job": "IMMUTABLE",
+    "freeform_server_overlay": "FORBIDDEN",
+    "in_flight_v2_job": "PRESERVE_FROZEN_V2",
+    "new_4x5_composed_after_effective_policy_epoch": "NEW_V3_ONLY_IF_SIGNED",
+    "other_modes_and_ratios": "UNCHANGED",
+    "rollback": "REVERT_NEW_JOB_ROUTE_TO_V2_ONLY_AFTER_PM_APPROVAL"
+  },
+  "mock_sha_candidates": {
+    "A_EDITORIAL_CENTER": "630ccd5f64e2d525a4562ef16677491e575256072261ac42abc2b395edb565de",
+    "B_EDITORIAL_LEFT": "940634bfd74ea86b71b9d1624022874f6a72f552e9ecdd5cc5b84594e8a36693",
+    "C_CONTRAST_ACTION": "ca63c30ab2fd98d98425c535b896898911ac9f72651d0f3f2230206de66b524b"
+  },
+  "owner_image24_signoff": null,
+  "owner_pm_signed": false,
+  "pm_signoff": null,
+  "prioritization_only": {
+    "default_first_review": "A_EDITORIAL_CENTER",
+    "editorial_alternative": "B_EDITORIAL_LEFT",
+    "optional_promotional": "C_CONTRAST_ACTION"
+  },
+  "profile_id": null,
+  "profile_json_sha256": null,
+  "profile_version": null,
+  "required_gates_for_a5_1": [
+    "D50-02",
+    "D50-03",
+    "D50-04",
+    "D50-05",
+    "D50-06",
+    "D50-07",
+    "D50-09"
+  ],
+  "safety": {
+    "gcp_qa_deployment": "HOLD",
+    "paid_worker_authorization": "HOLD",
+    "product_release": "NOT_RELEASE_READY"
+  },
+  "selected_profile": null,
+  "source_audit_head": "3842db04123fc8a8c681a2bf50c90dc82464c143"
+}

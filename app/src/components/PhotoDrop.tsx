@@ -1,13 +1,15 @@
-import { useState, type DragEvent } from 'react'
+import { useState } from 'react'
 import { useObjectUrls } from '../lib/useObjectUrls'
 import { validateImages, type Limits } from '../lib/validateImages'
-import Icon from './Icon'
+import {hasMpoPrimarySignature,isMpoFile} from '../lib/mpo'
+import {A51E_SIGNED_BETA_CANDIDATE,isPendingMpo} from '../lib/a51eSignedBeta'
+import {A51D_MPO_FIXTURE, requiresMpoFixtureSelection, inspectMpoFixture,
+  confirmMpoFixtureFrame, confirmedMpoChoice, type PreviewReceipt
+} from '../lib/a51dMpoSelection'
 
 type Props = {
   id: string
   title: string
-  /** product: 드롭존 + 정사각 썸네일, reference: 추가 줄 + 4:3 썸네일 (시안 1단계) */
-  variant: 'product' | 'reference'
   limits: Limits
   hint: string
   files: File[]
@@ -16,76 +18,182 @@ type Props = {
   onError: (message: string | undefined) => void
 }
 
-// 제품 사진·배경 참고 사진이 같이 쓰는 업로드 카드
-export default function PhotoDrop({ id, title, variant, limits, hint, files, error, onChange, onError }: Props) {
-  const [dragOver, setDragOver] = useState(false)
-  const previews = useObjectUrls(files)
-  const full = files.length >= limits.maxFiles
-  const product = variant === 'product'
+const formatSize = (bytes: number) =>
+  bytes >= 1024 * 1024 ? `${(bytes / 1024 / 1024).toFixed(1)}MB` : `${Math.max(1, Math.round(bytes / 1024))}KB`
 
-  function add(list: FileList | null) {
+// 제품 사진·배경 참고 사진이 같이 쓰는 드롭존 + 썸네일 목록
+export default function PhotoDrop({ id, title, limits, hint, files, error, onChange, onError }: Props) {
+  const [dragOver, setDragOver] = useState(false)
+  const [confirmBusy, setConfirmBusy] = useState(false)
+  // In this *OFFLINE_FIXTURE* build an MPO source requires an actual preview
+  // selection before appearing in the product input. No silent frame-zero.
+  const [pending, setPending] = useState<{
+    next: File[]
+    items: { file: File; receipt: PreviewReceipt }[]
+    selected: Record<number, number>
+  }>()
+  const previews = useObjectUrls(files)
+
+  const full = files.length >= limits.maxFiles
+  const required = limits.minFiles > 0
+
+  async function add(list: FileList | null) {
     if (!list || list.length === 0) return
     const next = [...files, ...Array.from(list)]
     // 개수 미달은 제출 시점에만 알린다
     const errs = validateImages(next, { ...limits, minFiles: 0 }, title)
     onError(errs.length > 0 ? errs.join(' ') : undefined)
-    if (errs.length === 0) onChange(next)
+    if(errs.length)return
+    // Until Image Owner/FE/PM sign the MPO contract, Beta must never
+    // quietly choose frame zero. Browser may not detect late APP2 markers;
+    // server also reopens full original bytes and rejects actual MPO.
+    if (A51E_SIGNED_BETA_CANDIDATE) {
+      try {
+        for (const file of next) {
+          if (await isPendingMpo(file)) {
+            onError('선택한 사진 파일 하나에 여러 이미지가 포함된 형식(MPO)이어서 업로드할 수 없습니다. 휴대폰 갤러리에서 원하는 사진을 일반 JPG 또는 PNG 파일로 저장한 뒤 다시 업로드해 주세요.')
+            return
+          }
+        }
+      } catch {
+        onError('MPO 사진 형식을 확인할 수 없습니다. 다른 사진을 선택해 주세요.')
+        return
+      }
+    }
+    for(const file of next){
+      if(isMpoFile(file) && !(await hasMpoPrimarySignature(file))){
+        onError(file.name+': MPO 사진의 MPF 구조가 올바르지 않습니다. JPEG로 변환해 주세요.')
+        return
+      }
+    }
+    if (A51D_MPO_FIXTURE) {
+      try {
+        const items: { file: File; receipt: PreviewReceipt }[] = []
+        for (const f of next) {
+          if (await requiresMpoFixtureSelection(f) && !confirmedMpoChoice(f)) {
+            items.push({file: f, receipt: await inspectMpoFixture(f)})
+          }
+        }
+        if (items.length) {
+          setPending({next, items, selected: {}})
+          return
+        }
+      } catch {
+        onError('MPO 프레임 미리보기를 가져오지 못했습니다. 다시 선택해 주세요.')
+        return
+      }
+    }
+    setPending(undefined)
+    onChange(next)
   }
-  const drop = {
-    onDragOver: (e: DragEvent) => { e.preventDefault(); setDragOver(true) },
-    onDragLeave: () => setDragOver(false),
-    onDrop: (e: DragEvent) => { e.preventDefault(); setDragOver(false); add(e.dataTransfer.files) },
+
+  async function confirmPending() {
+    if (!pending || confirmBusy ||
+        pending.items.some((_, i) => pending.selected[i] === undefined)) return
+    setConfirmBusy(true)
+    try {
+      for (let i=0;i<pending.items.length;i++) {
+        const {file,receipt}=pending.items[i]
+        await confirmMpoFixtureFrame(file,receipt,pending.selected[i])
+      }
+      onError(undefined)
+      onChange(pending.next)
+      setPending(undefined)
+    } catch {
+      onError('서버에서 MPO 프레임 선택을 확인하지 못했습니다. 사진을 다시 선택해 주세요.')
+      setPending(undefined)
+    } finally {
+      setConfirmBusy(false)
+    }
   }
-  const input = (
-    <input id={id} type="file" className="visually-hidden" accept={limits.acceptTypes.join(',')} multiple disabled={full}
-      aria-describedby={[`${id}-hint`, error && `${id}-error`].filter(Boolean).join(' ')} aria-invalid={Boolean(error)}
-      onChange={(e) => { add(e.target.files); e.target.value = '' }} />
-  )
 
   return (
-    <section className="card" aria-labelledby={`${id}-title`}>
-      <div className="card-head">
-        <h2 id={`${id}-title`} className="card-title headline-sm">
-          <Icon name={product ? 'photo_library' : 'palette'} className={product ? 'text-primary' : 'text-secondary'} />
-          {title}{product && <span className="req" aria-label="필수">*</span>}
-        </h2>
-        <span className={product ? 'tag tag-primary' : 'tag tag-secondary'}>
-          {files.length} / {limits.maxFiles}장 {product ? `(필수 ${limits.minFiles}장 이상)` : '(선택)'}
-        </span>
+    <section className="panel" aria-labelledby={`${id}-title`}>
+      <div className="panel-head">
+        <h2 id={`${id}-title`} className="panel-title">{title} <span className="field-tag">{required ? '필수' : '선택'}</span></h2>
+        <span className="panel-meta">{files.length} / {limits.maxFiles}장</span>
       </div>
-      <p id={`${id}-hint`} className="body-sm text-variant">{hint}</p>
-
-      {product
-        ? (
-          <label htmlFor={id} className={['dropzone', dragOver && 'drag-over', full && 'is-full', error && 'has-error'].filter(Boolean).join(' ')} {...drop}>
-            {input}
-            <span className="drop-icon"><Icon name="cloud_upload" /></span>
-            <span className="label-md">
-              {full ? `사진 ${limits.maxFiles}장을 모두 올렸습니다` : <>제품 사진 끌어다 놓기 또는 <span className="drop-link">파일 찾기</span></>}
-            </span>
-            <span className="body-sm text-variant">JPG, PNG, WEBP (큰 사진은 자동으로 줄여서 올립니다)</span>
-          </label>
-        )
-        : (
-          <label htmlFor={id} className={['ref-row', error && 'has-error'].filter(Boolean).join(' ')} {...drop}>
-            {input}
-            <span className="ref-row-label"><Icon name="add_photo_alternate" />{full ? `사진 ${limits.maxFiles}장을 모두 올렸습니다` : '무드보드 레퍼런스 추가하기'}</span>
-            {!full && <span className="ref-row-btn" aria-hidden="true">+ 파일 선택</span>}
-          </label>
-        )}
+      <label
+        htmlFor={id}
+        className={['dropzone', dragOver && 'drag-over', full && 'is-full', error && 'has-error'].filter(Boolean).join(' ')}
+        onDragOver={(e) => { e.preventDefault(); setDragOver(true) }}
+        onDragLeave={() => setDragOver(false)}
+        onDrop={(e) => { e.preventDefault(); setDragOver(false); void add(e.dataTransfer.files) }}
+      >
+        <input
+          id={id}
+          type="file"
+          className="visually-hidden"
+          accept={limits.acceptTypes.join(',')}
+          multiple
+          disabled={full}
+          aria-describedby={[`${id}-hint`, error && `${id}-error`].filter(Boolean).join(' ')}
+          aria-invalid={Boolean(error)}
+          onChange={(e) => {
+            void add(e.target.files)
+            e.target.value = ''
+          }}
+        />
+        <span className="dropzone-title">
+          {full ? `사진 ${limits.maxFiles}장을 모두 올렸습니다` : '사진을 끌어다 놓거나 클릭해서 선택하세요'}
+        </span>
+        <span id={`${id}-hint`} className="field-hint">{hint}</span>
+        {!full && <span className="button secondary small" aria-hidden="true">파일 선택</span>}
+      </label>
       {error && <p id={`${id}-error`} className="field-error">{error}</p>}
+      {A51D_MPO_FIXTURE && pending && (
+        <section aria-label="MPO 프레임 직접 선택" className="panel">
+          <p>이 사진은 여러 프레임이 있는 MPO입니다. 광고에 사용할 프레임을 직접 확인하고 선택하세요.</p>
+          {pending.items.map(({file, receipt}, i) => (
+            <div key={i}>
+              <p>{file.name} — {receipt.source_frame_count}개 프레임</p>
+              <div className="thumbs">
+                {receipt.frames.map(frame => (
+                  <button key={frame.index} type="button" className="button secondary small"
+                    aria-pressed={pending.selected[i] === frame.index}
+                    onClick={() => setPending(prev => prev
+                      ? {...prev, selected: {...prev.selected, [i]: frame.index}} : prev)}>
+                    <img src={frame.preview_data_uri}
+                      alt={`${file.name} 프레임 ${frame.index+1} 선택 미리보기`}
+                      width={140} height={140} style={{objectFit:'contain'}}/>
+                    <span>프레임 {frame.index+1}{pending.selected[i]===frame.index ? ' · 선택됨' : ''}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          ))}
+          <button type="button" className="button"
+            disabled={confirmBusy || pending.items.some((_, i) => pending.selected[i] === undefined)}
+            onClick={() => void confirmPending()}>
+            {confirmBusy ? '선택 확인 중…' : '선택한 프레임 확정'}
+          </button>
+          <button type="button" className="button secondary"
+            onClick={() => setPending(undefined)}>취소</button>
+        </section>
+      )}
 
       {files.length > 0 && (
-        <ul className={product ? 'thumb-grid' : 'thumb-grid ref'} aria-label={`추가한 ${title}`}>
+        <ul className="thumbs" aria-label={`추가한 ${title}`}>
           {files.map((file, i) => (
             <li key={`${i}-${file.name}`} className="thumb">
-              {previews[i] && <img src={previews[i]} alt={`${title} ${i + 1}`} />}
-              {product && i === 0 && <span className="thumb-badge">대표 이미지</span>}
-              <button type="button" className="thumb-del" aria-label={`${title} ${i + 1} 삭제`}
-                onClick={() => onChange(files.filter((_, j) => j !== i))}>
-                <Icon name="close" />
+              {A51D_MPO_FIXTURE && confirmedMpoChoice(file) &&
+                <img src={confirmedMpoChoice(file)!.preview_data_uri} alt={`${title} ${i + 1} — 선택한 프레임`}/>}
+              {previews[i] && !confirmedMpoChoice(file) && !isMpoFile(file) &&
+                <img src={previews[i]} alt={`${title} ${i + 1}`}/>}
+              {isMpoFile(file) && !confirmedMpoChoice(file) &&
+                <span className="muted" aria-label="레거시 MPO 첫 프레임 변환">MPO · 서버에서 첫 프레임 변환</span>}
+              <div className="thumb-info">
+                <span className="thumb-name" title={file.name}>{file.name}</span>
+                <span className="thumb-meta">✓ 추가됨 · {formatSize(file.size)}</span>
+              </div>
+              <button
+                type="button"
+                className="icon-button"
+                aria-label={`${title} ${i + 1} 삭제`}
+                onClick={() => onChange(files.filter((_, j) => j !== i))}
+              >
+                삭제
               </button>
-              <span className="thumb-name" title={file.name}>{file.name}</span>
             </li>
           ))}
         </ul>

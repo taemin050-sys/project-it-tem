@@ -16,7 +16,9 @@ from io import BytesIO
 import math
 from pathlib import Path
 import time
-import unicodedata
+# Pin modern Unicode categories independently of GCP Python 3.10's Unicode 13.
+# Do not fall back to an old database: that would misclassify valid newer emoji.
+import unicodedata2 as unicodedata
 from typing import Annotated, Literal
 
 from fontTools.ttLib import TTFont, TTLibError
@@ -134,9 +136,23 @@ def _reject(code: str) -> GatewayError:
 def _copy_fields(body: CompositionInput) -> tuple[dict[str, str], str, list[str]]:
     if sha256(body.image_bytes).hexdigest() != body.image_sha256:
         raise _reject("COMPOSITION_IMAGE_HASH_MISMATCH")
+    ad, caption, tags = validate_copy_output(body.copy_output, body.copy_hash)
+    if any(text and name not in body.layout.text_regions
+           and not (name == "cta" and body.layout.cta_placement == "platform")
+           for name, text in ad.items()):
+        raise _reject("COMPOSITION_LAYOUT_MISSING_FIELD")
+    return ad, caption, tags
+
+
+def validate_copy_output(copy: dict, expected_hash: str) -> tuple[dict[str, str], str, list[str]]:
+    """Validate the complete approved snapshot without font or layout requirements.
+
+    A matching hash binds content; serving must still establish approval.
+    """
     try:
-        copy = body.copy_output
-        if content_hash(copy) != body.copy_hash:
+        if not isinstance(copy, dict):
+            raise ValueError
+        if content_hash(copy) != expected_hash:
             raise _reject("COMPOSITION_COPY_HASH_MISMATCH")
         if not isinstance(copy.get("plan"), dict):
             raise ValueError
@@ -154,10 +170,6 @@ def _copy_fields(body: CompositionInput) -> tuple[dict[str, str], str, list[str]
             text.encode("utf-8")
             if any(unicodedata.category(c).startswith("C") and c != "\n" for c in text):
                 raise ValueError
-        if any(text and name not in body.layout.text_regions
-               and not (name == "cta" and body.layout.cta_placement == "platform")
-               for name, text in ad.items()):
-            raise _reject("COMPOSITION_LAYOUT_MISSING_FIELD")
         return ad, caption, tags
     except (KeyError, TypeError, ValueError, UnicodeError):
         raise _reject("COMPOSITION_COPY_INVALID") from None
@@ -204,13 +216,19 @@ def _lines(text: str, font: ImageFont.FreeTypeFont, width: int) -> list[str] | N
 
 
 def _fit(text: str, region: CompositionTextRegion, data: bytes, index: int,
-         canvas_size: tuple[int, int] = FINAL_SIZE):
+         canvas_size: tuple[int, int] = FINAL_SIZE, *,
+         variable_weight: int | None = None):
     l,t,r,b = region.pixels(canvas_size)
     width, height = r-l-2*region.padding, b-t-2*region.padding
     low, high, best = region.min_font_size, region.max_font_size, None
     while low <= high:
         size = (low+high)//2
         font = ImageFont.truetype(BytesIO(data), size, index=index)
+        if variable_weight is not None:
+            try:
+                font.set_variation_by_axes([variable_weight])
+            except (AttributeError, OSError, ValueError):
+                raise _reject("COMPOSITION_VARIABLE_FONT_NOT_AVAILABLE") from None
         lines = _lines(text, font, width)
         boxes = [font.getbbox(line) for line in lines] if lines else []
         pitch = max(math.ceil(sum(font.getmetrics())*1.1),
@@ -227,7 +245,8 @@ def _fit(text: str, region: CompositionTextRegion, data: bytes, index: int,
 
 
 def compose_ad_png(body: CompositionInput, *, font_path: str | Path,
-                   font_index: int = 0) -> ComposedAd:
+                   font_index: int = 0,
+                   beta_style: str | None = None) -> ComposedAd:
     """Render an approved snapshot locally. Caller owns approval/authentication.
 
     font_path is trusted server configuration, never an HTTP user-supplied path.
@@ -239,12 +258,34 @@ def compose_ad_png(body: CompositionInput, *, font_path: str | Path,
     rendered_copy = {name: text for name, text in ad.items()
                      if text and not (name == "cta" and body.layout.cta_placement == "platform")}
     data, font_hash = _font_data(font_path, font_index, list(rendered_copy.values()))
+    style = None
+    if beta_style is not None:
+        from .layout_profiles_v3 import GEOMETRY, OWNER_A5_SAFE
+        if (beta_style not in GEOMETRY or type(beta_style) is not str
+                or font_hash!="3090ccde0442bb347aa7685d9ba8b17436a60682df6e8f92a9a670de14056e22"
+                or body.layout.cta_placement!="image"
+                or body.layout.canvas_size!=(1080,1350)
+                or set(body.layout.text_regions)!={"headline","subline","cta"}):
+            raise _reject("COMPOSITION_BETA_STYLE_POLICY_INVALID")
+        style=GEOMETRY[beta_style]
+        for field in ("headline","subline","cta"):
+            if body.layout.text_regions[field].pixels((1080,1350))!=style[field]:
+                raise _reject("COMPOSITION_BETA_STYLE_LAYOUT_MISMATCH")
+        # Proposal target is only a synthetic placeholder. This check does
+        # not establish real product/brand/label protection.
+        expected=style["product"]
+        if not any(x.pixels((1080,1350))==expected
+                   for x in body.layout.protected_regions):
+            raise _reject("COMPOSITION_BETA_STYLE_TARGET_REQUIRED")
     canvas_size = body.layout.canvas_size
     baseline = resize_ad_png(body.image_bytes, final_size=canvas_size)
     prepared = {}
     try:
         for name, text in rendered_copy.items():
-            prepared[name] = _fit(text, body.layout.text_regions[name], data, font_index, canvas_size)
+            prepared[name] = _fit(text, body.layout.text_regions[name], data, font_index,
+                                  canvas_size, variable_weight=(
+                    {"headline":700,"subline":500,"cta":700}[name]
+                    if style is not None else None))
     except (OSError, ValueError):
         raise _reject("COMPOSITION_FONT_UNAVAILABLE") from None
     placements = {}
@@ -256,7 +297,11 @@ def compose_ad_png(body: CompositionInput, *, font_path: str | Path,
             region = body.layout.text_regions[name]
             l,t,r,b = region.pixels(canvas_size)
             if region.background:
-                draw.rectangle((l,t,r-1,b-1), fill=region.background)
+                if style is not None and name=="cta":
+                    draw.rounded_rectangle((l,t,r-1,b-1),
+                        radius=style["cta_corner_radius"],fill=region.background)
+                else:
+                    draw.rectangle((l,t,r-1,b-1), fill=region.background)
             ink = []
             used=(len(boxes)-1)*pitch+(boxes[-1][3]-boxes[-1][1] if boxes else 0)
             offset=(b-t-2*region.padding-used)//2 if region.vertical_align == "center" else 0
@@ -288,6 +333,10 @@ def compose_ad_png(body: CompositionInput, *, font_path: str | Path,
     caption_text = caption + ("\n\n" if caption and tags else "") + " ".join(tags)
     fingerprint = body.model_dump(exclude={"image_bytes"})
     fingerprint.update(renderer=VERSION,font_sha256=font_hash,font_index=font_index)
+    if style is not None:
+        fingerprint.update(
+            beta_style=beta_style,cta_corner_radius=style["cta_corner_radius"],
+            typography_variable_weight={"headline":700,"subline":500,"cta":700})
     receipt = {"renderer":VERSION,"pillow_version":pillow_version,
                "font_sha256":font_hash,"font_index":font_index,
                "input_sha256":content_hash(fingerprint),"baseline_sha256":baseline.sha256,
@@ -298,6 +347,10 @@ def compose_ad_png(body: CompositionInput, *, font_path: str | Path,
                "cta_placement":body.layout.cta_placement,
                "omitted_image_fields":["cta"] if body.layout.cta_placement == "platform" else [],
                "warnings":[] if body.layout.protected_regions else ["PRODUCT_REGION_NOT_PROVIDED"]}
+    if style is not None:
+        receipt.update(beta_style=beta_style,
+             cta_corner_radius=style["cta_corner_radius"],
+             typography_variable_weight={"headline":700,"subline":500,"cta":700})
     return ComposedAd(image_bytes,caption_text.encode("utf-8"),caption,tuple(tags),
                       "image/png",width,height,sha256(image_bytes).hexdigest(),
                       body.image_sha256,body.copy_hash,body.copy_revision,body.job_id,receipt)

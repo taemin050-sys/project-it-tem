@@ -1,3 +1,19 @@
+import {
+  AD_MOSS_SVG as mossIllustration,
+  AD_BEIGE_SVG as beigeIllustration,
+  AD_TILE_SVG as tileIllustration,
+} from '../assets/landing/inlineIllustrations.ts'
+
+// Landing illustrations are tiny, fixed SVGs. Inline their exact Owner assets
+// into the Vite bundle so a burst of authenticated Tailnet static-file requests
+// cannot leave broken-image icons on first load or refresh.
+// Keep /public/mock/* and MOCK_IMAGE_URLS intact for existing fixture paths.
+const landingImage = (xml: string): string =>
+  'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(xml)
+const LANDING_MOSS = landingImage(mossIllustration)
+const LANDING_BEIGE = landingImage(beigeIllustration)
+const LANDING_TILE = landingImage(tileIllustration)
+
 import type {
   AdCopy, AdCopyOutput, ComplianceIssue, ComplianceReport, CopyField, ProductAnalysis, ResearchResult,
 } from '../types/textSchema'
@@ -173,13 +189,13 @@ export function composeMockSvg(baseSvg: string, copy: AdCopy): string {
 export const adExamples = [
   {
     mood: '숲속 무드',
-    imageUrl: '/mock/ad_moss.svg',
+    imageUrl: LANDING_MOSS,
     copy: { headline: '숲에서 시작하는 하루의 결', subline: '차분한 아침을 위한\n데일리 보습 세럼', cta: '지금 만나보세요' },
   },
-  { mood: '웜 베이지', imageUrl: MOCK_IMAGE_URL, copy: adCopy },
+  { mood: '웜 베이지', imageUrl: LANDING_BEIGE, copy: adCopy },
   {
     mood: '그린 타일',
-    imageUrl: '/mock/ad_tile.svg',
+    imageUrl: LANDING_TILE,
     copy: { headline: '욕실 선반 위 작은 루틴', subline: '가볍게 스며드는\n데일리 보습 세럼', cta: '자세히 보기' },
   },
 ]

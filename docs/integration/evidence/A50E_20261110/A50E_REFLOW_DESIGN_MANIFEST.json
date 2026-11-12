@@ -1,0 +1,292 @@
+{
+  "9x16_cta_policy": "DECISION_PENDING_PM_OWNER",
+  "a5_1_implementation_authorized": false,
+  "comparison_png": "A50E_A_C_BEFORE_AFTER_COMPARISON.png",
+  "comparison_sha256": "369c30b7e5fe5ddff78e30f1cb573ad39940c40162ca9880c00699282b657bcc",
+  "contract": "IT_TEM_P03_A50E_CTAPRODUCT_REFLOW_DESIGN_PROPOSAL_V1",
+  "font_family": "Pretendard Variable",
+  "font_package_version": "1.3.9",
+  "font_server_license_approval": "HOLD",
+  "gcp_qa_deployment": "HOLD",
+  "license_sha256_no_binary_in_evidence": "b04538c9abec39a3db75108cf0af0fd9c77032fe8aa2cf38345b4d250e98e38e",
+  "local_font_sha256_not_bundled": "3090ccde0442bb347aa7685d9ba8b17436a60682df6e8f92a9a670de14056e22",
+  "old_a50_original_candidates_sha256": {
+    "A_EDITORIAL_CENTER": "630ccd5f64e2d525a4562ef16677491e575256072261ac42abc2b395edb565de",
+    "B_EDITORIAL_LEFT": "940634bfd74ea86b71b9d1624022874f6a72f552e9ecdd5cc5b84594e8a36693",
+    "C_CONTRAST_ACTION": "ca63c30ab2fd98d98425c535b896898911ac9f72651d0f3f2230206de66b524b"
+  },
+  "old_owner_v2_product_target": [
+    466,
+    418,
+    611,
+    1183
+  ],
+  "owner_pm_approved": false,
+  "paid_worker": "HOLD",
+  "platform_safezone": "NOT_CERTIFIED",
+  "proposed_rules_not_approved": {
+    "cta_min_font_at_360": 16,
+    "cta_text_bg_contrast": 4.5,
+    "safe_bottom_inset_360": 12
+  },
+  "real_product_object_detection": "NOT_AUDITED",
+  "real_provider": "NOT_AUDITED",
+  "release": "NOT_RELEASE_READY",
+  "safe_frame_internal_v2_target": [
+    64,
+    64,
+    1016,
+    1286
+  ],
+  "source_background_sha256": "cd7ab3b023e29a5e903ad8d84a7b4b24b439d453c64384a343af6b9e944f0046",
+  "source_prior_a50_manifest_sha256": "bee6cf88b3fd1b51f2805d54cfb5bef90d580945621fefd2afa90ff30a2e2980",
+  "source_silhouette": "SYNTHETIC_NO_BRAND",
+  "stress_scenarios": {
+    "actual_object_mask_missing": {
+      "reason": "A50E_REAL_PRODUCT_MASK_REQUIRED_FAIL_CLOSED",
+      "status": "REJECTED_AS_EXPECTED"
+    },
+    "cta_overlap_fake_mask": {
+      "reason": "A50E_TEXT_PROTECTED_OBJECT_COLLISION",
+      "status": "REJECTED_AS_EXPECTED"
+    },
+    "large_packaging_into_cta": {
+      "reason": "A50E_PROTECTED_MASK_OUTSIDE_TARGET",
+      "status": "REJECTED_AS_EXPECTED"
+    },
+    "long_cta_no_truncation": {
+      "reason": "A50E_COPY_OVERFLOW_FAIL_CLOSED",
+      "status": "REJECTED_AS_EXPECTED"
+    },
+    "multiline_cta_unapproved": {
+      "reason": "A50E_CTA_MULTILINE_REQUIRES_PROFILE_APPROVAL",
+      "status": "REJECTED_AS_EXPECTED"
+    },
+    "overlong_korean_headline": {
+      "reason": "A50E_COPY_OVERFLOW_FAIL_CLOSED",
+      "status": "REJECTED_AS_EXPECTED"
+    },
+    "small_package_synthetic_mask": {
+      "mask": [
+        494,
+        540,
+        586,
+        955
+      ],
+      "status": "SYNTHETIC_GEOMETRY_PASS_NOT_REAL_DETECTION"
+    },
+    "three_line_cta_disallowed": {
+      "reason": "A50E_UNSUPPORTED_LINE_COUNT",
+      "status": "REJECTED_AS_EXPECTED"
+    },
+    "two_line_cta_explicit_simulation": {
+      "lines": 2,
+      "native_font_px": 54,
+      "status": "SYNTHETIC_LAYOUT_FEASIBLE_NOT_PROFILE_APPROVED"
+    }
+  },
+  "stress_sha256": "0124624121a1618bc2603cc54607b3bf09b054d40a7c045172ec44c601cba2ec",
+  "unchanged_b_editorial_sha256": "940634bfd74ea86b71b9d1624022874f6a72f552e9ecdd5cc5b84594e8a36693",
+  "variants": {
+    "A_REFLOW_EDITORIAL_CENTER": {
+      "commercial_font_approval": "HOLD",
+      "copy": {
+        "cta": {
+          "font_px_native": 60,
+          "font_px_on_360": 20.0,
+          "rect": [
+            218,
+            1108,
+            862,
+            1238
+          ],
+          "render_instruction_count": 1,
+          "text": "지금 만나보세요",
+          "text_sha256": "29f1185e55a4d3499794d36ada72dda3556cb88a0bd220690a9e0811a5fbc0be",
+          "weight_variable_axis": 700
+        },
+        "headline": {
+          "font_px_native": 116,
+          "font_px_on_360": 38.67,
+          "rect": [
+            86,
+            82,
+            994,
+            223
+          ],
+          "render_instruction_count": 1,
+          "text": "데일리 크림",
+          "text_sha256": "fed16d23a8dc3a78ffa55d4412e11866dc687b469f311d153779e67198bff807",
+          "weight_variable_axis": 700
+        },
+        "subline": {
+          "font_px_native": 75,
+          "font_px_on_360": 25.0,
+          "rect": [
+            86,
+            245,
+            994,
+            382
+          ],
+          "render_instruction_count": 1,
+          "text": "매일 촉촉한 사용감",
+          "text_sha256": "ba116b354fb1441d0b11556547acc165d155f5389046a978ff814431248a28e6",
+          "weight_variable_axis": 500
+        }
+      },
+      "cta_background": "#253F55",
+      "cta_foreground_background_contrast": 10.933,
+      "cta_safe_bottom_360": 16.0,
+      "cta_safe_bottom_native": 48,
+      "cta_text_color": "#FFFFFF",
+      "cta_to_fake_product_target_gap_native": 63,
+      "design_id": "A_REFLOW_EDITORIAL_CENTER",
+      "fake_object_mask": [
+        466,
+        518,
+        614,
+        1025
+      ],
+      "fake_protected_target": [
+        436,
+        410,
+        644,
+        1045
+      ],
+      "mobile": {
+        "360": {
+          "crop_simulation_12px": "A_REFLOW_EDITORIAL_CENTER_mobile_360_crop12_simulation.png",
+          "crop_simulation_sha256": "24f06d2817e2bc0242db3be7d20b688c72cc751ec5388a7e8ae6cb9007d1f53c",
+          "cta_bottom_remains_above_crop_px": 25.33,
+          "pixels": [
+            360,
+            450
+          ],
+          "png": "A_REFLOW_EDITORIAL_CENTER_mobile_360.png",
+          "sha256": "e6002ac018bbf549de15d5ede5c1be6bddd1376e6516164e14596313df1fbd3c"
+        },
+        "390": {
+          "crop_simulation_12px": "A_REFLOW_EDITORIAL_CENTER_mobile_390_crop12_simulation.png",
+          "crop_simulation_sha256": "988123a0c1f19caa1df33dc003bb937ce121d93d43182dde683e5e042bb13bda",
+          "cta_bottom_remains_above_crop_px": 28.94,
+          "pixels": [
+            390,
+            488
+          ],
+          "png": "A_REFLOW_EDITORIAL_CENTER_mobile_390.png",
+          "sha256": "177f954bafb53e75b1ea19d28790360f208e0977454d065bce6edca036dc1c1f"
+        }
+      },
+      "object_coverage": "SYNTHETIC_MASK_ONLY_NOT_REAL_BRAND_LABEL",
+      "owner_pm_decision": "PENDING",
+      "pixels": [
+        1080,
+        1350
+      ],
+      "platform_crop": "SIMULATION_ONLY_NOT_PLATFORM_CERTIFIED",
+      "png": "A_REFLOW_EDITORIAL_CENTER.png",
+      "recommended_role": "Default-direction revised layout; product target reflow, not translation only",
+      "sha256": "bcf1b8081a6164ed236cca0cc370d8b906dcd2b0b841aca7db1dc58c14e3e509"
+    },
+    "C_REFLOW_CONTRAST_ACTION": {
+      "commercial_font_approval": "HOLD",
+      "copy": {
+        "cta": {
+          "font_px_native": 60,
+          "font_px_on_360": 20.0,
+          "rect": [
+            80,
+            1094,
+            1000,
+            1236
+          ],
+          "render_instruction_count": 1,
+          "text": "지금 만나보세요",
+          "text_sha256": "29f1185e55a4d3499794d36ada72dda3556cb88a0bd220690a9e0811a5fbc0be",
+          "weight_variable_axis": 700
+        },
+        "headline": {
+          "font_px_native": 112,
+          "font_px_on_360": 37.33,
+          "rect": [
+            86,
+            82,
+            994,
+            223
+          ],
+          "render_instruction_count": 1,
+          "text": "데일리 크림",
+          "text_sha256": "fed16d23a8dc3a78ffa55d4412e11866dc687b469f311d153779e67198bff807",
+          "weight_variable_axis": 700
+        },
+        "subline": {
+          "font_px_native": 75,
+          "font_px_on_360": 25.0,
+          "rect": [
+            86,
+            245,
+            994,
+            382
+          ],
+          "render_instruction_count": 1,
+          "text": "매일 촉촉한 사용감",
+          "text_sha256": "ba116b354fb1441d0b11556547acc165d155f5389046a978ff814431248a28e6",
+          "weight_variable_axis": 500
+        }
+      },
+      "cta_background": "#503B58",
+      "cta_foreground_background_contrast": 9.964,
+      "cta_safe_bottom_360": 16.67,
+      "cta_safe_bottom_native": 50,
+      "cta_text_color": "#FFFFFF",
+      "cta_to_fake_product_target_gap_native": 59,
+      "design_id": "C_REFLOW_CONTRAST_ACTION",
+      "fake_object_mask": [
+        466,
+        513,
+        614,
+        1018
+      ],
+      "fake_protected_target": [
+        436,
+        405,
+        644,
+        1035
+      ],
+      "mobile": {
+        "360": {
+          "crop_simulation_12px": "C_REFLOW_CONTRAST_ACTION_mobile_360_crop12_simulation.png",
+          "crop_simulation_sha256": "3128fb50e080779ce22c9b80cf86e384c41a5de9726f715d4e44c4b4c4ef9942",
+          "cta_bottom_remains_above_crop_px": 26.0,
+          "pixels": [
+            360,
+            450
+          ],
+          "png": "C_REFLOW_CONTRAST_ACTION_mobile_360.png",
+          "sha256": "d0b679612ba33118fa967b3a2bcaa5bdf82b1778413a013d2db96d90cd5efbf6"
+        },
+        "390": {
+          "crop_simulation_12px": "C_REFLOW_CONTRAST_ACTION_mobile_390_crop12_simulation.png",
+          "crop_simulation_sha256": "651bfa17017de88c0d4a34a67c5ff28d4754d7f1c4ca146479ca8dc4c4e7bb3f",
+          "cta_bottom_remains_above_crop_px": 29.67,
+          "pixels": [
+            390,
+            488
+          ],
+          "png": "C_REFLOW_CONTRAST_ACTION_mobile_390.png",
+          "sha256": "70e928e351255784d0bca08f92448bfc2746f3b4f860c9d3089c103262e49eea"
+        }
+      },
+      "object_coverage": "SYNTHETIC_MASK_ONLY_NOT_REAL_BRAND_LABEL",
+      "owner_pm_decision": "PENDING",
+      "pixels": [
+        1080,
+        1350
+      ],
+      "platform_crop": "SIMULATION_ONLY_NOT_PLATFORM_CERTIFIED",
+      "png": "C_REFLOW_CONTRAST_ACTION.png",
+      "recommended_role": "Optional action-forward revised layout; product target reflow",
+      "sha256": "eec55373cca228de34838b33baaf3b11e703e341b05739b34f4c909b1afea6fd"
+    }
+  }
+}

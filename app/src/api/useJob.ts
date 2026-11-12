@@ -2,12 +2,14 @@ import { useQuery } from '@tanstack/react-query'
 import { useMemo, type MouseEvent } from 'react'
 import { nextStep, type Flow, type Step } from '../lib/pipeline'
 import { useObjectUrls } from '../lib/useObjectUrls'
-import { INITIAL_PRODUCT, INITIAL_RATIO, useProjectStore, type ProductForm } from '../store/projectStore'
+import { INITIAL_PRODUCT, INITIAL_RATIO, INITIAL_GENERATION_MODE, useProjectStore, type ProductForm } from '../store/projectStore'
 import type { Job } from '../types/draft'
 import { ApiError, isUnreachable } from './client'
 import { getBlob, getJob, runStep } from './jobs'
 import { queryClient } from './queryClient'
-import {getProductLiveJob,createLiveInput,queueLive,getLiveSnapshot,getLiveTask,latestLiveTask} from './liveJobs'
+import {getProductLiveJob,createLiveInput,queueLive,getLiveSnapshot,getLiveTask,latestLiveTask,qaText} from './liveJobs'
+import {QA_OFFLINE_FIXTURE} from '../config'
+import {assertBlobSha} from './verifiedBlob'
 import type {ProductInput} from '../types/textSchema'
 
 const jobKey = (jobId: string | null) => ['job', jobId]
@@ -34,19 +36,22 @@ export function useJob() {
   })
 }
 
-// 서버 파일(이미지 Asset·산출물)을 blob으로 받는다. 경로가 바뀌지 않는 한 다시 받지 않는다
-export function useBlob(path: string | undefined) {
+// Live artifact URLs can be reused for later candidates. Bind both cache and
+// displayed bytes to the immutable SHA, and never retry a mismatched GET.
+export function useBlob(path: string | undefined, expectedSha?: string) {
   return useQuery({
-    queryKey: ['blob', path],
-    queryFn: () => getBlob(path!),
-    enabled: path !== undefined,
-    staleTime: Infinity,
+    queryKey: ['blob', path, expectedSha ?? null],
+    queryFn: async () => {
+      const blob = await getBlob(path!)
+      return expectedSha ? assertBlobSha(blob, expectedSha) : blob
+    },
+    enabled: path !== undefined, staleTime: Infinity, retry:false,
   }).data
 }
 
-// blob URL로 그린다: 다른 출처 이미지나 인증이 필요한 경로도 같은 방식으로 받기 위해
-export function useBlobUrl(path: string | undefined) {
-  const blob = useBlob(path)
+// Blob URLs are scoped to the verified artifact version.
+export function useBlobUrl(path: string | undefined, expectedSha?: string) {
+  const blob = useBlob(path, expectedSha)
   const blobs = useMemo(() => (blob ? [blob] : []), [blob])
   return useObjectUrls(blobs)[0] as string | undefined
 }
@@ -74,22 +79,22 @@ export function hasUnfinishedJob() {
   return jobId !== null && jobId !== finishedJobId
 }
 
-// 처음 화면 값에서 하나라도 바꿨는지 (카테고리·목적·기능성·이모티콘·사진 확인 체크 포함). 글자는 앞뒤 공백, 빈 브랜드는 미입력과 같게 본다
-const normalized = (p: ProductForm) => ({ ...p, brand_name: p.brand_name?.trim() || null, product_name: p.product_name.trim(), features: p.features.trim() })
-function changedFromInitial(product: ProductForm) {
-  const a = normalized(product), b = normalized(INITIAL_PRODUCT)
-  return (Object.keys(b) as (keyof ProductForm)[]).some((k) => JSON.stringify(a[k]) !== JSON.stringify(b[k]))
+// Owner #26 c9c204b: selection-only inputs also require confirmation.
+const normalized = (p: ProductForm) => ({...p,brand_name:p.brand_name?.trim()||null,
+  product_name:p.product_name.trim(),features:p.features.trim()})
+function changedFromInitial(p:ProductForm){
+  const a=normalized(p),b=normalized(INITIAL_PRODUCT)
+  return (Object.keys(b) as (keyof ProductForm)[]).some(k=>JSON.stringify(a[k])!==JSON.stringify(b[k]))
 }
-
 const CONFIRM_NEW_AD = '진행 중인 광고가 있습니다. 새 광고를 시작하면 이 화면의 입력과 진행 상황이 지워집니다. 이전 작업은 서버에 남습니다. 새로 시작할까요?'
 
 // 새 광고: 이 브라우저의 작업·입력·결과 캐시만 비운다 (서버 요청 없음, 로그인 정보·mock 설정은 그대로).
 // 결과까지 끝나지 않은 작업이나 입력해 둔 값이 있으면 확인을 받는다. AI 요청 중에는 시작하지 않는다
 // (끝난 요청이 이전 job_id를 다시 써넣지 않게). 시작했으면 true
 export function startNewAd(): boolean {
-  const { jobId, images, references, product, ratio, run, clearInputs } = useProjectStore.getState()
+  const { jobId, images, references, product, ratio, generationMode, run, clearInputs } = useProjectStore.getState()
   if (run.busy) return false
-  const typed = images.length + references.length > 0 || ratio !== INITIAL_RATIO || changedFromInitial(product)
+  const typed = images.length + references.length > 0 || ratio!==INITIAL_RATIO || generationMode!==INITIAL_GENERATION_MODE || changedFromInitial(product)
   const unfinished = jobId !== null ? hasUnfinishedJob() : typed
   if (unfinished && !window.confirm(CONFIRM_NEW_AD)) return false
   resetJob()
@@ -97,13 +102,16 @@ export function startNewAd(): boolean {
   return true
 }
 
-// 랜딩·상단 메뉴의 광고 만들기: 결과까지 끝난 작업이면 새로 시작하고, 진행 중이면 이어간다.
-// 이어갈 때는 저장된 Job의 서버 상태를 다시 읽는다 (조회만, AI 호출 없음)
+// Owner #26 resume: refresh GET-only Job/Live caches; never POST or restart AI.
 export function continueOrStartNew() {
   const { jobId, finishedJobId } = useProjectStore.getState()
   if (jobId === null) return
-  if (jobId === finishedJobId) startNewAd()
-  else void queryClient.invalidateQueries({ queryKey: jobKey(jobId) })
+  if (jobId === finishedJobId) {
+    startNewAd()
+    return
+  }
+  void queryClient.invalidateQueries({ queryKey: jobKey(jobId) })
+  void queryClient.invalidateQueries({ queryKey: ['live-snapshot', jobId] })
 }
 
 // 링크용: 새 광고 시작을 취소하면 이동하지 않는다
@@ -135,11 +143,16 @@ export async function advance(first: () => Promise<Job>, step: Step | null = nul
       if(imageCount===undefined || refCount===undefined)throw Error('원본 사진 메타데이터를 확인하지 못했습니다.')
       const input:ProductInput={...product,brand_name:product.brand_name?.trim()||null,
         product_image_count:imageCount,reference_image_count:refCount}
-      const current=await createLiveInput(job,input,useProjectStore.getState().ratio)
+      const selectedSize=useProjectStore.getState().ratio
+      const current=await createLiveInput(job,input,selectedSize, useProjectStore.getState().generationMode)
       if(current.state==='INPUT_STORED'){
         setRun({step:'ai/analyze'})
-        const task=await queueLive(jobId,'text')
-        useProjectStore.getState().setLiveTask(task.task_id)
+        if(QA_OFFLINE_FIXTURE){
+          await qaText(jobId)
+        }else{
+          const task=await queueLive(jobId,'text')
+          useProjectStore.getState().setLiveTask(task.task_id)
+        }
       } else if(current.state!=='COPY_REVIEW_REQUIRED'){
         throw Error('기존 Live Job이 다른 단계입니다. 작업 상태부터 확인해 주세요.')
       }
@@ -160,7 +173,7 @@ export async function advance(first: () => Promise<Job>, step: Step | null = nul
   }
 }
 
-// mock(v2)은 ai/image 단계에 비율을 보낸다. Live는 입력(createLiveInput)의 image_size로 보낸다
+// shortcut: 비율은 mock(v2 ai/image)에만 보낸다. 이미지·서빙이 비율을 받으면 Live 입력에도 넣는다
 function stepBody(step: Step) {
   if (step === 'mock/plan') return legacyPlanBody()
   if (step === 'ai/image') return { aspect_ratio: useProjectStore.getState().ratio }
@@ -184,13 +197,17 @@ export async function recoverLiveInput(){
     const reference_image_count=original.assets?.filter(a=>a.role==='reference').length
     if(product_image_count===undefined||reference_image_count===undefined)
       throw Error('기존 사진 기록이 없습니다.')
-    const current=await createLiveInput(original,{...productPayload(),product_image_count,reference_image_count},
-      useProjectStore.getState().ratio)
+    const selectedSize=useProjectStore.getState().ratio
+    const current=await createLiveInput(original,
+      {...productPayload(),product_image_count,reference_image_count},selectedSize, useProjectStore.getState().generationMode)
     if(current.state==='INPUT_STORED'){
       const s=await getLiveSnapshot(jobId)
       if(s.state==='INPUT_STORED'){
-        const task=await queueLive(jobId,'text')
-        useProjectStore.getState().setLiveTask(task.task_id)
+        if(QA_OFFLINE_FIXTURE) await qaText(jobId)
+        else{
+          const task=await queueLive(jobId,'text')
+          useProjectStore.getState().setLiveTask(task.task_id)
+        }
       }
     }
     await queryClient.invalidateQueries({queryKey:jobKey(jobId)})

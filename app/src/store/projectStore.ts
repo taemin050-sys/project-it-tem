@@ -23,6 +23,8 @@ export const INITIAL_PRODUCT: ProductForm = {
   photo_verified: false,
 }
 export const INITIAL_RATIO: Ratio = '4:5'
+export type GenerationMode='composed'|'freeform'
+export const INITIAL_GENERATION_MODE:GenerationMode='composed'
 
 type ProjectState = {
   images: File[]
@@ -30,10 +32,12 @@ type ProjectState = {
   product: ProductForm
   ratio: Ratio
   setRatio: (ratio: Ratio) => void
+  generationMode:GenerationMode
+  setGenerationMode:(mode:GenerationMode)=>void
   jobId: string | null
   /** 결과(COMPLETED)까지 끝난 작업. 지금 작업이 이 값이면 새 광고를 확인 없이 시작한다 */
   finishedJobId: string | null
-  setFinishedJob: (jobId: string) => void
+  setFinishedJob: (jobId: string | null) => void
   identityScope: string | null
   liveTaskId: string | null
   setIdentityScope: (scope: string | null) => void
@@ -60,6 +64,8 @@ export const useProjectStore = create<ProjectState>()(persist((set) => ({
   product: INITIAL_PRODUCT,
   ratio: INITIAL_RATIO,
   setRatio: (ratio) => set({ ratio }),
+  generationMode:INITIAL_GENERATION_MODE,
+  setGenerationMode:(generationMode)=>set({generationMode}),
   jobId: null,
   finishedJobId: null,
   setFinishedJob: (finishedJobId) => set({ finishedJobId }),
@@ -73,18 +79,26 @@ export const useProjectStore = create<ProjectState>()(persist((set) => ({
   setImages: (images) => set({ images }),
   setReferences: (references) => set({ references }),
   setProduct: (patch) => set((s) => ({ product: { ...s.product, ...patch } })),
-  clearInputs: () => set({ images: [], references: [], product: INITIAL_PRODUCT, ratio: INITIAL_RATIO }),
+  clearInputs: () => set({ images: [], references: [], product: INITIAL_PRODUCT,
+    ratio: INITIAL_RATIO,generationMode:INITIAL_GENERATION_MODE }),
   setJobId: (jobId) => set({ jobId,liveTaskId:null }),
   setRun: (patch) => set((s) => ({ run: { ...s.run, ...patch } })),
   setMock: (mock) => set({ mock: import.meta.env.DEV && mock, jobId: null, run: { busy: false, step: null, error: null } }),
 }), {
   name: 'it-tem-project',
   storage: createJSONStorage(() => sessionStorage),
-  partialize: (s) => ({ jobId: s.jobId, finishedJobId: s.finishedJobId, product: s.product, ratio: s.ratio, mock: s.mock,
+  partialize: (s) => ({ jobId: s.jobId, finishedJobId: s.finishedJobId, product: s.product, ratio: s.ratio, generationMode:s.generationMode, mock: s.mock,
     identityScope:s.identityScope,liveTaskId:s.liveTaskId }),
   // 이전 버전에 저장된 product에는 새 항목(functional_types·emoji_level)이 없어 기본값 위에 덮는다
   merge: (saved, current) => {
-    const s = saved as Partial<ProjectState> | undefined
-    return { ...current, ...s, product: { ...current.product, ...s?.product } }
+    const s = saved as (Partial<ProjectState> & { emoji?: string }) | undefined
+    const legacy = s?.emoji
+    const emoji_level = s?.product?.emoji_level ??
+      (legacy === '적음' ? '보통' : legacy === '많음' ? '많이' :
+        legacy === '없음' || legacy === '보통' ? legacy : current.product.emoji_level)
+    // A prior Live Job retains its own server snapshot; this migrates UI form only.
+    return { ...current, ...s,
+      generationMode:s?.generationMode==='freeform'?'freeform':'composed',
+      product: { ...current.product, ...s?.product, emoji_level } }
   },
 }))

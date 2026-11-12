@@ -25,6 +25,30 @@ export default function RunStatus() {
   const { data: job, error: loadError } = useJob()
   const {data:liveTask}=useLiveProgress()
 
+  // Server terminal states override a stale local busy spinner.
+  // In particular, an inactive Worker must never look like active AI work.
+  if (!mock && liveTask?.state==='BILLING_UNKNOWN')return (
+    <div className="notice notice-danger" role="alert">
+      <p className="notice-title">서버 작업이 안전하게 중단됐습니다</p>
+      <p>실행 증빙 확인이 필요합니다. 자동 재호출하지 마세요. 다른 작업은 내 작업 목록에서 확인할 수 있습니다.</p>
+      <Link className="button secondary small" to="/my/jobs">내 작업 목록</Link>
+    </div>
+  )
+  if (!mock && liveTask?.state==='FAILED_PRE_DISPATCH')return (
+    <div className="notice notice-warning" role="alert">
+      <p className="notice-title">요청 처리 전 검증 실패</p>
+      <p>외부 AI 호출 전에 작업을 중단했습니다. 새로 생성하지 말고 담당자에게 현재 Job을 알려주세요.</p>
+      <Link className="button secondary small" to="/my/jobs">내 작업 목록</Link>
+    </div>
+  )
+  const age=liveTask?.age_seconds??0
+  if (!mock && liveTask?.state==='QUEUED' && age>=90)return (
+    <div className="notice notice-warning" role="status">
+      <p className="notice-title">AI 작업이 예상보다 오래 대기 중입니다</p>
+      <p>접수된 작업은 보존돼 있습니다. 새 요청을 보내지 말고 잠시 후 목록에서 상태를 확인해 주세요.</p>
+      <Link className="button secondary small" to="/my/jobs">내 작업 확인</Link>
+    </div>
+  )
   if (run.busy) {
     return (
       <Loading title={run.step ? STEP_LABELS[run.step] : '요청을 보내고 있습니다'}>
@@ -57,10 +81,6 @@ export default function RunStatus() {
     )
   }
   if(!mock){
-    if(liveTask?.state==='BILLING_UNKNOWN')return <div className="notice notice-danger" role="alert">
-      <p className="notice-title">AI Provider 청구 상태 불확실</p>
-      <p>이 작업을 자동 재전송하지 않습니다. 서버 원장을 확인해야 합니다.</p>
-    </div>
     if(liveTask && ['QUEUED','RUNNING'].includes(liveTask.state))
       return <Loading title={STEP_LABELS[liveTask.stage.startsWith('image')?'ai/image':'ai/copy-review']}>
         작업은 서버에서 계속 처리됩니다. 새로고침해도 중복 요청하지 않습니다.

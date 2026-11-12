@@ -2,20 +2,39 @@
 import {queryClient} from './queryClient'
 import {useProjectStore} from '../store/projectStore'
 import {approveLiveCopy,rejectLiveCopy,queueLive,waitLiveTask,approveLiveImage,
-  rejectLiveImage,composeLive,getLiveSnapshot,reviseLiveCopy,restoreLiveCopy} from './liveJobs'
-import {guardCopyApproval,guardImageApproval,sameCopyReview,sameImageCandidate,type LiveSnapshot} from './liveMapping'
-import {AD_LAYOUT} from '../config'
+    rejectLiveImage,composeLive,getLiveSnapshot,qaPromptImage,qaCompose,
+  reviseLiveCopy,restoreLiveCopy,regenerateLiveImage,qaRegenerateImage} from './liveJobs'
+import { AD_LAYOUT, QA_OFFLINE_FIXTURE } from '../config'
+import {guardCopyApproval,guardImageApproval,isNoChangeRevision,type LiveSnapshot} from './liveMapping'
+// Legacy-only composition layout. Managed A Jobs NEVER receive this value.
+// The server records each Job's layout version/hash and composes from it.
+export const LEGACY_LAYOUT={text_regions:{
+  headline:{left:.07,top:.055,right:.93,bottom:.17,min_font_size:44,max_font_size:62,
+    padding:9,align:'center',color:'#26352B',background:null},
+  subline:{left:.06,top:.835,right:.94,bottom:.905,min_font_size:26,max_font_size:42,
+    padding:9,align:'center',color:'#25342C',background:'#F8F7F3'},
+  cta:{left:.62,top:.91,right:.94,bottom:.95,min_font_size:19,max_font_size:26,
+    padding:4,align:'center',color:'#FFFFFF',background:'#305141'},
+},protected_regions:[{left:.31,top:.23,right:.73,bottom:.82}]}
 import {ApiError} from './client'
-// The generic HTTP messages (e.g. 422 = photo input) are wrong for a compose failure; the image is kept.
-const compose=(id:string)=>composeLive(id,AD_LAYOUT).catch(e=>{
-  throw Error('광고 합성에 실패했습니다. 승인한 이미지는 그대로 있으니 원인을 확인한 뒤 합성만 다시 시도하세요.'+
-    (e instanceof ApiError&&e.status>0?` (오류 ${e.status})`:''))
-})
+// Send FE Owner A v1 unchanged; Backend validates the SHA against the
+// frozen per-Job Image Owner policy and rejects any mismatch.
+const composePinned=(s:LiveSnapshot)=>{
+  const operation=QA_OFFLINE_FIXTURE
+    ? qaCompose(s.job_id)
+    : composeLive(s.job_id,s.template_profile?.startsWith('OWNER_IMAGE_SIZE_')
+       ? undefined : s.template_profile==='A_CENTERED'?AD_LAYOUT:LEGACY_LAYOUT)
+  return operation.catch(e=>{
+    throw Error('광고 합성에 실패했습니다. 승인 이미지는 유지됩니다. 합성만 재시도하세요.'+
+      (e instanceof ApiError&&e.status>0?' (오류 '+e.status+')':''))
+  })
+}
 const refresh=async(id:string)=>{
   await queryClient.invalidateQueries({queryKey:['job',id]})
   await queryClient.invalidateQueries({queryKey:['live-snapshot',id]})
 }
-async function run(id:string,step:'ai/image'|'ai/copy-review'|'compose',action:()=>Promise<unknown>){
+async function run(id:string,step:'ai/image'|'ai/copy-review'|'compose',
+                   action:()=>Promise<unknown>){
   const {setRun}=useProjectStore.getState()
   if(useProjectStore.getState().run.busy)throw Error('이미 작업을 진행 중입니다.')
   setRun({busy:true,step,error:null})
@@ -27,6 +46,10 @@ async function run(id:string,step:'ai/image'|'ai/copy-review'|'compose',action:(
   }finally{setRun({busy:false,step:null})}
 }
 async function queuePromptAndImage(id:string){
+  if(QA_OFFLINE_FIXTURE){
+    await qaPromptImage(id)
+    return
+  }
   const task=await queueLive(id,'prompt')
   useProjectStore.getState().setLiveTask(task.task_id)
   await waitLiveTask(id,task.task_id,'PROMPT_READY')
@@ -35,14 +58,11 @@ async function queuePromptAndImage(id:string){
   const image=await queueLive(id,'image')
   useProjectStore.getState().setLiveTask(image.task_id)
 }
-// seen: 사용자가 화면에서 본 스냅샷. 클릭 시점 서버값이 다르면 승인하지 않는다 (run이 새로고침·오류 표시).
-// onApproved: 승인 POST가 성공한 뒤에만 부른다 (화면 이동). 이후 이미지 생성 실패는 이미지 화면에서 재개한다
-export async function approveCopyAndCreateImage(seen:LiveSnapshot,ack:boolean,onApproved:()=>void){
-  await run(seen.job_id,'ai/image',async()=>{
-    const s=await getLiveSnapshot(seen.job_id)
-    if(!sameCopyReview(seen,s))throw Error('카피가 바뀌었습니다. 최신 카피를 다시 확인한 뒤 승인해 주세요.')
-    guardCopyApproval(s)
+export async function approveCopyAndCreateImage(s:LiveSnapshot,ack:boolean,onApproved:()=>void=()=>{}){
+  guardCopyApproval(s)
+  await run(s.job_id,'ai/image',async()=>{
     await approveLiveCopy(s,ack)
+    // Owner #26: navigate only after actual approval POST success.
     onApproved()
     await queuePromptAndImage(s.job_id)
   })
@@ -57,42 +77,67 @@ export async function resumeImageFromApproved(id:string){
     }else throw Error('이미 진행 중이거나 완료된 상태입니다. 상태를 새로고침하세요.')
   })
 }
-// 수정 요청·되돌리기: 클릭 시점의 최신 스냅샷 해시로 보낸다. Task면 끝날 때까지 기다린다 (자동 재시도 없음)
-async function untilReviewed(id:string,res:{task_id?:string}){
-  if(!res.task_id)return
-  useProjectStore.getState().setLiveTask(res.task_id)
-  await waitLiveTask(id,res.task_id,'COPY_REVIEW_REQUIRED')
+export async function reviseCopyFromInstruction(s:LiveSnapshot,instruction:string){
+  if(!instruction.trim())throw Error('수정 요청을 입력해 주세요.')
+  await run(s.job_id,'ai/copy-review',async()=>{
+    const result=await reviseLiveCopy(s,instruction.trim())
+    if('task_id' in result){
+      useProjectStore.getState().setLiveTask(result.task_id)
+      const updated=await waitLiveTask(s.job_id,result.task_id,'COPY_REVIEW_REQUIRED')
+      const changed=updated.generation>s.generation && updated.review_sha!==s.review_sha
+      const unchanged=isNoChangeRevision(s,updated)
+      if(!changed && !unchanged)throw Error('TEXT_REVISION_NOT_COMMITTED')
+    }
+  })
 }
-export async function reviseCopy(id:string,instruction:string){
-  await run(id,'ai/copy-review',async()=>untilReviewed(id,await reviseLiveCopy(await getLiveSnapshot(id),instruction)))
-}
-export async function restoreCopy(id:string){
-  await run(id,'ai/copy-review',async()=>untilReviewed(id,await restoreLiveCopy(await getLiveSnapshot(id))))
+export async function restorePreviousLiveCopy(s:LiveSnapshot){
+  if(!s.previous_copy_available)throw Error('복원 가능한 이전 버전이 없습니다.')
+  await run(s.job_id,'ai/copy-review',async()=>{await restoreLiveCopy(s)})
 }
 export async function rejectCopy(s:LiveSnapshot){
   if(s.state!=='COPY_REVIEW_REQUIRED')throw Error('카피 거절 상태 오류')
   await run(s.job_id,'ai/image',async()=>{await rejectLiveCopy(s.job_id)})
 }
-// 합성까지 성공해야 onDone(최종 결과로 이동). 합성만 실패하면 이미지 화면에서 retryCompose로 다시 시도한다
-export async function approveImageAndCompose(seen:LiveSnapshot,onDone:()=>void){
-  await run(seen.job_id,'compose',async()=>{
-    const s=await getLiveSnapshot(seen.job_id)
-    if(!sameImageCandidate(seen,s))throw Error('이미지가 바뀌었습니다. 최신 이미지를 다시 확인한 뒤 승인해 주세요.')
-    guardImageApproval(s)
+export async function approveImageAndCompose(s:LiveSnapshot,onComposed:()=>void=()=>{}){
+  guardImageApproval(s)
+  await run(s.job_id,'compose',async()=>{
     await approveLiveImage(s)
-    await compose(s.job_id)
-    onDone()
+    await composePinned(s)
+    // Only show final result after a successful composition response.
+    onComposed()
   })
 }
-/** Compose failed after image approval: resend compose only, never regenerate or re-approve the image. */
-export async function retryCompose(id:string){
-  await run(id,'compose',async()=>{
-    const s=await getLiveSnapshot(id)
-    if(s.state!=='IMAGE_APPROVED')throw Error('합성 대기 상태가 아닙니다. 새로고침 후 현재 상태를 확인하세요.')
-    await compose(id)
-  })
-}
+/** FE Owner alias: a manual retry is composition-only, never image regeneration. */
+export const retryCompose=(id:string)=>retryApprovedComposition(id)
 export async function rejectImage(s:LiveSnapshot){
   guardImageApproval(s)
   await run(s.job_id,'ai/image',async()=>{await rejectLiveImage(s)})
+}
+/** Explicitly user-triggered retry of ONE rejected image only. No Text,
+ * Research, Copy, Image Prompt or previous attempt replay.
+ */
+export async function regenerateRejectedImage(s:LiveSnapshot){
+  if(s.state!=='IMAGE_REJECTED'||!s.image_sha||!s.approval_current)
+    throw Error('IMAGE_RETRY_NOT_AVAILABLE')
+  const requestKey=crypto.randomUUID().replaceAll('-','')
+  await run(s.job_id,'ai/image',async()=>{
+    if(QA_OFFLINE_FIXTURE){
+      await qaRegenerateImage(s,requestKey)
+    }else{
+      const task=await regenerateLiveImage(s,requestKey)
+      useProjectStore.getState().setLiveTask(task.task_id)
+    }
+  })
+}
+
+/** Explicit, cost-free retry only for a previously approved candidate.
+ * No image/prompt queue, no Provider attempt, same pinned server policy.
+ */
+export async function retryApprovedComposition(id:string){
+  await run(id,'compose',async()=>{
+    const current=await getLiveSnapshot(id)
+    if(current.state!=='IMAGE_APPROVED'||!current.image_sha||!current.approval_current)
+      throw Error('IMAGE_APPROVAL_STALE_OR_COMPLETED')
+    await composePinned(current)
+  })
 }

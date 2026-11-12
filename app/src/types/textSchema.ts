@@ -130,6 +130,8 @@ export type ComplianceIssue = {
   /** 대체 문구, 삭제 권장이면 null */
   suggestion: string | null
   basis: string | null
+  /** Text Owner PR #27 optional primary evidence URL, never an approval gate. */
+  basis_url?: string | null
   detected_by: 'rule' | 'llm'
   auto_fixed: boolean
 }

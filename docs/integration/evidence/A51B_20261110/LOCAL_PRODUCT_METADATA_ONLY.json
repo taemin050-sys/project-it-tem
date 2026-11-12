@@ -1,0 +1,498 @@
+{
+  "actual_brand_mask_verified": false,
+  "contract": "IT_TEM_P03_A51B_LOCAL_PRODUCT_GROUP_METADATA_ONLY_V1",
+  "copyright_and_brand_use": "NOT_AUDITED",
+  "duplicate_bytes_pairs": 1,
+  "duplicates": [
+    {
+      "byte_duplicate_of": "메디힐 히알루론산 랩핑 세럼 마스크-3 (1).jpg",
+      "filename": "메디힐 히알루론산 랩핑 세럼 마스크-3 (2).jpg",
+      "sha256": "799b8209dd33daf3c22986d2d39c611d7e526b95eefdc4b7b39e968002df2121"
+    }
+  ],
+  "external_provider_allowed": false,
+  "file_container_counts": {
+    "JPEG": 9,
+    "MPO": 15
+  },
+  "file_count": 24,
+  "full_feature_beta_visual_acceptance": "HOLD",
+  "grouping_basis": "NORMALIZED_FILENAME_ONLY_NOT_IDENTITY_VERIFICATION",
+  "groups": [
+    {
+      "actual_brand_label_mask_verified": false,
+      "all_images": [
+        {
+          "byte_duplicate": false,
+          "bytes": 3901584,
+          "container_format_detected": "JPEG",
+          "container_frame_count": 1,
+          "filename": "가스비 무빙락스프레이엑스트라하드 253ml -5.jpg",
+          "height_px": 3000,
+          "provider_input_media_gate": "JPEG_CONTAINER_FORMAT_OK_RIGHTS_AND_MODEL_GATE_PENDING",
+          "sha256": "0b75470b0c41696f04651f490291e1ebb78413f5ea00f7f939db8c4db12f6b37",
+          "width_px": 4000
+        },
+        {
+          "byte_duplicate": false,
+          "bytes": 3782914,
+          "container_format_detected": "JPEG",
+          "container_frame_count": 1,
+          "filename": "가스비 무빙락스프레이엑스트라하드 253ml -6.jpg",
+          "height_px": 3000,
+          "provider_input_media_gate": "JPEG_CONTAINER_FORMAT_OK_RIGHTS_AND_MODEL_GATE_PENDING",
+          "sha256": "e87731c7e6585c61645e7664fd7a8696ae6f1e60530e3a0b45fbc306c3487459",
+          "width_px": 4000
+        }
+      ],
+      "filename_assumed_single_product": true,
+      "gate": "LOCAL_REVIEW_CANDIDATE_ONLY",
+      "group": "가스비 무빙락스프레이엑스트라하드 253ml",
+      "independent_product_identity_verified": false,
+      "jpeg_count": 2,
+      "provider_upload_authorized": false,
+      "rights_evidence_found_in_folder": false,
+      "scope": "LOCAL_READ_ONLY_QA_CANDIDATE",
+      "suggested_2_to_5_photo_filenames": [
+        "가스비 무빙락스프레이엑스트라하드 253ml -5.jpg",
+        "가스비 무빙락스프레이엑스트라하드 253ml -6.jpg"
+      ],
+      "team_beta_distribution_authorized": false,
+      "unique_images": 2,
+      "visual_source_quality": "REVIEW_PENDING"
+    },
+    {
+      "actual_brand_label_mask_verified": false,
+      "all_images": [
+        {
+          "byte_duplicate": false,
+          "bytes": 3128569,
+          "container_format_detected": "MPO",
+          "container_frame_count": 2,
+          "filename": "라운드랩독도토너-1.jpg",
+          "height_px": 3024,
+          "provider_input_media_gate": "MULTIFRAME_MPO_EXPLICIT_FRAME_SELECTION_AND_OWNER_NORMALIZATION_REQUIRED",
+          "sha256": "93339e6632a1fe141ef3c9329ac320ad8f7d6c9e59ac42aa827370969f71c91e",
+          "width_px": 4032
+        },
+        {
+          "byte_duplicate": false,
+          "bytes": 3316901,
+          "container_format_detected": "MPO",
+          "container_frame_count": 2,
+          "filename": "라운드랩독도토너-2.jpg",
+          "height_px": 3024,
+          "provider_input_media_gate": "MULTIFRAME_MPO_EXPLICIT_FRAME_SELECTION_AND_OWNER_NORMALIZATION_REQUIRED",
+          "sha256": "a60f03d9c19c4aed3b7a31d867c1172b2bb8e224d943bf40276336b74a426ac5",
+          "width_px": 4032
+        }
+      ],
+      "filename_assumed_single_product": true,
+      "gate": "LOCAL_REVIEW_CANDIDATE_ONLY",
+      "group": "라운드랩독도토너",
+      "independent_product_identity_verified": false,
+      "jpeg_count": 2,
+      "provider_upload_authorized": false,
+      "rights_evidence_found_in_folder": false,
+      "scope": "LOCAL_READ_ONLY_QA_CANDIDATE",
+      "suggested_2_to_5_photo_filenames": [
+        "라운드랩독도토너-1.jpg",
+        "라운드랩독도토너-2.jpg"
+      ],
+      "team_beta_distribution_authorized": false,
+      "unique_images": 2,
+      "visual_source_quality": "REVIEW_PENDING"
+    },
+    {
+      "actual_brand_label_mask_verified": false,
+      "all_images": [
+        {
+          "byte_duplicate": false,
+          "bytes": 2641940,
+          "container_format_detected": "MPO",
+          "container_frame_count": 2,
+          "filename": "롬앤글래스팅스프링피버-1.jpg",
+          "height_px": 3024,
+          "provider_input_media_gate": "MULTIFRAME_MPO_EXPLICIT_FRAME_SELECTION_AND_OWNER_NORMALIZATION_REQUIRED",
+          "sha256": "e412046460d39b6ff34551be5ac1862ba8c055aec9b8aedd75a33b07f68d7381",
+          "width_px": 4032
+        },
+        {
+          "byte_duplicate": false,
+          "bytes": 2806384,
+          "container_format_detected": "MPO",
+          "container_frame_count": 2,
+          "filename": "롬앤글래스팅스프링피버-3.jpg",
+          "height_px": 3024,
+          "provider_input_media_gate": "MULTIFRAME_MPO_EXPLICIT_FRAME_SELECTION_AND_OWNER_NORMALIZATION_REQUIRED",
+          "sha256": "cf3f34d02841824bed1125bbb980e2551666b1be286e4a52698e7304523c9c2a",
+          "width_px": 4032
+        }
+      ],
+      "filename_assumed_single_product": true,
+      "gate": "LOCAL_REVIEW_CANDIDATE_ONLY",
+      "group": "롬앤글래스팅스프링피버",
+      "independent_product_identity_verified": false,
+      "jpeg_count": 2,
+      "provider_upload_authorized": false,
+      "rights_evidence_found_in_folder": false,
+      "scope": "LOCAL_READ_ONLY_QA_CANDIDATE",
+      "suggested_2_to_5_photo_filenames": [
+        "롬앤글래스팅스프링피버-1.jpg",
+        "롬앤글래스팅스프링피버-3.jpg"
+      ],
+      "team_beta_distribution_authorized": false,
+      "unique_images": 2,
+      "visual_source_quality": "REVIEW_PENDING"
+    },
+    {
+      "actual_brand_label_mask_verified": false,
+      "all_images": [
+        {
+          "byte_duplicate": false,
+          "bytes": 3506536,
+          "container_format_detected": "MPO",
+          "container_frame_count": 2,
+          "filename": "메노킨버블마스크-1.jpg",
+          "height_px": 3024,
+          "provider_input_media_gate": "MULTIFRAME_MPO_EXPLICIT_FRAME_SELECTION_AND_OWNER_NORMALIZATION_REQUIRED",
+          "sha256": "b21588f2f52d5beeaf40959a4c080de6b6452be840c57db91712bc2734da5517",
+          "width_px": 4032
+        },
+        {
+          "byte_duplicate": false,
+          "bytes": 3749461,
+          "container_format_detected": "MPO",
+          "container_frame_count": 2,
+          "filename": "메노킨버블마스크-2.jpg",
+          "height_px": 3024,
+          "provider_input_media_gate": "MULTIFRAME_MPO_EXPLICIT_FRAME_SELECTION_AND_OWNER_NORMALIZATION_REQUIRED",
+          "sha256": "3318a3820eab51858952227bd5e1d02f54e3f8f7c3d12f36e374fd1e3c9fbd9f",
+          "width_px": 4032
+        }
+      ],
+      "filename_assumed_single_product": true,
+      "gate": "LOCAL_REVIEW_CANDIDATE_ONLY",
+      "group": "메노킨버블마스크",
+      "independent_product_identity_verified": false,
+      "jpeg_count": 2,
+      "provider_upload_authorized": false,
+      "rights_evidence_found_in_folder": false,
+      "scope": "LOCAL_READ_ONLY_QA_CANDIDATE",
+      "suggested_2_to_5_photo_filenames": [
+        "메노킨버블마스크-1.jpg",
+        "메노킨버블마스크-2.jpg"
+      ],
+      "team_beta_distribution_authorized": false,
+      "unique_images": 2,
+      "visual_source_quality": "REVIEW_PENDING"
+    },
+    {
+      "actual_brand_label_mask_verified": false,
+      "all_images": [
+        {
+          "byte_duplicate": false,
+          "bytes": 4390407,
+          "container_format_detected": "JPEG",
+          "container_frame_count": 1,
+          "filename": "메디힐 히알루론산 랩핑 세럼 마스크-2 (1).jpg",
+          "height_px": 3000,
+          "provider_input_media_gate": "JPEG_CONTAINER_FORMAT_OK_RIGHTS_AND_MODEL_GATE_PENDING",
+          "sha256": "94c7cb80195e0dcf5956739031be24b32d87030af1db090869da1ee4be64cb04",
+          "width_px": 4000
+        },
+        {
+          "byte_duplicate": false,
+          "bytes": 3974957,
+          "container_format_detected": "JPEG",
+          "container_frame_count": 1,
+          "filename": "메디힐 히알루론산 랩핑 세럼 마스크-3 (1).jpg",
+          "height_px": 3000,
+          "provider_input_media_gate": "JPEG_CONTAINER_FORMAT_OK_RIGHTS_AND_MODEL_GATE_PENDING",
+          "sha256": "799b8209dd33daf3c22986d2d39c611d7e526b95eefdc4b7b39e968002df2121",
+          "width_px": 4000
+        },
+        {
+          "byte_duplicate": true,
+          "bytes": 3974957,
+          "container_format_detected": "JPEG",
+          "container_frame_count": 1,
+          "filename": "메디힐 히알루론산 랩핑 세럼 마스크-3 (2).jpg",
+          "height_px": 3000,
+          "provider_input_media_gate": "JPEG_CONTAINER_FORMAT_OK_RIGHTS_AND_MODEL_GATE_PENDING",
+          "sha256": "799b8209dd33daf3c22986d2d39c611d7e526b95eefdc4b7b39e968002df2121",
+          "width_px": 4000
+        }
+      ],
+      "filename_assumed_single_product": true,
+      "gate": "LOCAL_REVIEW_CANDIDATE_ONLY",
+      "group": "메디힐 히알루론산 랩핑 세럼 마스크",
+      "independent_product_identity_verified": false,
+      "jpeg_count": 3,
+      "provider_upload_authorized": false,
+      "rights_evidence_found_in_folder": false,
+      "scope": "LOCAL_READ_ONLY_QA_CANDIDATE",
+      "suggested_2_to_5_photo_filenames": [
+        "메디힐 히알루론산 랩핑 세럼 마스크-2 (1).jpg",
+        "메디힐 히알루론산 랩핑 세럼 마스크-3 (1).jpg"
+      ],
+      "team_beta_distribution_authorized": false,
+      "unique_images": 2,
+      "visual_source_quality": "REVIEW_PENDING"
+    },
+    {
+      "actual_brand_label_mask_verified": false,
+      "all_images": [
+        {
+          "byte_duplicate": false,
+          "bytes": 355091,
+          "container_format_detected": "MPO",
+          "container_frame_count": 2,
+          "filename": "모다모다 블루비오틴 스칼프 두피가글 스케일러 -3.JPG",
+          "height_px": 2048,
+          "provider_input_media_gate": "MULTIFRAME_MPO_EXPLICIT_FRAME_SELECTION_AND_OWNER_NORMALIZATION_REQUIRED",
+          "sha256": "1c42be7e12cb73d31f76eadd88d07c46c15670a60dd34f4183b5cee88915e521",
+          "width_px": 1536
+        },
+        {
+          "byte_duplicate": false,
+          "bytes": 587120,
+          "container_format_detected": "MPO",
+          "container_frame_count": 2,
+          "filename": "모다모다 블루비오틴 스칼프 두피가글 스케일러 -5.JPG",
+          "height_px": 2048,
+          "provider_input_media_gate": "MULTIFRAME_MPO_EXPLICIT_FRAME_SELECTION_AND_OWNER_NORMALIZATION_REQUIRED",
+          "sha256": "6a76eec7d53c77fe37391e0bc734b7e87020e314559dab6f9b41e00e54283b22",
+          "width_px": 1536
+        },
+        {
+          "byte_duplicate": false,
+          "bytes": 671912,
+          "container_format_detected": "MPO",
+          "container_frame_count": 2,
+          "filename": "모다모다 블루비오틴 스칼프 두피가글 스케일러 -6.JPG",
+          "height_px": 2048,
+          "provider_input_media_gate": "MULTIFRAME_MPO_EXPLICIT_FRAME_SELECTION_AND_OWNER_NORMALIZATION_REQUIRED",
+          "sha256": "a600df6dbfcbe49799da43bd5b4f7e7f99c801e7538226c1dbc82589b52015d3",
+          "width_px": 1536
+        }
+      ],
+      "filename_assumed_single_product": true,
+      "gate": "LOCAL_REVIEW_CANDIDATE_ONLY",
+      "group": "모다모다 블루비오틴 스칼프 두피가글 스케일러",
+      "independent_product_identity_verified": false,
+      "jpeg_count": 3,
+      "provider_upload_authorized": false,
+      "rights_evidence_found_in_folder": false,
+      "scope": "LOCAL_READ_ONLY_QA_CANDIDATE",
+      "suggested_2_to_5_photo_filenames": [
+        "모다모다 블루비오틴 스칼프 두피가글 스케일러 -3.JPG",
+        "모다모다 블루비오틴 스칼프 두피가글 스케일러 -5.JPG",
+        "모다모다 블루비오틴 스칼프 두피가글 스케일러 -6.JPG"
+      ],
+      "team_beta_distribution_authorized": false,
+      "unique_images": 3,
+      "visual_source_quality": "REVIEW_PENDING"
+    },
+    {
+      "actual_brand_label_mask_verified": false,
+      "all_images": [
+        {
+          "byte_duplicate": false,
+          "bytes": 701955,
+          "container_format_detected": "MPO",
+          "container_frame_count": 2,
+          "filename": "스킨푸드 캐롯 카로틴 카밍 워터패드 -5.JPG",
+          "height_px": 2048,
+          "provider_input_media_gate": "MULTIFRAME_MPO_EXPLICIT_FRAME_SELECTION_AND_OWNER_NORMALIZATION_REQUIRED",
+          "sha256": "cf083dbbaec6f089e59d2755ad650266faea74c4f4ec70af1ca5f5bd675d01db",
+          "width_px": 1536
+        },
+        {
+          "byte_duplicate": false,
+          "bytes": 839307,
+          "container_format_detected": "MPO",
+          "container_frame_count": 2,
+          "filename": "스킨푸드 캐롯 카로틴 카밍 워터패드 -7.JPG",
+          "height_px": 2048,
+          "provider_input_media_gate": "MULTIFRAME_MPO_EXPLICIT_FRAME_SELECTION_AND_OWNER_NORMALIZATION_REQUIRED",
+          "sha256": "f0416c107ab770dfa3166e629e76581d97d5b147c5cefeee46c29fd8decc411b",
+          "width_px": 1536
+        },
+        {
+          "byte_duplicate": false,
+          "bytes": 676281,
+          "container_format_detected": "MPO",
+          "container_frame_count": 2,
+          "filename": "스킨푸드 캐롯 카로틴 카밍 워터패드 -8 (1).JPG",
+          "height_px": 2048,
+          "provider_input_media_gate": "MULTIFRAME_MPO_EXPLICIT_FRAME_SELECTION_AND_OWNER_NORMALIZATION_REQUIRED",
+          "sha256": "fea4e7a26c688aa7c6b85f29604d9f815cb321f497d7d6dec8bc356b8f80fdac",
+          "width_px": 1536
+        }
+      ],
+      "filename_assumed_single_product": true,
+      "gate": "LOCAL_REVIEW_CANDIDATE_ONLY",
+      "group": "스킨푸드 캐롯 카로틴 카밍 워터패드",
+      "independent_product_identity_verified": false,
+      "jpeg_count": 3,
+      "provider_upload_authorized": false,
+      "rights_evidence_found_in_folder": false,
+      "scope": "LOCAL_READ_ONLY_QA_CANDIDATE",
+      "suggested_2_to_5_photo_filenames": [
+        "스킨푸드 캐롯 카로틴 카밍 워터패드 -5.JPG",
+        "스킨푸드 캐롯 카로틴 카밍 워터패드 -7.JPG",
+        "스킨푸드 캐롯 카로틴 카밍 워터패드 -8 (1).JPG"
+      ],
+      "team_beta_distribution_authorized": false,
+      "unique_images": 3,
+      "visual_source_quality": "REVIEW_PENDING"
+    },
+    {
+      "actual_brand_label_mask_verified": false,
+      "all_images": [
+        {
+          "byte_duplicate": false,
+          "bytes": 3832892,
+          "container_format_detected": "JPEG",
+          "container_frame_count": 1,
+          "filename": "오브제 포이 제로 오일 컨트롤 선스틱-4.jpg",
+          "height_px": 3000,
+          "provider_input_media_gate": "JPEG_CONTAINER_FORMAT_OK_RIGHTS_AND_MODEL_GATE_PENDING",
+          "sha256": "e20c7ae67ca177b0ca084843cd540ea15a52761c0b7b4c16d5b28e16f322d1ea",
+          "width_px": 4000
+        },
+        {
+          "byte_duplicate": false,
+          "bytes": 3747681,
+          "container_format_detected": "JPEG",
+          "container_frame_count": 1,
+          "filename": "오브제 포이 제로 오일 컨트롤 선스틱-5.jpg",
+          "height_px": 3000,
+          "provider_input_media_gate": "JPEG_CONTAINER_FORMAT_OK_RIGHTS_AND_MODEL_GATE_PENDING",
+          "sha256": "ce2637969dd4c06929398fbc1807d647de73c774d7a3248c127ee7b3a53d13ee",
+          "width_px": 4000
+        }
+      ],
+      "filename_assumed_single_product": true,
+      "gate": "LOCAL_REVIEW_CANDIDATE_ONLY",
+      "group": "오브제 포이 제로 오일 컨트롤 선스틱",
+      "independent_product_identity_verified": false,
+      "jpeg_count": 2,
+      "provider_upload_authorized": false,
+      "rights_evidence_found_in_folder": false,
+      "scope": "LOCAL_READ_ONLY_QA_CANDIDATE",
+      "suggested_2_to_5_photo_filenames": [
+        "오브제 포이 제로 오일 컨트롤 선스틱-4.jpg",
+        "오브제 포이 제로 오일 컨트롤 선스틱-5.jpg"
+      ],
+      "team_beta_distribution_authorized": false,
+      "unique_images": 2,
+      "visual_source_quality": "REVIEW_PENDING"
+    },
+    {
+      "actual_brand_label_mask_verified": false,
+      "all_images": [
+        {
+          "byte_duplicate": false,
+          "bytes": 3434527,
+          "container_format_detected": "JPEG",
+          "container_frame_count": 1,
+          "filename": "피지오겔 레드수딩 AI 로션 200ml -2.jpg",
+          "height_px": 3000,
+          "provider_input_media_gate": "JPEG_CONTAINER_FORMAT_OK_RIGHTS_AND_MODEL_GATE_PENDING",
+          "sha256": "e40d648654ae060252c0f6630fdb1fbf9da2f0fb443f693e9d837fb84799bb28",
+          "width_px": 4000
+        },
+        {
+          "byte_duplicate": false,
+          "bytes": 3916386,
+          "container_format_detected": "JPEG",
+          "container_frame_count": 1,
+          "filename": "피지오겔 레드수딩 AI 로션 200ml -3.jpg",
+          "height_px": 3000,
+          "provider_input_media_gate": "JPEG_CONTAINER_FORMAT_OK_RIGHTS_AND_MODEL_GATE_PENDING",
+          "sha256": "50ac49f5b27274e0177e80d8bcc41ea2390c303e8d18f608e076e84d7e265ac7",
+          "width_px": 4000
+        }
+      ],
+      "filename_assumed_single_product": true,
+      "gate": "LOCAL_REVIEW_CANDIDATE_ONLY",
+      "group": "피지오겔 레드수딩 AI 로션 200ml",
+      "independent_product_identity_verified": false,
+      "jpeg_count": 2,
+      "provider_upload_authorized": false,
+      "rights_evidence_found_in_folder": false,
+      "scope": "LOCAL_READ_ONLY_QA_CANDIDATE",
+      "suggested_2_to_5_photo_filenames": [
+        "피지오겔 레드수딩 AI 로션 200ml -2.jpg",
+        "피지오겔 레드수딩 AI 로션 200ml -3.jpg"
+      ],
+      "team_beta_distribution_authorized": false,
+      "unique_images": 2,
+      "visual_source_quality": "REVIEW_PENDING"
+    },
+    {
+      "actual_brand_label_mask_verified": false,
+      "all_images": [
+        {
+          "byte_duplicate": false,
+          "bytes": 437081,
+          "container_format_detected": "MPO",
+          "container_frame_count": 2,
+          "filename": "히알루론 액티브 B3 안티에이징 세럼 -3.JPG",
+          "height_px": 2048,
+          "provider_input_media_gate": "MULTIFRAME_MPO_EXPLICIT_FRAME_SELECTION_AND_OWNER_NORMALIZATION_REQUIRED",
+          "sha256": "5f5122a68da6df4be7fd0054c94300095fd853c8e5019b8a9b110ab715fdc305",
+          "width_px": 1536
+        },
+        {
+          "byte_duplicate": false,
+          "bytes": 525823,
+          "container_format_detected": "MPO",
+          "container_frame_count": 2,
+          "filename": "히알루론 액티브 B3 안티에이징 세럼 -4.JPG",
+          "height_px": 2048,
+          "provider_input_media_gate": "MULTIFRAME_MPO_EXPLICIT_FRAME_SELECTION_AND_OWNER_NORMALIZATION_REQUIRED",
+          "sha256": "ef7e19053c36db904a72664862adfcf6d202c95e4c4497194bc7cc9f2d873c90",
+          "width_px": 1536
+        },
+        {
+          "byte_duplicate": false,
+          "bytes": 569511,
+          "container_format_detected": "MPO",
+          "container_frame_count": 2,
+          "filename": "히알루론 액티브 B3 안티에이징 세럼 -6.JPG",
+          "height_px": 2048,
+          "provider_input_media_gate": "MULTIFRAME_MPO_EXPLICIT_FRAME_SELECTION_AND_OWNER_NORMALIZATION_REQUIRED",
+          "sha256": "caebe78d066f8dc4145c6b87e55409b9fbe893b7ca737beb9e7c89e36b96da16",
+          "width_px": 1536
+        }
+      ],
+      "filename_assumed_single_product": true,
+      "gate": "LOCAL_REVIEW_CANDIDATE_ONLY",
+      "group": "히알루론 액티브 B3 안티에이징 세럼",
+      "independent_product_identity_verified": false,
+      "jpeg_count": 3,
+      "provider_upload_authorized": false,
+      "rights_evidence_found_in_folder": false,
+      "scope": "LOCAL_READ_ONLY_QA_CANDIDATE",
+      "suggested_2_to_5_photo_filenames": [
+        "히알루론 액티브 B3 안티에이징 세럼 -3.JPG",
+        "히알루론 액티브 B3 안티에이징 세럼 -4.JPG",
+        "히알루론 액티브 B3 안티에이징 세럼 -6.JPG"
+      ],
+      "team_beta_distribution_authorized": false,
+      "unique_images": 3,
+      "visual_source_quality": "REVIEW_PENDING"
+    }
+  ],
+  "groups_total": 10,
+  "invalid_files": [],
+  "mpo_canonicalized_or_exported": false,
+  "mpo_first_frame_automatically_selected": false,
+  "multi_frame_mpo_files": 15,
+  "readable_unique_photo_count": 23,
+  "source_image_copies_exported": false,
+  "team_broadcast_allowed": false
+}
