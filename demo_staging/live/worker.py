@@ -304,12 +304,54 @@ def reconcile_worker_ledgers(queue:LiveQueue,flow:LivePipeline)->bool:
         # A missing/corrupt schema is NOT permission to submit again.
         return True
 
+def quarantined_uncertain_jobs(queue:LiveQueue,flow:LivePipeline)->set[str]|None:
+    """Allow unrelated queued Jobs only when an old unknown is fully isolated.
+
+    Fail closed on any orphan mismatch, still-running attempt, or unknown
+    Image Owner attempt. Never rewrite/settle a previous ambiguous attempt.
+    Must run under the existing cross-process singleflight worker lock.
+    """
+    try:
+        with queue.db() as db:
+            unknown_q=db.execute("""SELECT DISTINCT job_id,actor FROM queued_ops
+                WHERE mode='LIVE' AND state='BILLING_UNKNOWN'""").fetchall()
+            active_q=db.execute("""SELECT COUNT(*) FROM queued_ops
+                WHERE mode='LIVE' AND state='RUNNING'""").fetchone()[0]
+            overlap_q=db.execute("""SELECT COUNT(*) FROM queued_ops
+                WHERE mode='LIVE' AND state='QUEUED' AND job_id IN
+                (SELECT job_id FROM queued_ops WHERE state='BILLING_UNKNOWN')""").fetchone()[0]
+        with flow.cost.connect() as db:
+            unknown_cost=db.execute("""SELECT DISTINCT job_id,actor FROM attempts
+                WHERE status='BILLING_UNKNOWN' OR billing_unknown!=0""").fetchall()
+            unsettled=db.execute("""SELECT COUNT(*) FROM attempts
+                WHERE status IN ('RESERVED','DISPATCHED')""").fetchone()[0]
+        path=flow.root/"owner_image"/"image_attempts.sqlite"
+        uncertain_image=0
+        if path.exists():
+            with sqlite3.connect(f"file:{path}?mode=ro",uri=True) as db:
+                uncertain_image=db.execute("""SELECT COUNT(*) FROM provider_attempts
+                    WHERE state IN ('submitting','unknown','failed')""").fetchone()[0]
+        q={(r["job_id"],r["actor"]) for r in unknown_q}
+        c={(r["job_id"],r["actor"]) for r in unknown_cost}
+        if not q or q!=c or active_q or overlap_q or unsettled or uncertain_image:
+            return None
+        return {job_id for job_id,_actor in q}
+    except (sqlite3.Error,OSError,KeyError,TypeError):
+        return None
+
+
 def _run_locked(root:Path,flow:LivePipeline)->str:
     queue=LiveQueue(root/"live"/"queue.sqlite")
     # The host singleflight lock MUST protect this cross-ledger scan.
+    blocked:tuple[str,...]=()
     if reconcile_worker_ledgers(queue,flow):
-        return "LIVE_WORKER_BILLING_HOLD"
-    item=queue.claim("LIVE")
+        if os.environ.get("IT_TEM_R6_ISOLATE_UNCERTAIN_JOBS")!="YES":
+            return "LIVE_WORKER_BILLING_HOLD"
+        quarantined=quarantined_uncertain_jobs(queue,flow)
+        if not quarantined:
+            return "LIVE_WORKER_BILLING_HOLD"
+        blocked=tuple(quarantined)
+    item=queue.claim("LIVE",excluded_job_ids=blocked)
     if not item:return "NO_LIVE_TASK"
     actor,jid=item["actor"],item["job_id"]
     try:

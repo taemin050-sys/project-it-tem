@@ -119,16 +119,24 @@ class LiveQueue:
         except (ValueError,TypeError):
             raise LiveGateError("REVISION_PAYLOAD_CORRUPTED") from None
 
-    def claim(self,worker_mode="LIVE"):
+    def claim(self,worker_mode="LIVE",*,excluded_job_ids=()):
+        # An ambiguous previous request must never be claimed again. Bounded,
+        # parameterized exclusion is used only after cross-ledger validation.
+        excluded=tuple(sorted(set(excluded_job_ids)))
+        if len(excluded)>100:
+            raise LiveGateError("QUEUE_QUARANTINE_SCOPE_INVALID")
         with self.db() as db:
             db.execute("BEGIN IMMEDIATE")
             in_progress=db.execute("""SELECT 1 FROM queued_ops
                 WHERE state='RUNNING' LIMIT 1""").fetchone()
             if in_progress:
                 return None  # one attempt at a time across stages
+            condition=(" AND job_id NOT IN ("+",".join("?" for _ in excluded)+")"
+                       if excluded else "")
             item=db.execute("""SELECT * FROM queued_ops
-                WHERE state='QUEUED' AND mode=? ORDER BY created_at,id LIMIT 1""",
-                (worker_mode,)).fetchone()
+                WHERE state='QUEUED' AND mode=?"""+condition+
+                " ORDER BY created_at,id LIMIT 1",
+                (worker_mode,*excluded)).fetchone()
             if not item:
                 return None
             db.execute("""UPDATE queued_ops SET state='RUNNING',
