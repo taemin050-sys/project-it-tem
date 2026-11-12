@@ -7,6 +7,7 @@ No HTTP handler invokes a provider. The paid Worker's lifetime lock is required.
 from __future__ import annotations
 
 import base64
+from contextlib import contextmanager
 from hashlib import sha256
 from io import BytesIO
 import json
@@ -66,7 +67,60 @@ class FinalInpainting(ImageCorrections):
         self.file = flow.root / "final_inpainting.sqlite"
         self.root = flow.root / "final_inpainting"
 
-    def source(self, actor, job_id):
+    @contextmanager
+    def source_lock(self, actor, job_id):
+        # Source may be an independently approved copy revision even when the
+        # original image is still awaiting review. All writers lock Live first.
+        with self.flow.state.db() as db:
+            db.execute('BEGIN IMMEDIATE')
+            self.flow.state._read(db,job_id,actor)
+            yield
+
+    def request(self,actor,job_id,body):
+        self.flow.require_live_actor(actor)
+        with self.source_lock(actor,job_id):
+            return self._request_locked(actor,job_id,body,self.source(actor,job_id,body.get('source_edit_id')))
+
+    def _composed_revision_source(self,actor,job_id,edit_id):
+        from .composed_copy_edit import ComposedCopyEdits
+        from .visual_review import copy_review_valid
+        edits=ComposedCopyEdits(self.flow)
+        with self.flow.state.db() as db:
+            job,_,_,context_sha=edits.context(actor,job_id,db)
+        with edits.db() as db:
+            row=edits._read(db,actor,job_id,edit_id)
+        edits._source_matches(row,context_sha);edits._review_binding(row)
+        if row['state']!='COMPLETED':raise LiveGateError('INPAINT_COMPOSED_REVISION_APPROVAL_REQUIRED')
+        raw=edits._artifact_path(row,'final').read_bytes()
+        receipt_raw=edits._artifact_path(row,'receipt').read_bytes()
+        caption=edits._artifact_path(row,'caption').read_bytes()
+        if any(sha256(data).hexdigest()!=row[key] for data,key in ((raw,'final_sha'),(receipt_raw,'receipt_sha'),(caption,'caption_sha'))):
+            raise LiveGateError('INPAINT_COMPOSED_REVISION_INTEGRITY')
+        receipt=json.loads(receipt_raw)
+        if (receipt.get('edit_id')!=edit_id or receipt.get('actor')!=actor or receipt.get('job_id')!=job_id
+            or receipt.get('source_context_sha')!=context_sha or receipt.get('final_sha')!=row['final_sha']
+            or receipt.get('caption_sha')!=row['caption_sha'] or receipt.get('copy_sha')!=row['copy_sha']
+            or receipt.get('copy_approval_sha')!=row['approval_sha'] or receipt.get('f09_review_sha')!=row['review_sha']
+            or not copy_review_valid(receipt.get('visual_review'),row['copy']['ad_copy'],
+                {'product_matches','label_matches','cta_policy_matches','no_extra_text'})):
+            raise LiveGateError('INPAINT_COMPOSED_REVISION_INTEGRITY')
+        job={**job,'copy_json':_json(row['copy']),'copy_sha':row['copy_sha'],
+            'approval_sha':row['approval_sha'],'review_sha':row['review_sha'],'final_sha':row['final_sha']}
+        context={'protocol':PROTOCOL,'actor':actor,'job_id':job_id,'generation':job['generation'],
+            'input_sha':job['input_sha'],'copy_sha':row['copy_sha'],'approval_sha':row['approval_sha'],
+            'review_sha':row['review_sha'],'source_image_sha':row['final_sha'],'source_receipt_sha':row['receipt_sha'],
+            'generation_mode':'composed','source_scope':'APPROVED_COMPOSED_COPY_EDIT','source_edit_id':edit_id,
+            'source_edit_revision':row['revision'],'source_manifest_sha':digest(receipt)}
+        return job,context,raw
+
+    def source(self, actor, job_id, source_edit_id=None):
+        if source_edit_id is not None:
+            if not isinstance(source_edit_id,str) or not _ID.fullmatch(source_edit_id):raise LiveGateError('INPAINT_SOURCE_EDIT_INVALID')
+            job,context,raw=self._composed_revision_source(actor,job_id,source_edit_id)
+            with Image.open(BytesIO(raw)) as im:
+                im.load();size=im.size
+                if im.format!='PNG' or size not in ((1080,1440),(1080,1350),(1080,1920)):raise LiveGateError('INPAINT_SOURCE_INVALID')
+            return job,context,raw,size
         job = self.flow.validate_final_artifacts(actor, job_id)
         parent = self.flow.state.live_dual_membership(actor, job_id)
         if job["mode"] != "LIVE" or not parent:
@@ -98,6 +152,7 @@ class FinalInpainting(ImageCorrections):
                 raise ValueError
             if payload.get("edge_blend_version") not in (None,"inside-feather-v1"):raise ValueError
             body = {k: payload[k] for k in REQUEST_FIELDS}
+            if 'source_edit_id' in payload:body['source_edit_id']=payload['source_edit_id']
             self._validate_request(body, context)
             selection, count = decode_selection(payload["mask_png_base64"], tuple(payload["source_size"]))
             if sha256(_png(selection)).hexdigest() != payload["selection_sha"] or count != payload["selected_pixels"]:
@@ -107,7 +162,8 @@ class FinalInpainting(ImageCorrections):
             raise LiveGateError("INPAINT_PAYLOAD_INTEGRITY") from None
 
     def _validate_request(self, body, context):
-        if (not isinstance(body, dict) or set(body) != REQUEST_FIELDS
+        if (not isinstance(body, dict) or set(body) not in (REQUEST_FIELDS,REQUEST_FIELDS|{'source_edit_id'})
+            or body.get('source_edit_id')!=context.get('source_edit_id')
             or any(body[k] != context[v] for k,v in (("expected_image_sha","source_image_sha"),
                 ("expected_copy_sha","copy_sha"),("expected_approval_sha","approval_sha")))
             or type(body["prompt"]) is not str or not 3 <= len(body["prompt"].strip()) <= 1200
@@ -146,7 +202,7 @@ class FinalInpainting(ImageCorrections):
 
     def _current(self, row):
         payload = self._validate_payload(row)
-        source = self.source(row["actor"],row["job_id"])
+        source = self.source(row["actor"],row["job_id"],payload.get('source_edit_id'))
         job, context, raw, size = source
         if (digest(context) != row["context_sha"] or payload["source_size"] != list(size)
             or payload["approved_copy"] != json.loads(job["copy_json"])["ad_copy"]):
@@ -199,7 +255,8 @@ class FinalInpainting(ImageCorrections):
             candidate=self.candidate_path(row,"receipt").read_bytes()
             blended=json.loads(candidate).get("edge_blend",{}).get("version")=="inside-feather-v1"
         return {"edge_blend_applied":blended,"correction_id":row["correction_id"],"job_id":row["job_id"],"state":row["state"],"revision":row["revision"],
-            "render_mode":RENDER_MODE,"source_mode":payload["source_context"]["generation_mode"],"source_scope":"APPROVED_FINAL_AD",
+            "render_mode":RENDER_MODE,"source_mode":payload["source_context"]["generation_mode"],
+            "source_scope":payload['source_context'].get('source_scope','APPROVED_FINAL_AD'),"source_edit_id":payload.get('source_edit_id'),
             "source_image_sha":payload["expected_image_sha"],"prompt":payload["prompt"],"selected_pixels":payload["selected_pixels"],
             "approved_copy":payload["approved_copy"],"selection_sha":payload["selection_sha"],"error_code":row["error_code"],
             **{key:row[key] for key in ("preview_sha","final_sha","caption_sha","receipt_sha","approval_sha")},
@@ -249,17 +306,20 @@ class FinalInpainting(ImageCorrections):
             if not self.public(row)["edge_blend_applied"]:raise LiveGateError("INPAINT_EDGE_BLEND_REQUIRED")
         return super().decision(actor,job_id,correction_id,body)
 
-    def snapshot(self,actor,job_id):
-        job,context,_,size = self.source(actor,job_id)
+    def snapshot(self,actor,job_id,source_edit_id=None):
+        job,context,_,size = self.source(actor,job_id,source_edit_id)
         rows=[]
         if self.file.exists():
             with self.db() as db:
                 rows=[self.public(dict(row) if row["context_sha"]==digest(context) else {**dict(row),"state":"HOLD","error_code":"INPAINT_SOURCE_CONTEXT_STALE"})
-                    for row in db.execute("SELECT * FROM image_corrections WHERE actor=? AND job_id=? ORDER BY rowid",(actor,job_id))]
+                    for row in db.execute("SELECT * FROM image_corrections WHERE actor=? AND job_id=? ORDER BY rowid",(actor,job_id))
+                    if json.loads(row['payload_json']).get('source_edit_id')==source_edit_id]
         from .revision_costs import revision_cost_summary
+        suffix=('&source_edit_id='+source_edit_id) if source_edit_id else ''
         return {"available":enabled(),"job_id":job_id,"protocol":PROTOCOL,"source_image_sha":context["source_image_sha"],
+            "source_edit_id":source_edit_id,"source_scope":context.get('source_scope','APPROVED_FINAL_AD'),
             "source_size":list(size),"source_mode":context["generation_mode"],"copy_sha":job["copy_sha"],"approval_sha":job["approval_sha"],
-            "source_artifact":f'/demo/api/live/jobs/{job_id}/final-inpainting/source?sha256={context["source_image_sha"]}',
+            "source_artifact":f'/demo/api/live/jobs/{job_id}/final-inpainting/source?sha256={context["source_image_sha"]}'+suffix,
             "approved_copy":json.loads(job["copy_json"])["ad_copy"],"corrections":rows,
             "cost_summary":revision_cost_summary(self.flow,actor,job_id)}
 

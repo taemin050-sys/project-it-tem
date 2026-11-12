@@ -7,6 +7,8 @@ import { revisionArtifactPath, revisionPath, revisionSourcePath, validTextRegion
 import { download } from '../lib/download'
 import { useFile } from '../lib/useVerifiedRevisionFile'
 import RevisionCostDetails, { type RevisionCostSummary } from './RevisionCostDetails'
+import FinalInpaintingPanel from './FinalInpaintingPanel'
+import InpaintingBoundary from './InpaintingBoundary'
 
 type Revision = {
   edit_id?: string; correction_id?: string; state: string; revision: number
@@ -237,6 +239,9 @@ function RevisionReview({row, base, kind, jobId, canMutate, approvedCopy, source
       <button className="button secondary" disabled={!caption.url} onClick={()=>download(caption.url!,`caption_${id}.txt`)}>본문 TXT 저장</button>
       <button className="button secondary" disabled={!receipt.url} onClick={()=>download(receipt.url!,`receipt_${id}.json`)}>Receipt 저장</button>
     </div>}
+    {complete && kind==='composed-copy-edits' && <InpaintingBoundary>
+      <FinalInpaintingPanel key={id} jobId={jobId} mode="composed" sourceEditId={id} canMutate={canMutate} />
+    </InpaintingBoundary>}
     {error && <p role="alert" className="field-error">{error}</p>}
   </article>
 }

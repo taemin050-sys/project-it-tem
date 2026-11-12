@@ -61,6 +61,7 @@ class InpaintingRequest(BaseModel):
     prompt: str = Field(min_length=3, max_length=1200)
     request_key: str = Field(pattern=r"^[0-9a-f]{32}$")
     acknowledge_paid_edit: bool
+    source_edit_id: str | None = Field(default=None,pattern=r"^[0-9a-f]{32}$")
 
 
 def install_image_correction_routes(app, flow, authorized, require_queue, *, service_type=ImageCorrections,
@@ -111,7 +112,8 @@ def install_image_correction_routes(app, flow, authorized, require_queue, *, ser
         actor = actor_for(request, job_id)
         def snapshot():
             from .revision_costs import revision_cost_summary
-            return {**service.snapshot(actor, job_id),
+            kwargs=({'source_edit_id':request.query_params.get('source_edit_id')} if namespace=='final-inpainting' else {})
+            return {**service.snapshot(actor, job_id,**kwargs),
                     "cost_summary": revision_cost_summary(flow, actor, job_id)}
         return call(snapshot)
 
@@ -126,7 +128,8 @@ def install_image_correction_routes(app, flow, authorized, require_queue, *, ser
     def source(job_id: str, sha256: str, request: Request):
         actor = actor_for(request, job_id)
         def read():
-            _, context, raw, _ = service.source(actor, job_id)
+            args=([request.query_params.get('source_edit_id')] if namespace=='final-inpainting' else [])
+            _, context, raw, _ = service.source(actor, job_id,*args)
             if sha256 != context["source_image_sha"]:
                 raise LiveGateError("IMAGE_CORRECTION_SOURCE_STALE")
             return Response(raw, media_type="image/png", headers={"Cache-Control": "no-store",

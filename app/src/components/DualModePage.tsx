@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query'
-import { Component, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { dualArtifactPath, matchesDualImageSize, type DualArtifactKind } from '../api/dualArtifacts'
 import { canResumeDualJob, decideDualVariant, dualQueryKey, getDualJob, resumeDualJob, selectDualVariant,
@@ -25,16 +25,7 @@ const MODES = ['composed', 'freeform'] as const
 // Keep the editor in the initial bundle: the current signed tunnel can fail
 // optional module GETs during font/image fan-out. No paid operation is retried.
 import FinalInpaintingPanel from './FinalInpaintingPanel'
-class InpaintingBoundary extends Component<{children: ReactNode}, {failed: boolean}> {
-  state = {failed: false}
-  static getDerivedStateFromError() {return {failed: true}}
-  render() {
-    return this.state.failed ? <section role="alert" data-testid="inpaint-load-error">
-      <p>부분 수정 도구를 불러오지 못했습니다. 기존 광고와 다운로드는 유지됩니다.</p>
-      <button type="button" className="button secondary" onClick={() => window.location.reload()}>부분 수정 도구 다시 불러오기</button>
-    </section> : this.props.children
-  }
-}
+import InpaintingBoundary from './InpaintingBoundary'
 const LABELS = {composed: '시안 A · 합성형 (Composed)', freeform: '시안 B · 자유형 (Freeform)'}
 const GROUP_STATUS: Record<DualSnapshot['state'], string> = {
   READY: '카피 승인 대기', GENERATING: '두 시안 준비 중', REVIEW_REQUIRED: '시안 검토 필요',

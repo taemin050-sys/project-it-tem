@@ -23,15 +23,17 @@ type Snapshot = {
   available: boolean; job_id: string; source_image_sha: string; source_artifact: string
   source_size: [number,number]; copy_sha: string; approval_sha: string; approved_copy: CopyFields
   corrections: Result[]; cost_summary: RevisionCostSummary
+  source_edit_id?: string | null
 }
 const STATUS: Record<string,string> = {QUEUED:'수정 대기',RUNNING:'선택 영역 수정 중',REVIEW_REQUIRED:'수정본 검수 필요',
   COMPLETED:'수정본 승인 완료',REJECTED:'수정본 거절',HOLD:'안전 확인 보류',BILLING_UNKNOWN:'과금 확인 필요 · 재호출 중지'}
 
-export default function FinalInpaintingPanel({jobId,mode,canMutate}: {jobId:string;mode:'composed'|'freeform';canMutate:boolean}) {
+export default function FinalInpaintingPanel({jobId,mode,canMutate,sourceEditId}: {jobId:string;mode:'composed'|'freeform';canMutate:boolean;sourceEditId?:string}) {
   const [open,setOpen]=useState(false)
   const base=revisionPath(jobId,'final-inpainting')
-  const query=useQuery({queryKey:['final-inpainting',jobId],enabled:open,retry:false,refetchOnWindowFocus:false,staleTime:10_000,
-    queryFn:()=>request<Snapshot>(base),refetchInterval:q=>q.state.data?.corrections.some(r=>['QUEUED','RUNNING'].includes(r.state))?2500:false})
+  const sourceQuery=sourceEditId?`?source_edit_id=${encodeURIComponent(sourceEditId)}`:''
+  const query=useQuery({queryKey:['final-inpainting',jobId,sourceEditId??'original'],enabled:open,retry:false,refetchOnWindowFocus:false,staleTime:10_000,
+    queryFn:()=>request<Snapshot>(base+sourceQuery),refetchInterval:q=>q.state.data?.corrections.some(r=>['QUEUED','RUNNING'].includes(r.state))?2500:false})
   return <details className="stack inpaint-panel" open={open} data-testid={`inpaint-${mode}`}
     onToggle={e=>setOpen(e.currentTarget.open)}>
     <summary>이 최종 시안에서 원하는 부분만 수정</summary>
@@ -40,7 +42,7 @@ export default function FinalInpaintingPanel({jobId,mode,canMutate}: {jobId:stri
       <p className="field-hint">이미지 AI 1회 호출 · 기존 승인본 유지 · 수정본은 별도 검수 후 저장. 문구 자체를 바꾸려면 카피 수정·검수 기능을 이용하세요.</p>
       {query.isPending?<p role="status">최종 광고 불러오는 중…</p>:query.isError&&!query.data?<div role="alert">
         <p>편집 상태를 불러오지 못했습니다.</p><button className="button secondary small" onClick={()=>void query.refetch()}>다시 확인</button></div>:
-        query.data?.available?<Workspace key={query.data.source_image_sha} snapshot={query.data} canMutate={canMutate} refresh={()=>query.refetch()} />:
+        query.data?.available?<Workspace key={`${query.data.source_image_sha}:${query.data.approval_sha}`} snapshot={query.data} canMutate={canMutate} refresh={()=>query.refetch()} />:
           <p>현재 이 최종 광고의 부분 수정을 사용할 수 없습니다.</p>}
       {query.isError&&query.data&&<div role="alert"><p>최신 상태를 확인하지 못했습니다. 선택 영역과 입력 내용은 유지됩니다.</p><button className="button secondary small" onClick={()=>void query.refetch()}>상태 다시 확인</button></div>}
     </div>}
@@ -49,7 +51,8 @@ export default function FinalInpaintingPanel({jobId,mode,canMutate}: {jobId:stri
 
 function Workspace({snapshot,canMutate,refresh}: {snapshot:Snapshot;canMutate:boolean;refresh:()=>Promise<unknown>}) {
   const base=revisionPath(snapshot.job_id,'final-inpainting')
-  const source=useFile(snapshot.source_artifact===`${base}/source?sha256=${snapshot.source_image_sha}`?snapshot.source_artifact:undefined,snapshot.source_image_sha)
+  const suffix=snapshot.source_edit_id?`&source_edit_id=${encodeURIComponent(snapshot.source_edit_id)}`:''
+  const source=useFile(snapshot.source_artifact===`${base}/source?sha256=${snapshot.source_image_sha}${suffix}`?snapshot.source_artifact:undefined,snapshot.source_image_sha)
   const [mask,setMask]=useState('')
   const [prompt,setPrompt]=useState('')
   const [paid,setPaid]=useState(false)
@@ -66,7 +69,8 @@ function Workspace({snapshot,canMutate,refresh}: {snapshot:Snapshot;canMutate:bo
     flight.current=true;setPending(true);setError('')
     key.current??=crypto.randomUUID().replaceAll('-','')
     frozen.current??=JSON.stringify({expected_image_sha:snapshot.source_image_sha,expected_copy_sha:snapshot.copy_sha,
-      expected_approval_sha:snapshot.approval_sha,mask_png_base64:mask,prompt,acknowledge_paid_edit:true,request_key:key.current})
+      expected_approval_sha:snapshot.approval_sha,mask_png_base64:mask,prompt,acknowledge_paid_edit:true,request_key:key.current,
+      ...(snapshot.source_edit_id?{source_edit_id:snapshot.source_edit_id}:{})})
     try {
       await request(base,{method:'POST',headers:{'Content-Type':'application/json'},body:frozen.current})
       key.current=null;frozen.current=null;setUncertain(false);setPaid(false)
