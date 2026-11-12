@@ -536,3 +536,30 @@ def test_local_stroke_worker_never_calls_provider_and_replays_before_approval(re
         'product_matches':True,'label_matches':True,'cta_policy_matches':True,'no_extra_text':True,
         'observed_copy':state['approved_copy']}})
     assert out['state']=='COMPLETED' and attempts(flow)==initial
+
+
+def test_model_matte_wire_uses_flat_specimen_and_separate_paid_receipt(repair,monkeypatch):
+    from demo_staging.live.image_correction import _png
+    from PIL import ImageDraw
+    flow,service,parent,child,body=repair;original=ImageCorrections.source
+    picture=Image.new('RGB',(1080,1350),(225,235,215));ImageDraw.Draw(picture).rectangle((310,260,313,295),fill=(80,100,60));raw=_png(picture)
+    def isolated(self,actor,job_id):
+        job,context,_,_=original(self,actor,job_id)
+        return job,{**context,'source_image_sha':sha256(raw).hexdigest()},raw,picture.size
+    monkeypatch.setattr(ImageCorrections,'source',isolated)
+    q={**body,'expected_image_sha':sha256(raw).hexdigest(),'region':[(294+.001)/1080,(238+.001)/1350,(343-.001)/1080,(305-.001)/1350],'matte_style_context':True}
+    row=service.request(ACTOR,child,q);calls=[]
+    def wire(request):
+        parts=BytesParser(policy=policy.default).parsebytes(b'Content-Type: '+request.headers['content-type'].encode()+b'\r\n\r\n'+request.read())
+        data={p.get_param('name',header='content-disposition'):p.get_payload(decode=True) for p in parts.iter_parts()};calls.append(data)
+        assert data['size']==b'1536x1024'
+        assert b'flat black-on-white' in data['prompt']
+        return httpx.Response(200,json={'data':[{'b64_json':base64.b64encode(data['image[]']).decode()}],
+            'usage':{'input_tokens':5,'output_tokens':7,'total_tokens':12}},headers={'x-request-id':'mock-matte'})
+    assert run_image_correction_once(flow,transport=OpenAIImagesAdapter(OpenAIImagesConfig(live_calls=False),transport=httpx.MockTransport(wire)))=='IMAGE_CORRECTION_REVIEW_REQUIRED'
+    assert len(calls)==1
+    current=service.snapshot(ACTOR,child)['corrections'][0];assert current['render_mode']=='freeform_model_matte_corrected_v1'
+    receipt=json.loads((service.root/row['correction_id']/'receipt.json').read_text())
+    assert receipt['provider_calls']==1 and receipt['server_text_overlay'] is True
+    assert receipt['matte_report']['glyph_origin']=='ACTUAL_IMAGE_MODEL'
+    service.artifact(ACTOR,child,row['correction_id'],'preview',current['preview_sha'])

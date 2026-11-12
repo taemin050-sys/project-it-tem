@@ -24,6 +24,7 @@ class CorrectionRequest(BaseModel):
     request_key: str = Field(pattern=r"^[0-9a-f]{32}$")
     acknowledge_paid_edit: bool
     preserve_style_context: bool = False
+    matte_style_context: bool = False
     stroke_source_box: list[int] | None = Field(default=None, min_length=4,max_length=4)
 
 

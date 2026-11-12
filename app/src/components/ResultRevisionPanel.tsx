@@ -116,7 +116,7 @@ function RevisionWorkspace({snapshot, kind, base, canMutate, refresh, showReques
         expected_copy_sha: snapshot.source_copy_sha ?? snapshot.copy_sha,
         expected_approval_sha: snapshot.source_approval_sha ?? snapshot.approval_sha,
         request_key: requestKey.current,
-        ...(freeform ? {field, observed_text: observed, region, acknowledge_paid_edit: localStroke ? false : paid, ...(localStroke ? {stroke_source_box:strokeBox} : {preserve_style_context:true})} : {ad_copy: copy}),
+        ...(freeform ? {field, observed_text: observed, region, acknowledge_paid_edit: localStroke ? false : paid, ...(localStroke ? {stroke_source_box:strokeBox} : {matte_style_context:true})} : {ad_copy: copy}),
       })})
       requestKey.current = null; setPaid(false); setSubmitted(formFingerprint)
     } catch (cause) {
@@ -132,7 +132,7 @@ function RevisionWorkspace({snapshot, kind, base, canMutate, refresh, showReques
     {showRequestForm && <>
     {freeform ? <>
       <label>교정 방식<select value={localStroke?'stroke':'model'} onChange={e=>{setLocalStroke(e.target.value==='stroke');setPaid(false)}}>
-        <option value="model">AI 확대 영역 교정 · 모델 호출 1회</option><option value="stroke">원본 획 정밀 교정 · 추가 모델 호출 없음</option>
+        <option value="model">AI 글자 분리 교정 · 모델 호출 1회</option><option value="stroke">원본 획 정밀 교정 · 추가 모델 호출 없음</option>
       </select></label>
       {localStroke && <label>기준 획 원본 좌표 [왼쪽, 위, 오른쪽, 아래]<input value={strokeText} onChange={e=>setStrokeText(e.target.value)} spellCheck={false}/>
         <span className="field-hint">ㅈ→ㅊ 초성 교정용입니다. 원본의 짧은 가로 획을 1:1로 복사하며 교정 영역과 크기가 같아야 합니다. 새 글꼴이나 AI 문구를 덧쓰지 않습니다.</span></label>}
@@ -218,7 +218,7 @@ function RevisionReview({row, base, kind, jobId, canMutate, approvedCopy, source
   const decision = (approve: boolean) => void mutate('decision', {expected_revision:row.revision,
     expected_preview_sha:row.preview_sha,approve,visual_review:{...checks,observed_copy:observed}})
   return <article className={complete ? 'stack' : 'panel stack'} data-testid="result-revision">
-    <h4 style={{margin:0}}>{kind === 'image-corrections' ? row.render_mode === 'freeform_source_stroke_corrected_v1' ? '자유형 · 원본 획 정밀 교정본' : '자유형 · 텍스트 영역 수정본' : '합성형 · 직접 수정본'}</h4>
+    <h4 style={{margin:0}}>{kind === 'image-corrections' ? row.render_mode === 'freeform_source_stroke_corrected_v1' ? '자유형 · 원본 획 정밀 교정본' : row.render_mode === 'freeform_model_matte_corrected_v1' ? '자유형 · AI 글자 분리 교정본' : '자유형 · 텍스트 영역 수정본' : '합성형 · 직접 수정본'}</h4>
     <p role="status">{STATES[row.state] ?? row.state}</p>
     {row.error_code && <p role="alert" style={{overflowWrap:'anywhere'}}>확인 코드: {row.error_code}</p>}
     {image.url && <a href={image.url} target="_blank" rel="noreferrer"><img className="result-image" src={image.url} alt="새 수정본 · 별도 검수 대상" /></a>}
