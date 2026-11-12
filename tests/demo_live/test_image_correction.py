@@ -12,7 +12,7 @@ import pytest
 from fastapi import FastAPI, HTTPException
 from fastapi.testclient import TestClient
 
-from demo_staging.live.contracts import LiveGateError
+from demo_staging.live.contracts import LiveGateError, digest
 from demo_staging.live.image_correction import ImageCorrections, run_image_correction_once
 from demo_staging.live.image_correction_api import install_image_correction_routes
 from src.image_generation.openai_images import OpenAIImagesAdapter, OpenAIImagesConfig
@@ -152,7 +152,8 @@ def test_source_changed_before_execution_holds_without_provider(repair):
     assert calls==[] and len(attempts(flow))==7
 
 
-def test_approval_is_new_exact_review_and_output_size(repair):
+@pytest.mark.parametrize('checkbox_only',[False,True])
+def test_approval_is_new_exact_review_and_output_size(repair,checkbox_only):
     flow,service,parent,child,body=repair
     result=service.request(ACTOR,child,body)
     calls=[];run_image_correction_once(flow,transport=wire_transport(flow,child,calls))
@@ -163,6 +164,8 @@ def test_approval_is_new_exact_review_and_output_size(repair):
     with pytest.raises(LiveGateError,match="VISUAL_REVIEW_REQUIRED"):
         service.decision(ACTOR,child,result["correction_id"],decision)
     checks["observed_copy"]=result["approved_copy"]
+    if checkbox_only:
+        del checks['observed_copy'];checks['copy_verified']=True
     completed=service.decision(ACTOR,child,result["correction_id"],decision)
     assert completed["state"]=="COMPLETED" and completed["approval_sha"]!=body["expected_approval_sha"]
     raw,_=service.artifact(ACTOR,child,completed["correction_id"],"final",completed["final_sha"])
@@ -538,7 +541,8 @@ def test_local_stroke_worker_never_calls_provider_and_replays_before_approval(re
     assert out['state']=='COMPLETED' and attempts(flow)==initial
 
 
-def test_model_matte_wire_uses_flat_specimen_and_separate_paid_receipt(repair,monkeypatch):
+@pytest.mark.parametrize('legacy',[False,True])
+def test_model_matte_wire_uses_flat_specimen_and_separate_paid_receipt(repair,monkeypatch,legacy):
     from demo_staging.live.image_correction import _png
     from PIL import ImageDraw
     flow,service,parent,child,body=repair;original=ImageCorrections.source
@@ -549,6 +553,12 @@ def test_model_matte_wire_uses_flat_specimen_and_separate_paid_receipt(repair,mo
     monkeypatch.setattr(ImageCorrections,'source',isolated)
     q={**body,'expected_image_sha':sha256(raw).hexdigest(),'region':[(294+.001)/1080,(238+.001)/1350,(343-.001)/1080,(305-.001)/1350],'matte_style_context':True}
     row=service.request(ACTOR,child,q);calls=[]
+    if legacy:
+        from demo_staging.live.image_correction import _prompt_v5
+        with service.db() as db:
+            stored=dict(db.execute('SELECT * FROM image_corrections').fetchone());payload=json.loads(stored['payload_json'])
+            payload.update(edit_prompt_version='alpha-safe-matte-text-edit-v6');payload['edit_prompt']=_prompt_v5(payload)
+            db.execute('UPDATE image_corrections SET payload_json=?,request_sha=?',(json.dumps(payload),digest(payload)))
     def wire(request):
         parts=BytesParser(policy=policy.default).parsebytes(b'Content-Type: '+request.headers['content-type'].encode()+b'\r\n\r\n'+request.read())
         data={p.get_param('name',header='content-disposition'):p.get_payload(decode=True) for p in parts.iter_parts()};calls.append(data)
@@ -563,3 +573,15 @@ def test_model_matte_wire_uses_flat_specimen_and_separate_paid_receipt(repair,mo
     assert receipt['provider_calls']==1 and receipt['server_text_overlay'] is True
     assert receipt['matte_report']['glyph_origin']=='ACTUAL_IMAGE_MODEL'
     service.artifact(ACTOR,child,row['correction_id'],'preview',current['preview_sha'])
+    if legacy:
+        initial=attempts(flow);old_preview=current['preview_sha'];old_receipt=current['receipt_sha']
+        fit=service.fit_text(ACTOR,child,row['correction_id'],{'expected_revision':0,'expected_preview_sha':old_preview})
+        assert fit['revision']==1 and fit['text_fit_available'] is False and attempts(flow)==initial
+        assert (service.root/row['correction_id']/'receipts'/(old_receipt+'.json')).is_file()
+        with pytest.raises(LiveGateError):service.fit_text(ACTOR,child,row['correction_id'],{'expected_revision':0,'expected_preview_sha':old_preview})
+        checks=dict(product_matches=True,label_matches=True,cta_policy_matches=True,no_extra_text=True,copy_verified=True)
+        done=service.decision(ACTOR,child,row['correction_id'],{'expected_revision':1,'expected_preview_sha':fit['preview_sha'],'approve':True,'visual_review':checks})
+        assert done['state']=='COMPLETED'
+        final,_=service.artifact(ACTOR,child,row['correction_id'],'receipt',done['receipt_sha'])
+        assert json.loads(final)['local_text_fit']['additional_provider_calls']==0 and attempts(flow)==initial
+    else:assert receipt['matte_report']['text_fit']['clipped'] is False

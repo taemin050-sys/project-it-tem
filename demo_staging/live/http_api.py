@@ -89,6 +89,7 @@ class LiveDualVisualReview(BaseModel):
     label_matches:bool
     cta_policy_matches:bool
     observed_copy:dict[str,str] | None = None
+    copy_verified:bool | None = None
     no_extra_text:bool | None = None
 
 

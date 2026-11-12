@@ -1796,10 +1796,11 @@ class LiveStore:
         required={"product_matches","label_matches","cta_policy_matches"}
         if mode=="freeform":
             required.add("no_extra_text")
-        expected_keys=required|({"observed_copy"} if mode=="freeform" else set())
-        if (not isinstance(checks,dict) or set(checks)!=expected_keys or
-            any(checks[field] is not True for field in required) or
-            (mode=="freeform" and checks["observed_copy"]!=json.loads(job["copy_json"])["ad_copy"])):
+        from .visual_review import copy_review_valid
+        valid=(copy_review_valid(checks,json.loads(job["copy_json"])["ad_copy"],required)
+               if mode=="freeform" else isinstance(checks,dict) and set(checks)==required
+               and all(checks[key] is True for key in required))
+        if not valid:
             raise LiveGateError("LIVE_DUAL_VISUAL_REVIEW_REQUIRED")
         return {"source":"LIVE_DUAL_MANUAL_ATTESTATION","actor":job["actor"],
                 "reviewer_role":reviewer_role,"reviewed_utc":reviewed_utc,

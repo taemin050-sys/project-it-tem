@@ -69,7 +69,8 @@ def adapter(calls,fail=False):
 
 
 @pytest.mark.parametrize('mode',['composed','freeform'])
-def test_final_source_is_independent_one_call_exact_mask_and_human_export(final_ad,mode):
+@pytest.mark.parametrize('checkbox_only',[False,True])
+def test_final_source_is_independent_one_call_exact_mask_and_human_export(final_ad,mode,checkbox_only):
     flow,service,parent,child=final_ad;jid=parent if mode=='composed' else child
     before={j:flow.state.get(ACTOR,j) for j in (parent,child)}
     old=attempts(flow); original=(flow.root/'outputs'/jid/'final.png').read_bytes()
@@ -92,6 +93,8 @@ def test_final_source_is_independent_one_call_exact_mask_and_human_export(final_
         service.artifact(ACTOR,jid,row['correction_id'],'final','0'*64)
     checks=dict(product_matches=True,label_matches=True,cta_policy_matches=True,no_extra_text=True,
         observed_copy=service.snapshot(ACTOR,jid)['approved_copy'])
+    if checkbox_only:
+        del checks['observed_copy'];checks['copy_verified']=True
     decision=dict(expected_revision=current['revision'],expected_preview_sha=current['preview_sha'],approve=True,visual_review=checks)
     result=service.decision(ACTOR,jid,row['correction_id'],decision)
     assert result['state']=='COMPLETED'

@@ -33,3 +33,17 @@ def test_transparent_black_glyph_is_composited_on_white_not_dropped_to_black():
  a,ra=compose(png(src),png(rgba),g);b,rb=compose(png(src),png(opaque.convert('RGB')),g)
  assert a==b and ra==rb
  out=Image.open(BytesIO(a));assert out.getpixel((100,120))==src.getpixel((100,120))
+
+@pytest.mark.parametrize('transparent',[False,True])
+def test_oversized_model_glyph_fits_whole_inside_selection_without_upscaling(transparent):
+ from PIL import ImageChops
+ src=sample();box=(100,120,140,180);_,_,g=prepare(png(src),box,fit=True)
+ model=Image.new('RGBA',(1536,1024),(255,255,255,0) if transparent else 'white')
+ x,y,_,_=g['provider_box'];ImageDraw.Draw(model).rectangle((x-18,y-8,x+50,y+65),fill=(0,0,0,255))
+ result,report=compose(png(src),png(model),g)
+ layout=report['text_fit'];l,t,r,b=layout['fitted_box']
+ assert 0<l<r<40 and 0<t<b<60 and layout['scale']<=1 and layout['clipped'] is False
+ assert report['font_renderer'] is None
+ diff=ImageChops.difference(src,Image.open(BytesIO(result)).convert('RGB'))
+ outside=Image.new('L',src.size,255);ImageDraw.Draw(outside).rectangle((100,120,139,179),fill=0)
+ assert ImageChops.multiply(diff,outside.convert('RGB')).getbbox() is None

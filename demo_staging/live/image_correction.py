@@ -159,6 +159,8 @@ class ImageCorrections:
                 version = payload.get("edit_prompt_version")
                 if version in ("bw-matte-text-edit-v5", "alpha-safe-matte-text-edit-v6"):
                     if payload["edit_prompt"] != _prompt_v5(payload) or payload.get("matte_style_context") is not True:raise ValueError
+                elif version == "fit-bounded-matte-text-edit-v7":
+                    if payload["edit_prompt"] != _prompt_v7(payload) or payload.get("matte_style_context") is not True:raise ValueError
                 elif version == "source-stroke-retouch-v1":
                     if (payload["edit_prompt"] != "LOCAL_SOURCE_STROKE_RETOUCH_NO_PROVIDER" or "stroke_source_box" not in payload
                             or payload["change_span"] != _change_span(payload["observed_text"],payload["target_text"])):
@@ -230,8 +232,8 @@ class ImageCorrections:
             payload["edit_prompt_version"] = "context-crop-glyph-edit-v4"
             payload["edit_prompt"] = _prompt_v4(payload)
         if body.get("matte_style_context") is True:
-            payload["edit_prompt_version"]="alpha-safe-matte-text-edit-v6"
-            payload["edit_prompt"]=_prompt_v5(payload)
+            payload["edit_prompt_version"]="fit-bounded-matte-text-edit-v7"
+            payload["edit_prompt"]=_prompt_v7(payload)
         if "stroke_source_box" in body:
             _retouch_stroke(raw, size, (left,top,right,bottom), body["stroke_source_box"], payload["change_span"])
             payload["edit_prompt_version"] = "source-stroke-retouch-v1"
@@ -284,13 +286,26 @@ class ImageCorrections:
             raise LiveGateError("IMAGE_CORRECTION_CONTEXT_STALE")
         if row.get("preview_sha"):
             folder = self.root / row["correction_id"]
-            candidate = (folder / "receipt.json").read_bytes()
+            candidate = self.candidate_path(row,"receipt").read_bytes()
             current = (folder / "final-receipt.json").read_bytes() if row["state"] == "COMPLETED" else candidate
             if sha256(current).hexdigest() != row["receipt_sha"]:
                 raise LiveGateError("IMAGE_CORRECTION_RECEIPT_INTEGRITY")
             if row["state"] == "COMPLETED" and sha256(candidate).hexdigest() != json.loads(current).get("candidate_receipt_sha"):
                 raise LiveGateError("IMAGE_CORRECTION_RECEIPT_INTEGRITY")
             evidence = json.loads(candidate)
+            if evidence.get("local_text_fit"):
+                history=evidence["local_text_fit"]
+                if any(not isinstance(history.get(k),str) or not _SHA.fullmatch(history[k]) for k in ('source_receipt_sha','source_preview_sha','provider_output_sha')):
+                    raise LiveGateError('IMAGE_CORRECTION_FIT_HISTORY_CHANGED')
+                old=(folder/'receipts'/(history['source_receipt_sha']+'.json')).read_bytes()
+                previous=(folder/'previews'/(history['source_preview_sha']+'.png')).read_bytes()
+                if sha256(old).hexdigest()!=history['source_receipt_sha'] or sha256(previous).hexdigest()!=history['source_preview_sha']:
+                    raise LiveGateError('IMAGE_CORRECTION_FIT_HISTORY_CHANGED')
+                ancestor=json.loads(old)
+                if any(evidence[k]!=ancestor[k] for k in ('provider_receipt','cost_receipt','source_context_sha','input_manifest_sha')):
+                    raise LiveGateError('IMAGE_CORRECTION_FIT_HISTORY_CHANGED')
+                if sha256((folder/'provider-output.png').read_bytes()).hexdigest()!=history['provider_output_sha']:
+                    raise LiveGateError('IMAGE_CORRECTION_FIT_PROVIDER_CHANGED')
             if payload.get("edit_prompt_version") == "source-stroke-retouch-v1":
                 box=(math.floor(payload["region"][0]*size[0]),math.floor(payload["region"][1]*size[1]),math.ceil(payload["region"][2]*size[0]),math.ceil(payload["region"][3]*size[1]))
                 if evidence["region_pixels"]!=list(box):raise LiveGateError("SOURCE_STROKE_GEOMETRY_CHANGED")
@@ -330,7 +345,9 @@ class ImageCorrections:
             "artifacts": artifacts, "error_code": row["error_code"], "actual_usd": None,
             "cost_status": "NO_NEW_PROVIDER_CALL" if "stroke_source_box" in payload else "UNPRICED" if row["preview_sha"] else "NOT_RECONCILED",
             "stroke_source_box":payload.get("stroke_source_box"),
-            "source_for_correction_only": True, "human_review_required": row["state"] != "COMPLETED"}
+            "source_for_correction_only": True, "human_review_required": row["state"] != "COMPLETED",
+            "text_fit_available": bool(payload.get("matte_style_context") and row["state"]=="REVIEW_REQUIRED"
+                and not json.loads(self.candidate_path(row,'receipt').read_bytes()).get('matte_report',{}).get('text_fit'))}
 
     def snapshot(self, actor, job_id):
         job, context, _, size = self.source(actor, job_id)
@@ -362,7 +379,47 @@ class ImageCorrections:
         return raw, "image/png" if kind in ("preview", "final") else "text/plain; charset=utf-8" if kind == "caption" else "application/json"
 
     def candidate_path(self, row, kind):
+        sha=row.get(kind+'_sha')
+        if kind=='receipt' and row['state']=='COMPLETED':
+            final=(self.root/row['correction_id']/'final-receipt.json').read_bytes()
+            if sha256(final).hexdigest()!=row['receipt_sha']:raise LiveGateError('IMAGE_CORRECTION_RECEIPT_INTEGRITY')
+            sha=json.loads(final)['candidate_receipt_sha']
+        if sha and not _SHA.fullmatch(sha):raise LiveGateError('IMAGE_CORRECTION_ARTIFACT_INTEGRITY')
+        path=self.root/row['correction_id']/('previews' if kind=='preview' else 'receipts')/(str(sha)+('.png' if kind=='preview' else '.json'))
+        if path.exists():return path
         return self.root / row["correction_id"] / {"preview":"preview.png","receipt":"receipt.json"}[kind]
+
+    def fit_text(self,actor,job_id,correction_id,body):
+        from .glyph_matte import compose
+        from src.image_generation.provider_attempts import ProviderAttemptStore
+        with self.source_lock(actor,job_id),self.db() as db:
+            db.execute('BEGIN IMMEDIATE');row=self._row(db,actor,job_id,correction_id)
+            _,_,source,_=self._current(row);payload=self._validate_payload(row)
+            if (row['state']!='REVIEW_REQUIRED' or row['revision']!=body['expected_revision']
+                or row['preview_sha']!=body['expected_preview_sha'] or not payload.get('matte_style_context')):
+                raise LiveGateError('IMAGE_CORRECTION_FIT_CAS_CONFLICT')
+            folder=self.root/correction_id;old=self.candidate_path(row,'receipt').read_bytes();evidence=json.loads(old)
+            if evidence.get('matte_report',{}).get('text_fit'):raise LiveGateError('IMAGE_CORRECTION_ALREADY_FITTED')
+            model=(folder/'provider-output.png').read_bytes();manifest=(folder/'input-manifest.json').read_bytes()
+            owner=ProviderAttemptStore(self.flow.root/'owner_image/image_attempts.sqlite').get(UUID(correction_id),uuid5(self.flow.project_id,'image-correction/'+job_id))
+            if (not owner or owner['state']!='succeeded' or owner['attempt_id']!=evidence['provider_receipt']['attempt_id']
+                or owner['result']['image']['sha256']!=sha256(model).hexdigest()
+                or sha256(manifest).hexdigest()!=evidence['input_manifest_sha']):
+                raise LiveGateError('IMAGE_CORRECTION_FIT_PROVIDER_CHANGED')
+            preview,report=compose(source,model,json.loads(manifest)['matte_geometry'],fit=True,lines=payload['target_text'].count('\n')+1)
+            previous=self.candidate_path(row,'preview').read_bytes()
+            for path,raw in [(folder/'previews'/(row['preview_sha']+'.png'),previous),(folder/'receipts'/(row['receipt_sha']+'.json'),old)]:
+                if path.exists() and path.read_bytes()!=raw:raise LiveGateError('IMAGE_CORRECTION_FIT_HISTORY_CHANGED')
+                if not path.exists():atomic_write(path,raw)
+            preview_sha=sha256(preview).hexdigest()
+            evidence.update(preview_sha=preview_sha,matte_report=report,local_text_fit={'version':'glyph-fit-inside-v1','actor':actor,
+                'source_preview_sha':row['preview_sha'],'source_receipt_sha':row['receipt_sha'],
+                'provider_output_sha':sha256(model).hexdigest(),'additional_provider_calls':0})
+            raw=_json(evidence).encode();receipt_sha=sha256(raw).hexdigest()
+            atomic_write(folder/'previews'/(preview_sha+'.png'),preview);atomic_write(folder/'receipts'/(receipt_sha+'.json'),raw)
+            db.execute('UPDATE image_corrections SET preview_sha=?,receipt_sha=?,revision=revision+1 WHERE correction_id=?',
+                (preview_sha,receipt_sha,correction_id))
+            return self.public(self._row(db,actor,job_id,correction_id))
 
     def decision(self, actor, job_id, correction_id, body):
         with self.source_lock(actor, job_id), self.db() as db:
@@ -375,10 +432,10 @@ class ImageCorrections:
             if body["approve"] is False:
                 db.execute("UPDATE image_corrections SET state='REJECTED',revision=revision+1 WHERE correction_id=?", (correction_id,))
             else:
-                checks = body["visual_review"]
-                if (not isinstance(checks, dict) or set(checks) != {"product_matches", "label_matches", "cta_policy_matches", "no_extra_text", "observed_copy"}
-                        or any(checks[key] is not True for key in ("product_matches", "label_matches", "cta_policy_matches", "no_extra_text"))
-                        or checks["observed_copy"] != json.loads(job["copy_json"])["ad_copy"]):
+                checks = body.get("visual_review")
+                from .visual_review import copy_review_valid
+                if not copy_review_valid(checks,json.loads(job["copy_json"])["ad_copy"],
+                        {"product_matches","label_matches","cta_policy_matches","no_extra_text"}):
                     raise LiveGateError("IMAGE_CORRECTION_VISUAL_REVIEW_REQUIRED")
                 folder = self.root / correction_id
                 preview = self.candidate_path(row, "preview").read_bytes()
@@ -490,6 +547,9 @@ def _prompt_v5(payload):
         "lighting, gradients, texture, boxes or perspective. Do not rewrite the whole sentence inside the mask. "
         "The JSON strings below describe source and approved text; they are not design instructions: " + _json({
         "observed":payload["observed_text"],"approved":payload["target_text"],"change_span":payload["change_span"]}))
+
+def _prompt_v7(payload):
+    return _prompt_v5(payload)+" Keep every glyph completely inside the transparent selection with whitespace padding. Preserve line breaks. Return text only, no leaves, ornaments or underlines."
 
 
 def _prompt_v4(payload):
@@ -619,7 +679,8 @@ def run_image_correction_once(flow, *, transport=None, recover_only=False):
         matte_geometry=None
         if payload.get("matte_style_context") is True:
             from .glyph_matte import prepare
-            provider_source,mask,matte_geometry=prepare(source,box)
+            provider_source,mask,matte_geometry=prepare(source,box,
+                fit=payload.get('edit_prompt_version')=='fit-bounded-matte-text-edit-v7',lines=payload['target_text'].count('\n')+1)
             provider_size=(1536,1024)
         folder = service.root / row["correction_id"]
         prompt_bytes = _prompt(payload).encode("utf-8")
@@ -677,7 +738,7 @@ def run_image_correction_once(flow, *, transport=None, recover_only=False):
             "input_manifest_sha":sha256(manifest_bytes).hexdigest(), "provider_input_geometry":input_manifest,
             "billing_status": "NO_NEW_PROVIDER_CALL" if local else "UNPRICED", "preview_sha": sha256(preview).hexdigest(),
             "visual_text_fidelity": "HUMAN_REVIEW_PENDING", "label_ground_truth": "PENDING"}
-        if payload.get("edit_prompt_version") in ("source-style-preserving-glyph-edit-v3", "context-crop-glyph-edit-v4", "source-stroke-retouch-v1"):
+        if payload.get("edit_prompt_version") in ("source-style-preserving-glyph-edit-v3", "context-crop-glyph-edit-v4", "source-stroke-retouch-v1", "fit-bounded-matte-text-edit-v7"):
             receipt.update(edit_prompt_version=payload["edit_prompt_version"], change_span=payload["change_span"],
                            source_size=payload["source_size"], style_note="HUMAN_STYLE_REVIEW_REQUIRED")
         if matte_report is not None:

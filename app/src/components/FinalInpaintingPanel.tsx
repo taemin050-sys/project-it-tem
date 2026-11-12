@@ -163,15 +163,14 @@ function Review({row,snapshot,canMutate,refresh}: {row:Result;snapshot:Snapshot;
   const caption=useFile(path('caption'),row.caption_sha)
   const receipt=useFile(path('receipt'),row.receipt_sha)
   const [checks,setChecks]=useState({product_matches:false,label_matches:false,cta_policy_matches:false,no_extra_text:false})
-  const [observed,setObserved]=useState<CopyFields>({headline:'',subline:'',cta:''})
   const [pending,setPending]=useState(false)
   const [error,setError]=useState('')
   const flight=useRef(false)
-  const ready=Object.values(checks).every(Boolean)&&Object.keys(observed).every(k=>observed[k as keyof CopyFields]===snapshot.approved_copy[k as keyof CopyFields])
+  const ready=Object.values(checks).every(Boolean)
   async function decide(approve:boolean) {
     if(flight.current)return;flight.current=true;setPending(true);setError('')
     try{await request(`${base}/${row.correction_id}/decision`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({
-      expected_revision:row.revision,expected_preview_sha:row.preview_sha,approve,...(approve?{visual_review:{...checks,observed_copy:observed}}:{})})})}
+      expected_revision:row.revision,expected_preview_sha:row.preview_sha,approve,...(approve?{visual_review:{...checks,copy_verified:checks.no_extra_text}}:{})})})}
     catch(e){setError(e instanceof Error?e.message:'검수 저장 실패')}
     finally{await refresh();flight.current=false;setPending(false)}
   }
@@ -190,8 +189,7 @@ function Review({row,snapshot,canMutate,refresh}: {row:Result;snapshot:Snapshot;
       {([['product_matches','제품 전체·브랜드가 원본과 일치합니다.'],['label_matches','라벨을 확대해 원본과 대조했습니다.'],
         ['cta_policy_matches','CTA가 정확하며 제품을 가리지 않습니다.'],['no_extra_text','추가 주장·오탈자·중복이 없고 경계가 자연스럽습니다.']] as const).map(([k,label])=>
         <label key={k} className="consent-label"><input type="checkbox" disabled={!canMutate||pending} checked={checks[k]} onChange={e=>setChecks(c=>({...c,[k]:e.target.checked}))} /><span>{label}</span></label>)}
-      {([['headline','헤드라인'],['subline','서브 문구'],['cta','CTA']] as const).map(([k,label])=><label key={k}>이미지에서 읽은 {label}
-        <textarea value={observed[k]} disabled={!canMutate||pending} onChange={e=>setObserved(o=>({...o,[k]:e.target.value}))} /></label>)}
+      <p className="field-hint">승인 문구와 수정본을 눈으로 대조하고 체크하면 승인할 수 있습니다. 문구를 다시 입력하지 않습니다.</p>
       {error&&<p role="alert">{error}</p>}
       <div className="button-row"><button className="button secondary small" disabled={!canMutate||pending} onClick={()=>void decide(false)}>이 수정본 거절</button>
         <button className="button" disabled={!canMutate||pending||!image.url||!ready||!row.edge_blend_applied} onClick={()=>void decide(true)}>이 수정본 승인</button></div>

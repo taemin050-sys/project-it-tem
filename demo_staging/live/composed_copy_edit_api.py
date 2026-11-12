@@ -44,7 +44,8 @@ class VisualReview(Body):
     product_matches: bool
     label_matches: bool
     cta_policy_matches: bool
-    observed_copy: AdCopy
+    observed_copy: AdCopy | None = None
+    copy_verified: bool | None = None
     no_extra_text: bool
 
 
@@ -113,7 +114,7 @@ def install_composed_copy_edit_routes(app, flow, authorized, require_queue):
     @router.post("/{edit_id}/decision")
     def decision(job_id: str, edit_id: str, body: Decision, request: Request):
         actor = access(request, job_id, write=True)
-        return call(lambda: service.decide(actor, job_id, edit_id, body.model_dump(mode="json")))
+        return call(lambda: service.decide(actor, job_id, edit_id, body.model_dump(mode="json", exclude_none=True)))
 
     @router.get("/{edit_id}/artifacts/{kind}")
     def artifact(job_id: str, edit_id: str, kind: str, request: Request, sha256: str):

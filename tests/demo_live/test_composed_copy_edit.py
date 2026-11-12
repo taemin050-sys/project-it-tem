@@ -61,7 +61,8 @@ def body(flow, job, *, key="a"*32, same=False):
         "expected_approval_sha": source["approval_sha"], "ad_copy": ad, "request_key": key}
 
 
-def test_signed_manual_edit_separate_f09_two_approvals_and_downloads(case):
+@pytest.mark.parametrize('checkbox_only',[False,True])
+def test_signed_manual_edit_separate_f09_two_approvals_and_downloads(case,checkbox_only):
     root, host, key, app, flow, text, parent, child, calls = case
     before = {j: flow.state.get(ACTOR, j) for j in (parent, child)}
     old_cost = attempts(flow)
@@ -112,6 +113,8 @@ def test_signed_manual_edit_separate_f09_two_approvals_and_downloads(case):
                     "approve": True, "visual_review": checks}
         typo = deepcopy(decision); typo["visual_review"]["observed_copy"]["subline"] = "자분하게 시작해요"
         assert req("POST", suffix+"/decision", json=typo).status_code == 409
+        if checkbox_only:
+            del checks['observed_copy'];checks['copy_verified']=True
         completed = req("POST", suffix+"/decision", json=decision)
         assert completed.status_code == 200, completed.text
         record = completed.json()

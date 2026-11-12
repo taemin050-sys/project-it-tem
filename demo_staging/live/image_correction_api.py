@@ -34,7 +34,8 @@ class CorrectionVisualReview(BaseModel):
     label_matches: bool
     cta_policy_matches: bool
     no_extra_text: bool
-    observed_copy: dict[str, str]
+    observed_copy: dict[str, str] | None = None
+    copy_verified: bool | None = None
 
 
 class EdgeBlendRequest(BaseModel):
@@ -147,7 +148,13 @@ def install_image_correction_routes(app, flow, authorized, require_queue, *, ser
             actor = actor_for(request, job_id, write=True)
             return call(lambda: service.blend_edges(actor, job_id, correction_id, body.model_dump(mode="json")))
 
+    if namespace == 'image-corrections':
+        @app.post(prefix + '/{correction_id}/fit-text')
+        def fit_text(job_id: str, correction_id: str, body: EdgeBlendRequest, request: Request):
+            actor=actor_for(request,job_id,write=True)
+            return call(lambda: service.fit_text(actor,job_id,correction_id,body.model_dump(mode='json')))
+
     @app.post(prefix + "/{correction_id}/decision")
     def decision(job_id: str, correction_id: str, body: CorrectionDecision, request: Request):
         actor = actor_for(request, job_id, write=True)
-        return call(lambda: service.decision(actor, job_id, correction_id, body.model_dump(mode="json")))
+        return call(lambda: service.decision(actor, job_id, correction_id, body.model_dump(mode="json", exclude_none=True)))

@@ -300,9 +300,9 @@ class ComposedCopyEdits:
                 row.update(state="REJECTED", revision=row["revision"]+1)
             else:
                 checks = body.get("visual_review") or {}
-                if (set(checks) != {"product_matches", "label_matches", "cta_policy_matches", "observed_copy", "no_extra_text"}
-                        or any(checks[key] is not True for key in ("product_matches", "label_matches", "cta_policy_matches", "no_extra_text"))
-                        or checks["observed_copy"] != row["copy"]["ad_copy"]):
+                from .visual_review import copy_review_valid
+                if not copy_review_valid(checks,row["copy"]["ad_copy"],
+                        {"product_matches","label_matches","cta_policy_matches","no_extra_text"}):
                     raise LiveGateError("COMPOSED_EDIT_VISUAL_REVIEW_REQUIRED")
                 preview = self._artifact_path(row, "preview").read_bytes()
                 if sha256(preview).hexdigest() != row["preview_sha"]:

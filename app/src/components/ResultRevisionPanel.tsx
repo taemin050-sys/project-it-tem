@@ -15,6 +15,7 @@ type Revision = {
   error_code?: string | null; report?: {passed?: boolean; issues?: Array<{reason?: string}>}
   region?: TextRegion; source_size?: [number, number] | null
   render_mode?: string; edit_prompt_version?: string | null
+  text_fit_available?: boolean
   artifacts: Partial<Record<'preview' | 'final' | 'caption' | 'receipt', string>>
 }
 type Snapshot = {
@@ -110,7 +111,7 @@ function RevisionWorkspace({snapshot, kind, base, canMutate, refresh, showReques
       // Keep the same idempotency key after an uncertain HTTP response.
     } finally {await refresh(); flight.current = false; setPending(false)}
   }
-  const review = (row: Revision) => <RevisionReview key={row.correction_id ?? row.edit_id} row={row} base={base}
+  const review = (row: Revision) => <RevisionReview key={`${row.correction_id ?? row.edit_id}:${row.preview_sha ?? row.review_sha}`} row={row} base={base}
     kind={kind} jobId={snapshot.job_id} canMutate={canMutate} approvedCopy={snapshot.approved_copy}
     sourceUrl={source.url} sourceSize={snapshot.source_size} cost={snapshot.cost_summary} refresh={refresh} />
   return <div className="stack">
@@ -181,7 +182,6 @@ function RevisionReview({row, base, kind, jobId, canMutate, approvedCopy, source
   sourceUrl?: string; sourceSize?: [number, number]; cost?: RevisionCostSummary
 }) {
   const id = row.correction_id ?? row.edit_id ?? ''
-  const [observed, setObserved] = useState<CopyFields>(EMPTY_COPY)
   const [checks, setChecks] = useState(EMPTY_REVIEW)
   const [ack, setAck] = useState(false)
   const [pending, setPending] = useState(false)
@@ -193,7 +193,7 @@ function RevisionReview({row, base, kind, jobId, canMutate, approvedCopy, source
   const caption = useFile(complete ? artifact('caption') : undefined, row.caption_sha)
   const receipt = useFile(complete ? artifact('receipt') : undefined, row.receipt_sha)
   const copy = row.copy?.ad_copy ?? row.approved_copy ?? approvedCopy
-  const reviewed = Object.values(checks).every(Boolean) && FIELDS.every(([field]) => observed[field] === copy?.[field])
+  const reviewed = Object.values(checks).every(Boolean)
   async function mutate(action: string, body: unknown) {
     if (pending || !canMutate) return
     setPending(true); setError('')
@@ -202,7 +202,7 @@ function RevisionReview({row, base, kind, jobId, canMutate, approvedCopy, source
     finally {await refresh(); setPending(false)}
   }
   const decision = (approve: boolean) => void mutate('decision', {expected_revision:row.revision,
-    expected_preview_sha:row.preview_sha,approve,visual_review:{...checks,observed_copy:observed}})
+    expected_preview_sha:row.preview_sha,approve,visual_review:{...checks,copy_verified:checks.no_extra_text}})
   return <article className={complete ? 'stack' : 'panel stack'} data-testid="result-revision">
     <h4 style={{margin:0}}>{kind === 'image-corrections' ? row.render_mode === 'freeform_source_stroke_corrected_v1' ? '자유형 · 원본 획 정밀 교정본' : row.render_mode === 'freeform_model_matte_corrected_v1' ? '자유형 · AI 글자 분리 교정본' : '자유형 · 텍스트 영역 수정본' : '합성형 · 직접 수정본'}</h4>
     <p role="status">{STATES[row.state] ?? row.state}</p>
@@ -211,6 +211,8 @@ function RevisionReview({row, base, kind, jobId, canMutate, approvedCopy, source
     {kind === 'image-corrections' && image.url && sourceUrl && row.region && (row.source_size ?? sourceSize) &&
       <CorrectionComparison before={sourceUrl} after={image.url} region={row.region} size={(row.source_size ?? sourceSize)!} />}
     <RevisionCostDetails cost={cost} revisionId={id} />
+    {row.text_fit_available && <button className="button secondary" disabled={!canMutate||pending}
+      onClick={()=>void mutate('fit-text',{expected_revision:row.revision,expected_preview_sha:row.preview_sha})}>추가 과금 없이 글자 크기 맞추기</button>}
     {row.state === 'COPY_REVIEW_REQUIRED' && <>
       {FIELDS.map(([field,label]) => <p key={field}>{label}: {copy?.[field]}</p>)}
       {row.report?.issues?.map((issue,index) => <p className="field-error" key={index}>{issue.reason}</p>)}
@@ -223,11 +225,10 @@ function RevisionReview({row, base, kind, jobId, canMutate, approvedCopy, source
     {['REVIEW_REQUIRED','IMAGE_REVIEW_REQUIRED'].includes(row.state) && <fieldset className="stack">
       <legend>수정본을 새로 검수해 주세요</legend>
       {([['product_matches','제품 전체 형태와 브랜드가 원본과 일치합니다.'],['label_matches','라벨의 작은 문자까지 판독해 원본과 대조했습니다.'],
-        ['cta_policy_matches','CTA가 정확히 한 번 표시되고 제품을 가리지 않습니다.'],['no_extra_text','오탈자·누락·중복·추가 문구가 없습니다.']] as const).map(([key,label]) =>
+        ['cta_policy_matches','CTA가 정확히 한 번 표시되고 제품을 가리지 않습니다.'],['no_extra_text','승인 문구와 대조했으며 오탈자·누락·중복·추가 문구가 없습니다.']] as const).map(([key,label]) =>
         <label className="consent-label" key={key}><input type="checkbox" checked={checks[key]}
           onChange={e=>setChecks(previous=>({...previous,[key]:e.target.checked}))} /><span>{label}</span></label>)}
-      {FIELDS.map(([field,label]) => <label key={field}>이미지에서 직접 읽은 {label}<input value={observed[field]} spellCheck={false}
-        onChange={e=>setObserved(previous=>({...previous,[field]:e.target.value}))} /></label>)}
+      <p className="field-hint">승인 문구와 이미지의 오탈자·누락·중복을 눈으로 대조한 뒤 체크해 주세요. 문구를 다시 입력할 필요가 없습니다.</p>
       <div className="button-row"><button className="button secondary" disabled={!canMutate || pending} onClick={()=>decision(false)}>수정본 거절</button>
         <button className="button" disabled={!canMutate || pending || !image.url || !reviewed} onClick={()=>decision(true)}>수정본 승인</button></div>
     </fieldset>}

@@ -69,11 +69,8 @@ function VariantCard({group, mode, stage, variant, canMutate, approvedCopy, onRe
 }) {
   const live=group.provenance==='LIVE_DUAL'
   const [checks,setChecks]=useState({product_matches:false,label_matches:false,cta_policy_matches:false,no_extra_text:false})
-  const [observedCopy,setObservedCopy]=useState({headline:'',subline:'',cta:''})
-  const observedMatches=Boolean(approvedCopy && Object.keys(observedCopy).every(
-    field=>observedCopy[field as keyof AdCopy]===approvedCopy[field as keyof AdCopy]))
   const liveReviewReady=checks.product_matches && checks.label_matches && checks.cta_policy_matches &&
-    (mode==='composed' || (checks.no_extra_text && observedMatches))
+    (mode==='composed' || checks.no_extra_text)
   const [checked, setChecked] = useState(false)
   const [loaded, setLoaded] = useState<{url: string; width: number; height: number}>()
   const [pending, setPending] = useState(false)
@@ -122,7 +119,7 @@ function VariantCard({group, mode, stage, variant, canMutate, approvedCopy, onRe
     void change(() => decideDualVariant(group, mode, sha, approve,
       live && approve ? {product_matches:checks.product_matches,label_matches:checks.label_matches,
         cta_policy_matches:checks.cta_policy_matches,
-        ...(mode==='freeform'?{observed_copy:observedCopy,no_extra_text:checks.no_extra_text}:{})} : undefined))
+        ...(mode==='freeform'?{copy_verified:checks.no_extra_text,no_extra_text:checks.no_extra_text}:{})} : undefined))
   }
 
   const stem = `ad_${mode}_${target.width}x${target.height}`
@@ -169,15 +166,7 @@ function VariantCard({group, mode, stage, variant, canMutate, approvedCopy, onRe
             onChange={event=>setChecks(previous=>({...previous,[field]:event.target.checked}))} />
           <span>{label}</span>
         </label>)}
-        {mode==='freeform' && <div className="stack">
-          <p className="field-hint">후보 이미지에서 직접 읽은 문구를 입력해 승인 원문과 대조하세요.</p>
-          {([['headline','헤드라인'],['subline','서브 문구'],['cta','CTA']] as const).map(([field,label])=><label key={field}>
-            {label}<textarea rows={field==='subline'?2:1} value={observedCopy[field]} disabled={!canMutate || !candidateReady || pending}
-              onChange={event=>setObservedCopy(previous=>({...previous,[field]:event.target.value}))}
-              autoComplete="off" spellCheck={false} />
-          </label>)}
-          {!observedMatches && <p className="field-hint">입력한 세 문구가 승인 원문과 정확히 일치해야 승인할 수 있습니다.</p>}
-        </div>}
+        {mode==='freeform' && <p className="field-hint">승인된 문구와 시안을 눈으로 대조하고 위 항목을 체크하면 승인할 수 있습니다. 문구 재입력은 필요 없습니다.</p>}
       </fieldset> : <label className="consent-label">
         <input type="checkbox" checked={checked} disabled={!canMutate || !candidateReady || pending}
           onChange={event => setChecked(event.target.checked)} />
