@@ -106,3 +106,35 @@ def test_preflight_cannot_be_misused_for_other_failures(tmp_path):
     with pytest.raises(LiveGateError,match='PRE_DISPATCH_FAILURE_CLASSIFICATION_DENIED'):
         q.fail_pre_dispatch(a['id'],'PROMPT_LIVE_SOURCE_PROVENANCE_INVALID')
     assert q.read(a['id'])['state']=='RUNNING'
+
+
+
+def test_r7_worker_loop_continues_safe_recheck_after_hold(tmp_path,monkeypatch):
+    """A new ambiguous Job does not permanently kill other users' worker."""
+    import demo_staging.live.worker as worker
+    import time
+    monkeypatch.setenv("IT_TEM_R6_ISOLATE_UNCERTAIN_JOBS","YES")
+    statuses=iter([
+        "LIVE_STAGE_HELD_FOR_RECONCILIATION",
+        "LIVE_WORKER_BILLING_HOLD",
+        "LIVE_STAGE_COMMITTED",
+    ])
+    calls=[]
+    def fake_once(root):
+        calls.append(root)
+        try:return next(statuses)
+        except StopIteration:raise RuntimeError("STOP_AFTER_RECHECK") from None
+    monkeypatch.setattr(worker,"run_once",fake_once)
+    monkeypatch.setattr(time,"sleep",lambda _:None)
+    with pytest.raises(RuntimeError,match="STOP_AFTER_RECHECK"):
+        worker.serve_loop(tmp_path/"runtime",interval=0)
+    assert len(calls)==4
+
+
+def test_r7_worker_default_policy_still_stops_on_hold(tmp_path,monkeypatch):
+    import demo_staging.live.worker as worker
+    monkeypatch.delenv("IT_TEM_R6_ISOLATE_UNCERTAIN_JOBS",raising=False)
+    calls=[]
+    monkeypatch.setattr(worker,"run_once",lambda _: calls.append(1) or "LIVE_STAGE_HELD_FOR_RECONCILIATION")
+    assert worker.serve_loop(tmp_path/"runtime")=="LIVE_STAGE_HELD_FOR_RECONCILIATION"
+    assert len(calls)==1

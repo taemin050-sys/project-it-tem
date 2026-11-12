@@ -461,14 +461,24 @@ def _run_locked(root:Path,flow:LivePipeline)->str:
 
 
 def serve_loop(root:Path,interval:float=2.0):
-    """One task per cycle, no recursive attempt and no backend mock fallback."""
+    """One task per cycle. Never replay an uncertain Provider call."""
     import time
+    last_hold=None
     while True:
         status=run_once(root)
         if status in ("LIVE_STAGE_HELD_FOR_RECONCILIATION","LIVE_WORKER_BILLING_HOLD"):
-            # A charged or ambiguous failure is a hard safety stop, unrelated
-            # to monetary project threshold. Requires manual incident review.
-            return status
+            # Default policy remains fail-closed. The internal-demo R6
+            # opt-in can continue polling AFTER the prior task is quarantined.
+            # Every next run_once independently verifies cross-ledger safety,
+            # and cannot claim an uncertain Job again.
+            if os.environ.get("IT_TEM_R6_ISOLATE_UNCERTAIN_JOBS")!="YES":
+                return status
+            if last_hold!=status:
+                print("R6_WORKER_HOLD_RECHECK:"+status,flush=True)
+            last_hold=status
+            time.sleep(max(interval,2.0))
+            continue
+        last_hold=None
         time.sleep(interval)
 
 
