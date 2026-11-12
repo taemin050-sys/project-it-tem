@@ -508,7 +508,7 @@ def test_local_stroke_worker_never_calls_provider_and_replays_before_approval(re
     from PIL import ImageDraw
     flow,service,parent,child,body=repair
     original=ImageCorrections.source
-    picture=Image.new('RGB',(200,250),(230,235,220));ImageDraw.Draw(picture).rectangle((30,52,43,55),fill=(96,113,81));raw=_png(picture)
+    picture=Image.new('RGB',(1080,1350),(230,235,220));ImageDraw.Draw(picture).rectangle((30,52,43,55),fill=(96,113,81));raw=_png(picture)
     def isolated_source(self,actor,job_id):
         job,context,_,_=original(self,actor,job_id)
         from demo_staging.live.contracts import digest
@@ -519,7 +519,7 @@ def test_local_stroke_worker_never_calls_provider_and_replays_before_approval(re
     monkeypatch.setattr(ImageCorrections,'source',isolated_source)
     def forbidden(*a,**k):raise AssertionError('NO_PROVIDER_PERMITTED')
     initial=attempts(flow)
-    request={**body,'expected_image_sha':sha256(raw).hexdigest(),'expected_copy_sha':service.source(ACTOR,child)[1]['copy_sha'],'region':[.5,.32,.57,.348],
+    request={**body,'expected_image_sha':sha256(raw).hexdigest(),'expected_copy_sha':service.source(ACTOR,child)[1]['copy_sha'],'region':[(100+.001)/1080,(80+.001)/1350,(114-.001)/1080,(87-.001)/1350],
         'stroke_source_box':[30,50,44,57],'acknowledge_paid_edit':False}
     row=service.request(ACTOR,child,request)
     assert run_image_correction_once(flow,transport=forbidden)=='IMAGE_CORRECTION_REVIEW_REQUIRED'

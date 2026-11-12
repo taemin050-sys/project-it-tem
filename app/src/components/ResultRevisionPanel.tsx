@@ -70,7 +70,7 @@ export default function ResultRevisionPanel({jobId, mode, canMutate, onCompleted
       : `${mode === 'freeform' ? '자유형' : '합성형'} 수정본 확인·다운로드`}</summary>
     {open && <div className="stack">
       {showRequestForm && <p className="field-hint">{mode === 'freeform'
-        ? '원본 배경을 유지하며 지정한 글자 영역만 AI에 수정 요청합니다. 이미지 호출 1건이 발생하며 자동 재시도하지 않습니다. 영역 안의 글자와 디자인은 결과를 다시 검수해야 합니다.'
+        ? '교정 방식을 선택하세요. AI 확대 교정은 모델을 1회 호출하며, 원본 획 정밀 교정은 추가 모델 호출 없이 처리합니다. 두 방식 모두 새 수정본을 별도로 검수해야 합니다.'
         : '문구를 직접 고친 뒤 규칙·LLM 검수와 새 카피 승인을 거칩니다. 기존 배경으로 다시 합성하며 이미지 AI는 호출하지 않습니다.'}</p>}
       {query.isPending ? <p role="status">수정 기능 확인 중…</p> : query.isError
         ? <div role="alert"><p>수정 상태를 확인하지 못했습니다.</p><button className="button secondary" onClick={() => void query.refetch()}>상태 다시 확인</button></div>
