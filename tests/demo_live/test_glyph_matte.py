@@ -24,3 +24,12 @@ def test_ambiguous_low_contrast_and_colored_model_fail_closed():
  with pytest.raises(LiveGateError):prepare(png(Image.new('RGB',(300,400),'gray')),(100,120,140,180))
  src=sample();_,_,g=prepare(png(src),(100,120,140,180));m=Image.new('RGB',(1536,1024),'white');x,y,_,_=g['provider_box'];m.putpixel((x,y),(255,0,0))
  with pytest.raises(LiveGateError):compose(png(src),png(m),g)
+
+
+def test_transparent_black_glyph_is_composited_on_white_not_dropped_to_black():
+ src=sample();_,_,g=prepare(png(src),(100,120,140,180));x,y,_,_=g['provider_box']
+ rgba=Image.new('RGBA',(1536,1024),(0,0,0,0));ImageDraw.Draw(rgba).rectangle((x+20,y+10,x+23,y+50),fill=(0,0,0,255))
+ opaque=Image.new('RGBA',rgba.size,'white');opaque.alpha_composite(rgba)
+ a,ra=compose(png(src),png(rgba),g);b,rb=compose(png(src),png(opaque.convert('RGB')),g)
+ assert a==b and ra==rb
+ out=Image.open(BytesIO(a));assert out.getpixel((100,120))==src.getpixel((100,120))

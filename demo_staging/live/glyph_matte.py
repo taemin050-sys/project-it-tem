@@ -44,7 +44,10 @@ def prepare(source,box):
     return png(canvas),png(mask),geometry
 
 def compose(source,generated,geometry):
-    original=Image.open(BytesIO(source)).convert('RGB');model=Image.open(BytesIO(generated)).convert('RGB')
+    original=Image.open(BytesIO(source)).convert('RGB')
+    raw=Image.open(BytesIO(generated)).convert('RGBA')
+    white=Image.new('RGBA',raw.size,(255,255,255,255));white.alpha_composite(raw)
+    model=white.convert('RGB')
     if model.size!=(1536,1024):raise LiveGateError('MATTE_MODEL_SIZE_CHANGED')
     l,t,r,b=geometry['native_box'];ml,mt,mr,mb=geometry['provider_box'];top,bottom=geometry['band'];ink=geometry['ink_rgb'];contrast=geometry['contrast']
     out=original.copy();changed=0;new_ink=0

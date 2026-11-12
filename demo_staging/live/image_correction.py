@@ -156,7 +156,7 @@ class ImageCorrections:
             self._validate_request(body, context)
             if "edit_prompt" in payload or "edit_prompt_version" in payload:
                 version = payload.get("edit_prompt_version")
-                if version == "bw-matte-text-edit-v5":
+                if version in ("bw-matte-text-edit-v5", "alpha-safe-matte-text-edit-v6"):
                     if payload["edit_prompt"] != _prompt_v5(payload) or payload.get("matte_style_context") is not True:raise ValueError
                 elif version == "source-stroke-retouch-v1":
                     if (payload["edit_prompt"] != "LOCAL_SOURCE_STROKE_RETOUCH_NO_PROVIDER" or "stroke_source_box" not in payload
@@ -229,7 +229,7 @@ class ImageCorrections:
             payload["edit_prompt_version"] = "context-crop-glyph-edit-v4"
             payload["edit_prompt"] = _prompt_v4(payload)
         if body.get("matte_style_context") is True:
-            payload["edit_prompt_version"]="bw-matte-text-edit-v5"
+            payload["edit_prompt_version"]="alpha-safe-matte-text-edit-v6"
             payload["edit_prompt"]=_prompt_v5(payload)
         if "stroke_source_box" in body:
             _retouch_stroke(raw, size, (left,top,right,bottom), body["stroke_source_box"], payload["change_span"])
