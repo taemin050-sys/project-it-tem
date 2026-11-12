@@ -633,6 +633,7 @@ def run_image_correction_once(flow, *, transport=None, recover_only=False):
         else:
             output, cost_receipt = flow._guarded(row["actor"], row["job_id"], "image", fingerprint,
                 lambda: _masked_provider(flow, row, provider_source, mask, provider_size, payload, transport), image=True, include_receipt=True)
+        if not local:atomic_write(folder/"provider-output.png",output.image_bytes)
         matte_report=None
         if matte_geometry is not None:
             from .glyph_matte import compose
