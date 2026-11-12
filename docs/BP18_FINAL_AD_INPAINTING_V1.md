@@ -28,3 +28,7 @@ The prompt preserves approved claims and copy. New copy content uses the separat
 B-only reviewed source pair, whole-release inventories, B5 Dual/Derived/Auth/Review contracts and compatible rollback source. Existing queues must be idle/UNKNOWN0, Workers stop normally, all existing DB/Artifact bytes and record identities are backed up and compared before activation. New private DB is created by the first explicit edit, not boot. Fallback must include this queue namespace; old RC9 cannot consume pending/new inpainting rows safely and is not an activation rollback target. Actual rollback execution remains separately NOT_TESTED. No changes to A/Live/QA/dev.
 
 Product NOT_RELEASE_READY. CODE/FIXTURE/REAL/HUMAN/RELEASE remain separate.
+
+## RC10 validation baseline
+
+77 targeted Python tests passed (16 inpainting scenarios plus 61 existing correction/copy/cost regressions), 86 frontend tests passed, TypeScript/Vite build passed. MockTransport tests use actual multipart image-edit adapter and verify native mask, erased holes, current final approval, independent mode receipts, CAS/rejection/download gating, unchanged originals and exact CostLedger attribution. Crash/response loss and publication failure do not trigger automatic calls. Three native output sizes have mask/alpha pixel tests; real provider and human quality evidence must be recorded separately. Lint has one nonblocking React state-in-effect warning at external Konva mask export synchronization; existing main chunk-size and Pillow deprecation warnings retained.
