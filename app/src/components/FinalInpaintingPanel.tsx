@@ -39,10 +39,10 @@ export default function FinalInpaintingPanel({jobId,mode,canMutate}: {jobId:stri
       <p>완성된 {mode==='composed'?'합성형':'자유형'} 광고에서 바꿀 부분을 칠하고 요청을 적으세요. 선택 영역 밖은 원본 픽셀을 유지합니다.</p>
       <p className="field-hint">이미지 AI 1회 호출 · 기존 승인본 유지 · 수정본은 별도 검수 후 저장. 문구 자체를 바꾸려면 카피 수정·검수 기능을 이용하세요.</p>
       {query.isPending?<p role="status">최종 광고 불러오는 중…</p>:query.isError&&!query.data?<div role="alert">
-        <p>편집 상태를 불러오지 못했습니다.</p><button onClick={()=>void query.refetch()}>다시 확인</button></div>:
+        <p>편집 상태를 불러오지 못했습니다.</p><button className="button secondary small" onClick={()=>void query.refetch()}>다시 확인</button></div>:
         query.data?.available?<Workspace key={query.data.source_image_sha} snapshot={query.data} canMutate={canMutate} refresh={()=>query.refetch()} />:
           <p>현재 이 최종 광고의 부분 수정을 사용할 수 없습니다.</p>}
-      {query.isError&&query.data&&<div role="alert"><p>최신 상태를 확인하지 못했습니다. 선택 영역과 입력 내용은 유지됩니다.</p><button onClick={()=>void query.refetch()}>상태 다시 확인</button></div>}
+      {query.isError&&query.data&&<div role="alert"><p>최신 상태를 확인하지 못했습니다. 선택 영역과 입력 내용은 유지됩니다.</p><button className="button secondary small" onClick={()=>void query.refetch()}>상태 다시 확인</button></div>}
     </div>}
   </details>
 }
@@ -75,7 +75,7 @@ function Workspace({snapshot,canMutate,refresh}: {snapshot:Snapshot;canMutate:bo
   }
   return <div className="stack">
     {source.url?<MaskEditor source={source.url} size={snapshot.source_size} disabled={!canMutate||busy||pending||uncertain} onMask={setMask} />:
-      <div><p>원본 파일 확인 중…</p>{source.query.isError&&<button onClick={()=>void source.query.refetch()}>원본 다시 확인</button>}</div>}
+      <div><p>원본 파일 확인 중…</p>{source.query.isError&&<button className="button secondary small" onClick={()=>void source.query.refetch()}>원본 다시 확인</button>}</div>}
     <label>어떻게 바꿀까요?<textarea value={prompt} maxLength={1200} rows={3} disabled={!canMutate||busy||pending||uncertain}
       placeholder="예: 왼쪽 배경의 물방울만 지워 주세요. 제품과 글자는 유지해 주세요."
       onChange={e=>setPrompt(e.target.value)} /></label>
@@ -120,11 +120,11 @@ function MaskEditor({source,size,disabled,onMask}: {source:string;size:[number,n
   function stop(){drawing.current=false;setExportRevision(v=>v+1)}
   return <div className="stack">
     <div className="button-row">
-      <button type="button" aria-pressed={tool==='brush'} disabled={disabled} onClick={()=>setTool('brush')}>브러시</button>
-      <button type="button" aria-pressed={tool==='eraser'} disabled={disabled} onClick={()=>setTool('eraser')}>지우개</button>
-      <button type="button" disabled={disabled||!marks.length} onClick={()=>{setRedo(r=>[...r,marks.at(-1)!]);setMarks(m=>m.slice(0,-1))}}>되돌리기</button>
-      <button type="button" disabled={disabled||!redo.length} onClick={()=>{setMarks(m=>[...m,redo.at(-1)!]);setRedo(r=>r.slice(0,-1))}}>다시 실행</button>
-      <button type="button" disabled={disabled||!marks.length} onClick={()=>{setMarks([]);setRedo([])}}>선택 지우기</button>
+      <button className="button secondary small" type="button" aria-pressed={tool==='brush'} disabled={disabled} onClick={()=>setTool('brush')}>브러시</button>
+      <button className="button secondary small" type="button" aria-pressed={tool==='eraser'} disabled={disabled} onClick={()=>setTool('eraser')}>지우개</button>
+      <button className="button secondary small" type="button" disabled={disabled||!marks.length} onClick={()=>{setRedo(r=>[...r,marks.at(-1)!]);setMarks(m=>m.slice(0,-1))}}>되돌리기</button>
+      <button className="button secondary small" type="button" disabled={disabled||!redo.length} onClick={()=>{setMarks(m=>[...m,redo.at(-1)!]);setRedo(r=>r.slice(0,-1))}}>다시 실행</button>
+      <button className="button secondary small" type="button" disabled={disabled||!marks.length} onClick={()=>{setMarks([]);setRedo([])}}>선택 지우기</button>
     </div>
     <label>브러시 크기 {brush}px<input type="range" min={8} max={240} step={4} value={brush} disabled={disabled} onChange={e=>setBrush(Number(e.target.value))} /></label>
     <p className="field-hint">색으로 표시된 부분만 바뀝니다. 마우스나 손가락으로 칠하세요. 키보드로는 아래 사각 영역을 지정할 수 있습니다.</p>
@@ -148,7 +148,7 @@ function MaskEditor({source,size,disabled,onMask}: {source:string;size:[number,n
     <details><summary>사각 영역을 숫자로 지정</summary><div className="stack">
       {['왼쪽','위쪽','너비','높이'].map((name,i)=><label key={name}>{name} (%)<input type="number" min={0} max={100} value={rect[i]} disabled={disabled}
         onChange={e=>setRect(r=>r.map((v,k)=>k===i?Number(e.target.value):v))} /></label>)}
-      <button type="button" disabled={disabled||rect.some(v=>!Number.isFinite(v)||v<0)||rect[2]<=0||rect[3]<=0||rect[0]+rect[2]>100||rect[1]+rect[3]>100}
+      <button className="button secondary small" type="button" disabled={disabled||rect.some(v=>!Number.isFinite(v)||v<0)||rect[2]<=0||rect[3]<=0||rect[0]+rect[2]>100||rect[1]+rect[3]>100}
         onClick={()=>{setRedo([]);setMarks(m=>[...m,{tool:'rect',x:rect[0]*size[0]/100,y:rect[1]*size[1]/100,width:rect[2]*size[0]/100,height:rect[3]*size[1]/100}])}}>사각 영역 추가</button>
     </div></details>
     {maskError&&<p role="alert" className="field-error">{maskError}</p>}
@@ -186,13 +186,13 @@ function Review({row,snapshot,canMutate,refresh}: {row:Result;snapshot:Snapshot;
       {([['headline','헤드라인'],['subline','서브 문구'],['cta','CTA']] as const).map(([k,label])=><label key={k}>이미지에서 읽은 {label}
         <textarea value={observed[k]} disabled={!canMutate||pending} onChange={e=>setObserved(o=>({...o,[k]:e.target.value}))} /></label>)}
       {error&&<p role="alert">{error}</p>}
-      <div className="button-row"><button disabled={!canMutate||pending} onClick={()=>void decide(false)}>이 수정본 거절</button>
+      <div className="button-row"><button className="button secondary small" disabled={!canMutate||pending} onClick={()=>void decide(false)}>이 수정본 거절</button>
         <button className="button" disabled={!canMutate||pending||!image.url||!ready} onClick={()=>void decide(true)}>이 수정본 승인</button></div>
     </fieldset>}
     {row.state==='COMPLETED'&&<div className="button-row">
       <button className="button" disabled={!image.url} onClick={()=>download(image.url!,`inpaint_${row.correction_id}.png`)}>수정본 PNG 저장</button>
-      <button disabled={!caption.url} onClick={()=>download(caption.url!,`inpaint_caption_${row.correction_id}.txt`)}>본문 TXT 저장</button>
-      <button disabled={!receipt.url} onClick={()=>download(receipt.url!,`inpaint_receipt_${row.correction_id}.json`)}>Receipt 저장</button>
+      <button className="button secondary small" disabled={!caption.url} onClick={()=>download(caption.url!,`inpaint_caption_${row.correction_id}.txt`)}>본문 TXT 저장</button>
+      <button className="button secondary small" disabled={!receipt.url} onClick={()=>download(receipt.url!,`inpaint_receipt_${row.correction_id}.json`)}>Receipt 저장</button>
     </div>}
     <RevisionCostDetails cost={snapshot.cost_summary} revisionId={row.correction_id} />
   </section>

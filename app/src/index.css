@@ -506,3 +506,6 @@ mark.risk-warning { background: var(--warning-bg); box-shadow: inset 0 -2px 0 va
 .derived-qa-page h1 { font-size: clamp(24px, 4vw, 36px); }
 .derived-qa-page h2 { font-size: 20px; overflow-wrap: anywhere; }
 .derived-qa-page dd { margin-inline-start: 0; }
+
+/* Mask editor follows the existing beta controls and touch target size. */
+.inpaint-panel button[aria-pressed="true"] { background: var(--accent); }
