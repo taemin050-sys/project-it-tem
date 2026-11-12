@@ -200,3 +200,39 @@ def test_file_failure_after_billed_response_is_hold_without_replay(final_ad,monk
     assert len(calls)==1 and attempts(flow)[-1]['status']=='SUCCEEDED_USAGE_UNPRICED'
     row=service.snapshot(ACTOR,parent)['corrections'][0]
     assert row['state']=='HOLD' and not row['artifacts']
+
+
+def test_legacy_hard_edge_refinement_is_nonbillable_cas_and_preserves_both_versions(final_ad):
+    from demo_staging.live.contracts import digest
+    flow,service,parent,_=final_ad
+    admitted=service.request(ACTOR,parent,body_for(service,parent))
+    # Historical v1 rows did not contain the opt-in postprocess version. Keep
+    # their exact old request shape in this isolated store, never production.
+    with service.db() as db:
+        row=dict(db.execute('SELECT * FROM image_corrections').fetchone());payload=json.loads(row['payload_json']);payload.pop('edge_blend_version')
+        db.execute('UPDATE image_corrections SET payload_json=?,request_sha=?',(json.dumps(payload),digest(payload)))
+    calls=[];assert run_final_inpainting_once(flow,transport=adapter(calls))=='INPAINT_REVIEW_REQUIRED'
+    old=service.snapshot(ACTOR,parent)['corrections'][0];assert not old['edge_blend_applied']
+    old_preview=service.artifact(ACTOR,parent,old['correction_id'],'preview',old['preview_sha'])[0]
+    old_receipt=service.artifact(ACTOR,parent,old['correction_id'],'receipt',old['receipt_sha'])[0]
+    cost_before=attempts(flow)
+    checks=dict(product_matches=True,label_matches=True,cta_policy_matches=True,no_extra_text=True,observed_copy=service.snapshot(ACTOR,parent)['approved_copy'])
+    with pytest.raises(LiveGateError,match='EDGE_BLEND_REQUIRED'):
+        service.decision(ACTOR,parent,old['correction_id'],dict(expected_revision=old['revision'],expected_preview_sha=old['preview_sha'],approve=True,visual_review=checks))
+    new=service.blend_edges(ACTOR,parent,old['correction_id'],dict(expected_revision=old['revision'],expected_preview_sha=old['preview_sha']))
+    assert new['edge_blend_applied'] and new['preview_sha']!=old['preview_sha'] and new['revision']==old['revision']+1
+    folder=service.root/old['correction_id']
+    assert (folder/'preview.png').read_bytes()==old_preview and (folder/'receipt.json').read_bytes()==old_receipt
+    assert attempts(flow)==cost_before and len(calls)==1
+    with pytest.raises(LiveGateError):service.artifact(ACTOR,parent,old['correction_id'],'preview',old['preview_sha'])
+    final=service.decision(ACTOR,parent,new['correction_id'],dict(expected_revision=new['revision'],expected_preview_sha=new['preview_sha'],approve=True,visual_review=checks))
+    for kind in ('final','caption','receipt'):assert service.artifact(ACTOR,parent,new['correction_id'],kind,final[kind+'_sha'])[0]
+    assert revision_cost_summary(flow,ACTOR,parent)['provider_attempt_count']==1
+
+
+def test_edge_feather_preserves_a_deliberate_one_pixel_selection_and_exact_outside():
+    source=png(Image.new('RGB',(30,30),(120,140,150)));generated=png(Image.new('RGB',(30,30),(30,50,60)))
+    mask=Image.new('L',(30,30));mask.putpixel((15,15),255)
+    result=Image.open(BytesIO(merge_selected(source,generated,mask,feather=True)))
+    assert result.getpixel((15,15))==(30,50,60)
+    assert result.getpixel((14,15))==(120,140,150)

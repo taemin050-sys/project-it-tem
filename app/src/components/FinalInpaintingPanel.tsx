@@ -15,7 +15,7 @@ import RevisionCostDetails, { type RevisionCostSummary } from './RevisionCostDet
 type Stroke = {tool: 'brush' | 'eraser'; width: number; points: number[]}
 type Mark = Stroke | {tool: 'rect'; x: number; y: number; width: number; height: number}
 type Result = {
-  correction_id: string; state: string; revision: number; prompt: string; error_code?: string
+  correction_id: string; edge_blend_applied?: boolean; state: string; revision: number; prompt: string; error_code?: string
   preview_sha: string | null; final_sha: string | null; caption_sha: string | null; receipt_sha: string | null
   artifacts: Partial<Record<'preview'|'final'|'caption'|'receipt',string>>
 }
@@ -175,10 +175,17 @@ function Review({row,snapshot,canMutate,refresh}: {row:Result;snapshot:Snapshot;
     catch(e){setError(e instanceof Error?e.message:'검수 저장 실패')}
     finally{await refresh();flight.current=false;setPending(false)}
   }
+  async function blendEdges() {
+    if(flight.current)return;flight.current=true;setPending(true);setError('')
+    try{await request(`${base}/${row.correction_id}/blend-edges`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({expected_revision:row.revision,expected_preview_sha:row.preview_sha})})}
+    catch(e){setError(e instanceof Error?e.message:'경계 블렌딩 실패')}
+    finally{await refresh();flight.current=false;setPending(false)}
+  }
   return <section className="stack panel" aria-label="부분 수정 결과">
     <h3>{STATUS[row.state]??row.state}</h3><p>{row.prompt}</p>
     {row.error_code&&<p role="alert">처리를 중단했습니다. 추가 호출 없이 상태를 확인하세요. {row.error_code}</p>}
     {image.url&&<img className="result-image" style={{aspectRatio:`${snapshot.source_size[0]} / ${snapshot.source_size[1]}`}} src={image.url} alt="선택 영역을 수정한 새 광고" />}
+    {row.state==='REVIEW_REQUIRED'&&!row.edge_blend_applied&&<div className="stack"><p>이전 수정본은 경계를 먼저 블렌딩한 뒤 새 시안으로 검수합니다. 모델 추가 호출은 없습니다.</p><button className="button secondary" disabled={!canMutate||pending} onClick={()=>void blendEdges()}>추가 과금 없이 경계 블렌딩</button></div>}
     {row.state==='REVIEW_REQUIRED'&&<fieldset className="stack"><legend>원본과 수정본을 대조해 검수</legend>
       {([['product_matches','제품 전체·브랜드가 원본과 일치합니다.'],['label_matches','라벨을 확대해 원본과 대조했습니다.'],
         ['cta_policy_matches','CTA가 정확하며 제품을 가리지 않습니다.'],['no_extra_text','추가 주장·오탈자·중복이 없고 경계가 자연스럽습니다.']] as const).map(([k,label])=>
@@ -187,7 +194,7 @@ function Review({row,snapshot,canMutate,refresh}: {row:Result;snapshot:Snapshot;
         <textarea value={observed[k]} disabled={!canMutate||pending} onChange={e=>setObserved(o=>({...o,[k]:e.target.value}))} /></label>)}
       {error&&<p role="alert">{error}</p>}
       <div className="button-row"><button className="button secondary small" disabled={!canMutate||pending} onClick={()=>void decide(false)}>이 수정본 거절</button>
-        <button className="button" disabled={!canMutate||pending||!image.url||!ready} onClick={()=>void decide(true)}>이 수정본 승인</button></div>
+        <button className="button" disabled={!canMutate||pending||!image.url||!ready||!row.edge_blend_applied} onClick={()=>void decide(true)}>이 수정본 승인</button></div>
     </fieldset>}
     {row.state==='COMPLETED'&&<div className="button-row">
       <button className="button" disabled={!image.url} onClick={()=>download(image.url!,`inpaint_${row.correction_id}.png`)}>수정본 PNG 저장</button>

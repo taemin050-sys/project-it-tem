@@ -354,10 +354,15 @@ class ImageCorrections:
         if kind not in self.public(row)["artifacts"] or row.get(kind+"_sha") != expected_sha:
             raise LiveGateError("IMAGE_CORRECTION_ARTIFACT_STATE_CONFLICT")
         name = {"preview": "preview.png", "final": "final.png", "caption": "caption.txt", "receipt": "final-receipt.json" if row["state"] == "COMPLETED" else "receipt.json"}[kind]
-        raw = (self.root / row["correction_id"] / name).read_bytes()
+        path = (self.candidate_path(row, kind) if kind == "preview" or kind == "receipt" and row["state"] != "COMPLETED"
+                else self.root / row["correction_id"] / name)
+        raw = path.read_bytes()
         if sha256(raw).hexdigest() != expected_sha:
             raise LiveGateError("IMAGE_CORRECTION_ARTIFACT_INTEGRITY")
         return raw, "image/png" if kind in ("preview", "final") else "text/plain; charset=utf-8" if kind == "caption" else "application/json"
+
+    def candidate_path(self, row, kind):
+        return self.root / row["correction_id"] / {"preview":"preview.png","receipt":"receipt.json"}[kind]
 
     def decision(self, actor, job_id, correction_id, body):
         with self.source_lock(actor, job_id), self.db() as db:
@@ -376,7 +381,7 @@ class ImageCorrections:
                         or checks["observed_copy"] != json.loads(job["copy_json"])["ad_copy"]):
                     raise LiveGateError("IMAGE_CORRECTION_VISUAL_REVIEW_REQUIRED")
                 folder = self.root / correction_id
-                preview = (folder / "preview.png").read_bytes()
+                preview = self.candidate_path(row, "preview").read_bytes()
                 if sha256(preview).hexdigest() != row["preview_sha"]:
                     raise LiveGateError("IMAGE_CORRECTION_ARTIFACT_INTEGRITY")
                 from src.image_generation.ad_resize import resize_ad_png
@@ -389,7 +394,7 @@ class ImageCorrections:
                 approved = {"protocol": self.protocol, "correction_id": correction_id, "actor": actor,
                     "source_context_sha": row["context_sha"], "preview_sha": row["preview_sha"], "checks": checks}
                 approval_sha = digest(approved)
-                receipt_bytes = (folder / "receipt.json").read_bytes()
+                receipt_bytes = self.candidate_path(row, "receipt").read_bytes()
                 if sha256(receipt_bytes).hexdigest() != row["receipt_sha"]:
                     raise LiveGateError("IMAGE_CORRECTION_RECEIPT_INTEGRITY")
                 receipt = json.loads(receipt_bytes)

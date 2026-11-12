@@ -37,6 +37,12 @@ class CorrectionVisualReview(BaseModel):
     observed_copy: dict[str, str]
 
 
+class EdgeBlendRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+    expected_revision: int = Field(ge=0)
+    expected_preview_sha: str = Field(pattern=r"^[0-9a-f]{64}$")
+
+
 class CorrectionDecision(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True)
     expected_revision: int = Field(ge=0)
@@ -134,6 +140,12 @@ def install_image_correction_routes(app, flow, authorized, require_queue, *, ser
             return Response(raw, media_type=mime, headers={"Cache-Control": "no-store",
                 "X-IT-TEM-Render-Mode": "independent-correction-see-receipt", "X-Content-SHA256": sha256})
         return call(read)
+
+    if namespace == "final-inpainting":
+        @app.post(prefix + "/{correction_id}/blend-edges")
+        def blend_edges(job_id: str, correction_id: str, body: EdgeBlendRequest, request: Request):
+            actor = actor_for(request, job_id, write=True)
+            return call(lambda: service.blend_edges(actor, job_id, correction_id, body.model_dump(mode="json")))
 
     @app.post(prefix + "/{correction_id}/decision")
     def decision(job_id: str, correction_id: str, body: CorrectionDecision, request: Request):

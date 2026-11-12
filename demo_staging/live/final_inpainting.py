@@ -12,10 +12,10 @@ from io import BytesIO
 import json
 from uuid import uuid4
 
-from PIL import Image, ImageChops, ImageOps
+from PIL import Image, ImageChops, ImageOps, ImageFilter, __version__ as PILLOW_VERSION
 
 from .contracts import LiveGateError, digest
-from .image_correction import ImageCorrections, _ID, _json, _png, _masked_provider, enabled
+from .image_correction import ImageCorrections, _ID, _SHA, _json, _png, _masked_provider, enabled
 from .pipeline import atomic_write
 
 PROTOCOL = "FINAL_AD_INPAINT_V1"
@@ -96,6 +96,7 @@ class FinalInpainting(ImageCorrections):
                 or context["job_id"] != row["job_id"] or payload["request_key"] != row["request_key"]
                 or payload["edit_prompt"] != instruction(payload)):
                 raise ValueError
+            if payload.get("edge_blend_version") not in (None,"inside-feather-v1"):raise ValueError
             body = {k: payload[k] for k in REQUEST_FIELDS}
             self._validate_request(body, context)
             selection, count = decode_selection(payload["mask_png_base64"], tuple(payload["source_size"]))
@@ -121,7 +122,7 @@ class FinalInpainting(ImageCorrections):
         from .image_runtime_profile import effective_image_profile
         payload = {**body, "source_context": context, "source_size": list(size),
             "approved_copy": json.loads(job["copy_json"])["ad_copy"], "image_profile": effective_image_profile(),
-            "selection_sha": sha256(_png(selection)).hexdigest(), "selected_pixels": count}
+            "selection_sha": sha256(_png(selection)).hexdigest(), "selected_pixels": count, "edge_blend_version": "inside-feather-v1"}
         payload["edit_prompt"] = instruction(payload)
         with self.db() as db:
             db.execute("BEGIN IMMEDIATE")
@@ -152,7 +153,7 @@ class FinalInpainting(ImageCorrections):
             raise LiveGateError("INPAINT_SOURCE_CONTEXT_STALE")
         if row.get("preview_sha"):
             folder = self.root / row["correction_id"]
-            candidate = (folder/"receipt.json").read_bytes()
+            candidate = self.candidate_path(row,"receipt").read_bytes()
             receipt = (folder/"final-receipt.json").read_bytes() if row["state"] == "COMPLETED" else candidate
             if sha256(receipt).hexdigest() != row["receipt_sha"]:
                 raise LiveGateError("INPAINT_RECEIPT_INTEGRITY")
@@ -162,12 +163,23 @@ class FinalInpainting(ImageCorrections):
             if (evidence["source_context_sha"] != row["context_sha"] or evidence["selection_sha"] != payload["selection_sha"]
                 or evidence["preview_sha"] != row["preview_sha"]):
                 raise LiveGateError("INPAINT_RECEIPT_INTEGRITY")
+            edge=evidence.get("edge_blend") or {}
+            if edge.get("source_receipt_sha"):
+                for key in ("source_receipt_sha","source_preview_sha"):
+                    if not _SHA.fullmatch(edge[key]):raise LiveGateError("INPAINT_HISTORY_CONFLICT")
+                ancestor=(folder/'receipts'/(edge["source_receipt_sha"]+'.json')).read_bytes()
+                previous=(folder/'previews'/(edge["source_preview_sha"]+'.png')).read_bytes()
+                if sha256(ancestor).hexdigest()!=edge["source_receipt_sha"] or sha256(previous).hexdigest()!=edge["source_preview_sha"]:
+                    raise LiveGateError("INPAINT_HISTORY_CONFLICT")
+                old=json.loads(ancestor)
+                if any(evidence[k]!=old[k] for k in ("provider_receipt","cost_receipt","source_context_sha","selection_sha")):
+                    raise LiveGateError("INPAINT_HISTORY_CONFLICT")
             from .revision_receipts import verify_revision_cost
             actual = verify_revision_cost(self.flow,evidence["cost_receipt"],row["actor"],row["job_id"],"image",fingerprint(row))
             provider = evidence["provider_receipt"]
             if actual["provider_response_id"] != provider["provider_request_id"] or actual["model"] != provider["model"] or actual["usage"] != provider["usage"]:
                 raise LiveGateError("INPAINT_RECEIPT_INTEGRITY")
-            preview = (folder/"preview.png").read_bytes()
+            preview = self.candidate_path(row,"preview").read_bytes()
             if sha256(preview).hexdigest() != row["preview_sha"]:
                 raise LiveGateError("INPAINT_ARTIFACT_INTEGRITY")
             selection,_ = decode_selection(payload["mask_png_base64"],size)
@@ -182,12 +194,60 @@ class FinalInpainting(ImageCorrections):
         base = f'/demo/api/live/jobs/{row["job_id"]}/final-inpainting/{row["correction_id"]}/artifacts/'
         artifacts = {kind:base+kind+"?sha256="+row[kind+"_sha"] for kind in ("preview","final","caption","receipt")
             if row.get(kind+"_sha") and (row["state"] == "COMPLETED" or kind in ("preview","receipt") and row["state"] == "REVIEW_REQUIRED")}
-        return {"correction_id":row["correction_id"],"job_id":row["job_id"],"state":row["state"],"revision":row["revision"],
+        blended=False
+        if row.get("preview_sha"):
+            candidate=self.candidate_path(row,"receipt").read_bytes()
+            blended=json.loads(candidate).get("edge_blend",{}).get("version")=="inside-feather-v1"
+        return {"edge_blend_applied":blended,"correction_id":row["correction_id"],"job_id":row["job_id"],"state":row["state"],"revision":row["revision"],
             "render_mode":RENDER_MODE,"source_mode":payload["source_context"]["generation_mode"],"source_scope":"APPROVED_FINAL_AD",
             "source_image_sha":payload["expected_image_sha"],"prompt":payload["prompt"],"selected_pixels":payload["selected_pixels"],
             "approved_copy":payload["approved_copy"],"selection_sha":payload["selection_sha"],"error_code":row["error_code"],
             **{key:row[key] for key in ("preview_sha","final_sha","caption_sha","receipt_sha","approval_sha")},
             "artifacts":artifacts,"actual_usd":None,"cost_status":"UNPRICED" if row["preview_sha"] else "NOT_RECONCILED"}
+
+    def candidate_path(self,row,kind):
+        sha=row.get(kind+"_sha")
+        if kind=="receipt" and row["state"]=="COMPLETED":
+            final=(self.root/row["correction_id"]/"final-receipt.json").read_bytes()
+            if sha256(final).hexdigest()!=row["receipt_sha"]:raise LiveGateError("INPAINT_RECEIPT_INTEGRITY")
+            sha=json.loads(final)["candidate_receipt_sha"]
+        if sha and not _SHA.fullmatch(sha):raise LiveGateError("INPAINT_ARTIFACT_INTEGRITY")
+        path=self.root/row["correction_id"]/('previews' if kind=='preview' else 'receipts')/(str(sha)+('.png' if kind=='preview' else '.json'))
+        return path if path.exists() else super().candidate_path(row,kind)
+
+    def blend_edges(self,actor,job_id,correction_id,body):
+        # Explicit, bounded nonbillable rendering. Preserve both candidate
+        # versions and every Provider/Cost receipt; no new model authorization.
+        with self.source_lock(actor,job_id), self.db() as db:
+            db.execute("BEGIN IMMEDIATE");row=self._row(db,actor,job_id,correction_id)
+            _,_,source,size=self._current(row)
+            if (row["state"]!="REVIEW_REQUIRED" or row["revision"]!=body["expected_revision"]
+                or row["preview_sha"]!=body["expected_preview_sha"]):raise LiveGateError("INPAINT_BLEND_CAS_CONFLICT")
+            old=self.candidate_path(row,"preview").read_bytes();receipt_raw=self.candidate_path(row,"receipt").read_bytes()
+            receipt=json.loads(receipt_raw)
+            if receipt.get("edge_blend",{}).get("version")=="inside-feather-v1":raise LiveGateError("INPAINT_ALREADY_BLENDED")
+            payload=self._validate_payload(row);selection,_=decode_selection(payload["mask_png_base64"],size)
+            preview=merge_selected(source,old,selection,feather=True)
+            folder=self.root/correction_id
+            values=((folder/'previews'/(row["preview_sha"]+'.png'),old),(folder/'receipts'/(row["receipt_sha"]+'.json'),receipt_raw))
+            for path,raw in values:
+                if path.exists() and path.read_bytes()!=raw:raise LiveGateError("INPAINT_HISTORY_CONFLICT")
+                if not path.exists():atomic_write(path,raw)
+            preview_sha=sha256(preview).hexdigest()
+            receipt.update(preview_sha=preview_sha,edge_blend={"version":"inside-feather-v1","actor":actor,
+                "source_preview_sha":row["preview_sha"],"source_receipt_sha":row["receipt_sha"],"renderer":"Pillow "+PILLOW_VERSION,
+                "selection_sha":payload["selection_sha"],"additional_provider_calls":0,"outside_selection_changed":False})
+            raw=_json(receipt).encode();receipt_sha=sha256(raw).hexdigest()
+            atomic_write(folder/'previews'/(preview_sha+'.png'),preview);atomic_write(folder/'receipts'/(receipt_sha+'.json'),raw)
+            db.execute("UPDATE image_corrections SET preview_sha=?,receipt_sha=?,revision=revision+1 WHERE correction_id=?",
+                (preview_sha,receipt_sha,correction_id))
+            return self.public(self._row(db,actor,job_id,correction_id))
+
+    def decision(self,actor,job_id,correction_id,body):
+        if body["approve"]:
+            with self.db() as db:row=self._row(db,actor,job_id,correction_id)
+            if not self.public(row)["edge_blend_applied"]:raise LiveGateError("INPAINT_EDGE_BLEND_REQUIRED")
+        return super().decision(actor,job_id,correction_id,body)
 
     def snapshot(self,actor,job_id):
         job,context,_,size = self.source(actor,job_id)
@@ -211,7 +271,7 @@ def fingerprint(row):
     return {"protocol":PROTOCOL,"correction_id":row["correction_id"],"request_sha":row["request_sha"]}
 
 
-def merge_selected(source, generated, selection):
+def merge_selected(source, generated, selection, *, feather=False):
     """Provider mask is advisory; the saved result obeys our exact native mask.
 
     Transparent output pixels retain the source (never turn black); no resizing
@@ -221,7 +281,13 @@ def merge_selected(source, generated, selection):
         original = im.convert("RGBA")
         gen = gen.convert("RGBA").crop((0,0,*original.size))
         patched = Image.alpha_composite(original,gen).convert("RGB")
-        result = Image.composite(patched,original.convert("RGB"),selection)
+        weights=selection
+        if feather:
+            box=selection.getbbox();radius=min(32,max(1,min(box[2]-box[0],box[3]-box[1])//6))
+            inner=selection.filter(ImageFilter.MinFilter(radius*2+1))
+            if inner.getbbox() is not None:
+                weights=ImageChops.multiply(selection,inner.filter(ImageFilter.GaussianBlur(max(1,radius/2))))
+        result = Image.composite(patched,original.convert("RGB"),weights)
         return _png(result)
 
 
@@ -263,7 +329,7 @@ def run_final_inpainting_once(flow, *, transport=None, recover_only=False):
         output,cost=flow._guarded(row["actor"],row["job_id"],"image",fingerprint(row),
             lambda:_masked_provider(flow,row,provider_source,provider_mask,provider_size,payload,transport,protocol=PROTOCOL),image=True,include_receipt=True)
         atomic_write(folder/"provider-output.png",output.image_bytes)
-        preview=merge_selected(source,output.image_bytes,selection)
+        preview=merge_selected(source,output.image_bytes,selection,feather=payload.get("edge_blend_version")=="inside-feather-v1")
         with Image.open(BytesIO(source)) as before, Image.open(BytesIO(preview)) as after:
             if ImageChops.difference(before.convert("RGB"),after.convert("RGB")).getbbox() is None:
                 raise LiveGateError("INPAINT_NO_VISIBLE_CHANGE")
@@ -274,7 +340,7 @@ def run_final_inpainting_once(flow, *, transport=None, recover_only=False):
             "selection_sha":payload["selection_sha"],"selected_pixels":count,"outside_region_pixel_count":size[0]*size[1]-count,
             "outside_region_preserved":True,"server_text_overlay":False,"provider_calls":1,"provider_receipt":output.receipt,
             "cost_receipt":cost,"actual_usd":None,"billing_status":"UNPRICED","prompt_sha":sha256(payload["edit_prompt"].encode()).hexdigest(),
-            "preview_sha":sha256(preview).hexdigest(),"human_review":"PENDING"}
+            "model_output_sha":sha256(output.image_bytes).hexdigest(),"preview_sha":sha256(preview).hexdigest(),"human_review":"PENDING","edge_blend":{"version":payload.get("edge_blend_version"),"renderer":"Pillow "+PILLOW_VERSION,"outside_selection_changed":False}}
         atomic_write(folder/"preview.png",preview);receipt_raw=_json(receipt).encode();atomic_write(folder/"receipt.json",receipt_raw)
         with service.source_lock(row["actor"],row["job_id"]), service.db() as db:
             db.execute("BEGIN IMMEDIATE");service._current(row)
