@@ -1,7 +1,7 @@
 import type { ProductForm } from '../store/projectStore'
 import { validateImages, type Limits } from './validateImages.ts'
 
-export type ProductErrors = Partial<Record<'images' | 'references' | 'product_name' | 'features' | 'functional_types' | 'photo_verified', string>>
+export type ProductErrors = Partial<Record<'images' | 'references' | 'product_name' | 'features' | 'functional_types' | 'photo_verified' | 'ai_consent', string>>
 
 export function validateProduct(
   images: File[],
