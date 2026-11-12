@@ -19,3 +19,5 @@
 기존 운영 및 사용자 산출물은 공개 Git에 포함하지 않는다. 실제 검증 자료와 배포 SHA는 비공개 로컬 C-B 제출서에서 관리한다. CODE/FIXTURE/REAL/HUMAN/RELEASE는 별도이며 제품 상태는 NOT_RELEASE_READY이다.
 
 Native Owner 저장소의 정규화 PNG는 메타데이터 제거·재압축으로 Provider 응답 PNG와 바이트 SHA가 다를 수 있다. 원본 Provider Attempt 및 request SHA를 확인하고 저장소 AssetRef의 SHA를 검증한 뒤, 같은 정규화 규칙을 적용한 응답 픽셀을 대조한다. 콘텐츠 변경 거부와 메타데이터 차이 허용을 각각 회귀 검증한다. 추가 Provider 호출 없이 기존 미승인 수정본만 파생한다.
+
+정규화 대조를 포함한 최종 호환 복귀 후보는 `f710511eafabdc438509332a496b7bea80b356e5` (Tree `6b17ef15b548e5c447d6eb4bbf5ae613cc21c10d`)이며, 이후 문서 고정 커밋과 구현은 동일하다. 이전 `09b6f17` 배포에서는 체크박스 검증을 제공했지만 메타데이터가 있는 기존 응답의 재배치가 409로 안전하게 중단되었다. 추가 Attempt나 승인 변경은 없었다.
