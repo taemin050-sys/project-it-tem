@@ -1,5 +1,9 @@
 # 승인된 합성형 수정본 부분 수정
 
+호환 복귀 구현: `adfb0ee7f179453be686df15774a621caa7d2a50`, Tree `cf81008f73748f101491eb7bb8df4d7a7bd87a17`. 전진 후보는 이 문서 고정만 추가한 동일 구현이다. 전환 전 소스는 `8fc977639996f6c88fcc3f0d396e1d6a423afb35`이다.
+
+개발 검증: 수정본 소스/변조 차단 5 PASS, 기존 인페인팅/합성형 수정 32 PASS. React 86 PASS, TypeScript/Vite build PASS. 기존 FinalInpaintingPanel의 mask export effect 경고는 유지한다. 실제 서버의 편집기 노출·원본 SHA 검증은 별도 증거로 제출한다. 이번 결함 수정은 신규 유료 실행을 필요로 하지 않는다.
+
 원본 합성형의 이미지 승인이 아직 없더라도, 카피를 직접 수정하고 새 F09·Copy 승인·Image 승인을 모두 완료한 합성형 수정본에는 최종 광고 부분 수정 도구를 제공한다. 기존 Konva 마스크 편집기·FinalInpainting Worker·독립 검수·다운로드를 재사용한다.
 
 `GET /demo/api/live/jobs/{job}/final-inpainting?source_edit_id={edit}`로 해당 수정본을 불러오고, POST에도 같은 `source_edit_id`와 정확한 이미지·카피·승인 SHA를 전달한다. `source` GET도 수정 ID를 결속한다. 원본 최종 광고의 기존 요청과 경로는 그대로 유지한다. 서로 다른 수정본과 원본의 목록·React Query 캐시는 분리한다.
