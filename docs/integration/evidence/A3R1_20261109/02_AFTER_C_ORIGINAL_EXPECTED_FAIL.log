@@ -1,0 +1,7 @@
+FIXED_HEAD af3d33f90b4ad526367228403cc91b84d5260c06
+FIXED_TREE a5f7e6f86795848a17c7c75594414a95a5ba16b4
+TEST --assume-unchanged WORKER_BYTES_MODIFIED True GIT_STATUS_FALSE_CLEAN True SOURCE_GATE HOLD PAID_GATE HOLD
+Traceback (most recent call last):
+  File "/Volumes/SSD 4T/z_ai_asset/P03_it-tem/audit/track-a/evidence/C_A3R_20261109_2215/C_A3R_source_attestation_bypass.py", line 34, in <module>
+    assert m["source_integrity_gate"]=="PASS", "A3R bypass no longer reproduces"
+AssertionError: A3R bypass no longer reproduces

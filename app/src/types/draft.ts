@@ -54,6 +54,10 @@ export type Job = {
   research_result?: ResearchResult
   copy_output?: AdCopyOutput
   compliance_report?: ComplianceReport
+  /** FE's mapped Live DTO revision that produced this exact display. */
+  live_revision_binding?: {
+    generation:number;copy_sha:string|null;review_sha:string|null
+  }
   // 레거시 구현
   plan?: LegacyPlan
   copy_candidate?: LegacyCopy

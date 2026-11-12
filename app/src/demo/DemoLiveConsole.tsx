@@ -1,13 +1,14 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import LiveEvaluationBoard from './LiveEvaluationBoard'
-import { AD_LAYOUT as layout } from '../config'
+import {AD_LAYOUT} from '../config'
+import {LEGACY_LAYOUT} from '../api/liveFlow'
 
 type Stage = 'INPUT_STORED' | 'COPY_REVIEW_REQUIRED' | 'COPY_APPROVED' | 'COPY_REJECTED' |
              'PROMPT_READY' | 'IMAGE_REVIEW_REQUIRED' | 'IMAGE_APPROVED' | 'IMAGE_REJECTED' | 'COMPLETED'
 type LiveSnapshot = {
   job_id:string;state:Stage;generation:number;mode:string;
   copy_sha?:string;review_sha?:string;image_sha?:string;final_sha?:string;
-  approval_current:boolean;
+  approval_current:boolean;template_profile?:string;
   analysis?:{analysis:{product_type:string;colors:string[];container_type:string;label_text:string[]}};
   research_display?:{research:{display_summary:Array<{text:string;source:string}>};research_performed:boolean};
   copy?:{plan:{target:string;concept:string;key_message:string;mood:string[]};
@@ -16,10 +17,6 @@ type LiveSnapshot = {
   image_prompt?:{concept:string;prompt:string;mood:string[]};
 }
 type Task = {task_id:string;state:string;error_code?:string|null}
-type Performance={timings:Array<{stage:string;state:string;server_elapsed_s:number|null}>;
-  provider_attempts:Array<{stage:string;state:string;model:string|null;
-    usage:Record<string,number>|null;billing_unknown:boolean}>;
-  project_spend_status:string;application_cost_policy:string}
 type State = {live_enabled:boolean;mode:string;reason:string}
 const api='/demo/api/live'
 
@@ -41,7 +38,6 @@ export default function DemoLiveConsole({evaluatorId}:{evaluatorId:string}){
   const [savedCounts,setSavedCounts]=useState({products:0,references:0})
   const savedJobKey='ittem.live.job.'+evaluatorId
   const [task,setTask]=useState<Task|null>(null)
-  const [perf,setPerf]=useState<Performance|null>(null)
   const [error,setError]=useState('')
   const [shared,setShared]=useState(false)
   const [busy,setBusy]=useState(false)
@@ -62,9 +58,6 @@ export default function DemoLiveConsole({evaluatorId}:{evaluatorId:string}){
   const update=useCallback(async(id:string)=>{
     const x=await request<LiveSnapshot>(api+'/jobs/'+id)
     setSnap(x)
-    if(x.mode==='LIVE'){
-      void request<Performance>(api+'/jobs/'+id+'/performance').then(setPerf).catch(()=>{})
-    }
     // Polling must never erase text the evaluator is currently editing.
     if(x.copy && x.copy_sha !== lastCopyHash.current){
       setForm({headline:x.copy.ad_copy.headline,subline:x.copy.ad_copy.subline,
@@ -198,15 +191,18 @@ export default function DemoLiveConsole({evaluatorId}:{evaluatorId:string}){
   }
   async function compose(){
     if(!snap)throw Error('Job이 없습니다')
-    await request(api+'/jobs/'+snap.job_id+'/compose','POST',{layout})
+    // Diagnostic console also sends the Owner A v1 layout unchanged.
+    // Server verifies per-Job layout/receipt; legacy policy remains isolated.
+    await request(api+'/jobs/'+snap.job_id+'/compose','POST',
+      snap.template_profile?.startsWith('OWNER_IMAGE_SIZE_')?{}:snap.template_profile==='A_CENTERED'?{layout:AD_LAYOUT}:{layout:LEGACY_LAYOUT})
     await update(snap.job_id)
   }
   const disabled=!cap?.live_enabled
   return <main style={{maxWidth:900,margin:'28px auto',padding:20}}>
     <h1>IT-TEM 실제 AI 광고 제작 <small>LIVE</small></h1>
-    <p>이 화면은 Mock 생성 결과로 대체하지 않습니다. 모델 호출은 비용·계약·안전 승인 후에만 실행됩니다.</p>
+    <p>이 화면은 Mock 생성 결과로 대체하지 않습니다. 모델 호출은 준비된 실제 AI 작업 환경에서만 실행됩니다.</p>
     <div role="status" style={{padding:12,border:'1px solid #a0aab8',borderRadius:8,marginBottom:18}}>
-      모델 호출 상태: <strong>{disabled?'LIVE 잠금 — 승인 및 비용 게이트 대기':'승인된 Live 호출 준비'}</strong>
+      모델 호출 상태: <strong>{disabled?'LIVE 실행 환경 확인 필요':'승인된 Live 호출 준비'}</strong>
       {task&&<p>작업: {task.state} · {task.error_code || '상태 조회 중'}</p>}
     </div>
     {error&&<p role="alert" style={{color:'#9b1721'}}>{error}</p>}
@@ -275,7 +271,7 @@ export default function DemoLiveConsole({evaluatorId}:{evaluatorId:string}){
           <button disabled={busy} onClick={()=>void action(rejectCopy)}>카피 거절</button>
         </div>}
       </section>}
-      {snap.state==='IMAGE_REJECTED'&&<p>이미지가 거절됐습니다. 비용 중복 방지를 위해 이 Job을 자동 재실행하지 않습니다. 새 Job을 만드세요.</p>}
+      {snap.state==='IMAGE_REJECTED'&&<p>이미지가 거절됐습니다. 이 Job은 자동 재실행되지 않습니다. 새 Job을 만드세요.</p>}
       {snap.state==='COPY_REJECTED'&&<p>카피가 거절됐습니다. 카피를 수정하면 새로운 검수가 수행됩니다.</p>}
       {snap.state==='COPY_APPROVED'&&<button disabled={busy||disabled}
         onClick={()=>void action(()=>enqueue('queue-prompt'))}>승인된 카피의 이미지 프롬프트 생성</button>}
@@ -292,17 +288,6 @@ export default function DemoLiveConsole({evaluatorId}:{evaluatorId:string}){
       </section>}
       {snap.state==='IMAGE_APPROVED'&&<button disabled={busy}
         onClick={()=>void action(compose)}>승인된 한글 카피 합성</button>}
-      {perf&&<details>
-        <summary>실제 AI 단계별 처리시간·사용량</summary>
-        <p>비용 정책: {perf.application_cost_policy} · 프로젝트 전체 사용액: {perf.project_spend_status}</p>
-        <table><thead><tr><th>단계</th><th>상태</th><th>처리시간</th><th>모델·Usage</th></tr></thead>
-        <tbody>{perf.provider_attempts.map((a,i)=><tr key={i}>
-          <td>{a.stage}</td><td>{a.state}</td>
-          <td>{perf.timings.find(t=>t.stage===a.stage)?.server_elapsed_s ?? '확인 필요'}초</td>
-          <td>{a.model||'확인 필요'} · {a.usage?JSON.stringify(a.usage):'Usage 확인 필요'}</td>
-        </tr>)}</tbody></table>
-        <p>서비스 내부 기록은 OpenAI 프로젝트 전체 청구액이 아닙니다. 청구금액 미확인 상태에서는 잔액을 추정하지 않습니다.</p>
-      </details>}
       {snap.state==='COMPLETED'&&<section>
         <h3>최종 실제 광고</h3>
         <img src={api+'/jobs/'+snap.job_id+'/artifacts/final'} alt="최종 광고" style={{maxWidth:320,width:'100%'}}/>

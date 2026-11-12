@@ -1,0 +1,54 @@
+{
+  "actual_cost_known": false,
+  "actual_paid_provider_requests": 0,
+  "actual_provider_receipts": 0,
+  "app_image_attempt_table": "NOT_CREATED_IN_THIS_SIMULATION",
+  "contract": "IT_TEM_P03_A51C_OFFLINE_SYNTHETIC_THREE_LEDGER_REHEARSAL_V1",
+  "cost_reservation_rows": 6,
+  "fake_only_cap_usd": "0.600000",
+  "fake_only_reservation_usd": "0.100000",
+  "gcp_modified": false,
+  "independent_job_count": 6,
+  "owner_duplicate_job_rejected": true,
+  "owner_provider_attempt_schema_sha256": "346db1c55c34e1433b4c6f3396439f02aafdf4b0dddbf093a968c7c61317acef",
+  "provider_attempt_rows": 6,
+  "queue_attempts": 0,
+  "real_pm_budget_approval": false,
+  "real_provider_attempt_store_created_on_gcp": false,
+  "scenarios": [
+    {
+      "candidate_count": 1,
+      "generation_mode": "composed",
+      "ratio": "4:5"
+    },
+    {
+      "candidate_count": 1,
+      "generation_mode": "composed",
+      "ratio": "3:4"
+    },
+    {
+      "candidate_count": 1,
+      "generation_mode": "composed",
+      "ratio": "9:16"
+    },
+    {
+      "candidate_count": 1,
+      "generation_mode": "freeform",
+      "ratio": "4:5"
+    },
+    {
+      "candidate_count": 1,
+      "generation_mode": "freeform",
+      "ratio": "3:4"
+    },
+    {
+      "candidate_count": 1,
+      "generation_mode": "freeform",
+      "ratio": "9:16"
+    }
+  ],
+  "seventh_cost_reservation_blocked": true,
+  "seventh_owner_attempt_blocked": true,
+  "team_beta_readiness": "HOLD",
+  "uncertain_provider_attempt_remains_held": true
+}

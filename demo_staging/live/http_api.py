@@ -7,13 +7,15 @@ from __future__ import annotations
 
 import json
 import os
+import sqlite3
 from pathlib import Path
 
 from fastapi import FastAPI,HTTPException,Request
 from fastapi.responses import FileResponse,JSONResponse
 from pydantic import BaseModel,ConfigDict,Field
+from typing import Literal
 
-from .contracts import LiveGateError
+from .contracts import LiveGateError,digest,assert_single_image_scope,assert_single_image_request_params
 from .pipeline import LivePipeline
 from .queue import LiveQueue
 from .reviews import LiveShares
@@ -24,12 +26,27 @@ from demo_staging.live_safety import LiveNotAuthorized
 class InputPayload(BaseModel):
     model_config=ConfigDict(extra="forbid",strict=True)
     product: dict
+    image_size: Literal["3:4","4:5","9:16"] | None = None
+    generation_mode: Literal["composed","freeform"] | None = None
     customer_request_id: str
 
 
 class CopyUpdate(BaseModel):
     model_config=ConfigDict(extra="forbid",strict=True)
     copy_output:dict
+
+
+class CopyRevisionRequest(BaseModel):
+    model_config=ConfigDict(extra="forbid",strict=True)
+    instruction:str=Field(min_length=1,max_length=300)
+    expected_generation:int
+    expected_review_sha:str=Field(min_length=64,max_length=64)
+
+
+class CopyRestoreRequest(BaseModel):
+    model_config=ConfigDict(extra="forbid",strict=True)
+    expected_generation:int
+    expected_review_sha:str=Field(min_length=64,max_length=64)
 
 
 class CopyApproval(BaseModel):
@@ -44,39 +61,65 @@ class ImageApproval(BaseModel):
     image_sha:str
 
 
+class ImageRegenerateRequest(BaseModel):
+    model_config=ConfigDict(extra="forbid",strict=True)
+    expected_image_sha:str=Field(pattern=r"^[0-9a-f]{64}$")
+    request_key:str=Field(pattern=r"^[0-9a-f]{32}$")
+
+
 class ComposeRequest(BaseModel):
     model_config=ConfigDict(extra="forbid",strict=True)
-    layout:dict
+    layout:dict|None=None
 
 
-def web_queue_policy() -> dict:
+def web_queue_policy(root:Path|None=None) -> dict:
     """Queue-only PM policy. Web must never possess API credentials.
 
     Live remains entirely OFF unless all explicit controls agree. Worker
     independently validates the key and identical PM/cost configuration.
     """
+    if os.environ.get("IT_TEM_A51D_SIGNED_BETA_RUNTIME")=="YES" and (
+            os.environ.get("IT_TEM_A51C_HARD_CAP_ENABLE")!="YES" or
+            os.environ.get("IT_TEM_LIVE_COST_POLICY")!="HARD_CAP"):
+        return {"enabled":False,"actors":frozenset()}
     required=("IT_TEM_LIVE_WEB_QUEUE_ENABLED","IT_TEM_LIVE_ENABLED",
               "IT_TEM_LIVE_EXECUTION_APPROVED","IT_TEM_PROVIDER_READINESS_CONFIRMED")
     if any(os.environ.get(k)!="YES" for k in required):
         return {"enabled":False,"actors":frozenset()}
     actors=frozenset(x.strip() for x in
         os.environ.get("IT_TEM_LIVE_APPROVED_ACTORS","").split(",") if x.strip())
-    if (os.environ.get("IT_TEM_LIVE_COST_POLICY")!="MONITOR_ONLY"
-            or not actors or "*" in actors
+    if (not actors or "*" in actors
             or any(not x.replace("_","").replace("-","").isalnum() for x in actors)):
         return {"enabled":False,"actors":frozenset()}
-    return {"enabled":True,"actors":actors}
+    if os.environ.get("IT_TEM_A51C_HARD_CAP_ENABLE")=="YES":
+        if root is None:
+            return {"enabled":False,"actors":frozenset()}
+        try:
+            from .a51c_signed_cost_authority import (
+                signed_hard_cap_policy,require_preinitialized_candidate_ledgers)
+            signed=signed_hard_cap_policy(Path(root))
+            require_preinitialized_candidate_ledgers(Path(root))
+            if signed["approved_actors"]!=actors:
+                return {"enabled":False,"actors":frozenset()}
+        except (LiveGateError,OSError,ValueError,KeyError):
+            return {"enabled":False,"actors":frozenset()}
+        return {"enabled":True,"actors":actors,"limit":signed["max_requests"],
+                "budget":signed["budget_usd"],"text":signed["text_reservation_usd"],
+                "image":signed["image_reservation_usd"],"monitoring_only":False}
+    if os.environ.get("IT_TEM_LIVE_COST_POLICY")!="MONITOR_ONLY":
+        return {"enabled":False,"actors":frozenset()}
+    return {"enabled":True,"actors":actors,"monitoring_only":True}
 
 
 def register_live_api(app:FastAPI, ledger, runtime_root:Path, cookie_name:str):
-    policy=web_queue_policy()
+    policy=web_queue_policy(runtime_root)
     flow=LivePipeline(Path(runtime_root)/"live",app.state.job_store,
         live_enabled=policy["enabled"],pm_authorized=policy["enabled"],
         approved_actors=policy["actors"],
         request_limit=policy.get("limit",0),budget_limit_usd=policy.get("budget",0),
         text_reservation_usd=policy.get("text",0),
         image_reservation_usd=policy.get("image",0),
-        monitoring_only=policy["enabled"])
+        monitoring_only=policy.get("monitoring_only",policy["enabled"]))
     queue=LiveQueue(Path(runtime_root)/"live"/"queue.sqlite")
     shares=LiveShares(Path(runtime_root)/"live"/"shares.sqlite")
     app.state.live_pipeline=flow
@@ -84,7 +127,7 @@ def register_live_api(app:FastAPI, ledger, runtime_root:Path, cookie_name:str):
     prefix="/demo/api/live"
 
     def authorized(request,job_id=None):
-        ident=ledger.identity(request.cookies.get(cookie_name))
+        ident=app.state.demo_request_identity(request)
         if not ident:
             raise HTTPException(status_code=401,detail="Login required")
         actor=ident[0]
@@ -99,18 +142,40 @@ def register_live_api(app:FastAPI, ledger, runtime_root:Path, cookie_name:str):
             code=error.code
             return HTTPException(status_code=409 if ("STATE" in code or "STALE" in code or
                              "APPROVAL" in code or "CONFLICT" in code or
-                             code=="REAL_COMPLIANCE_BLOCKED") else 422,
+                             code in ("REAL_COMPLIANCE_BLOCKED","REVISION_IN_PROGRESS",
+                                      "IMAGE_RETRY_OUTSTANDING_OR_UNKNOWN",
+                                      "IMAGE_RETRY_STALE_REJECTION",
+                                      "IMAGE_RETRY_LEDGER_MISMATCH"))
+                             else 422,
                                 detail={"code":code})
         return HTTPException(status_code=503,detail="LIVE_GATE_UNAVAILABLE")
 
     def visible(job):
+        profile=flow.state.template(job["actor"],job["job_id"])
+        attempt=flow.state.current_image_attempt(job["actor"],job["job_id"])
         # Never return internal Provider errors, signed URLs, input file paths
         # or private reference image contents to the browser.
         out={"job_id":job["job_id"],"state":job["state"],"mode":job["mode"],
              "generation":job["generation"],"input_sha":job["input_sha"],
              "copy_sha":job["copy_sha"],"review_sha":job["review_sha"],
              "image_sha":job["image_sha"],"final_sha":job["final_sha"],"caption_sha":job["caption_sha"],
-             "approval_current":bool(job["approval_sha"])}
+             "approval_current":bool(job["approval_sha"]),
+             "previous_copy_available":flow.state.previous_copy_available(job["actor"],job["job_id"]),
+             "revision_feedback":flow.state.revision_feedback(job["actor"],job["job_id"]),
+             "image_attempt_version":attempt["attempt_version"] if attempt else 1,
+             "template_profile":profile["profile_id"] if profile else "PRE_POLICY_LEGACY",
+             "image_size":json.loads(job["input_json"]).get("image_size","4:5"),
+             "generation_mode":json.loads(job["input_json"]).get("generation_mode","composed"),
+             "output_size":({"width":profile["safe_zone"]["final_size"][0],
+                             "height":profile["safe_zone"]["final_size"][1]}
+                     if profile and profile["profile_id"].startswith("OWNER_IMAGE_SIZE_")
+                     else {"width":1080,"height":1350}),
+             "functional_types":json.loads(job["input_json"])["product"].get("functional_types",[]),
+             "functional_types_status":"OWNER_TEXT_V010_APPLIED"
+                if json.loads(job["input_json"])["product"].get("functional_types") else "NO_SELECTION",
+             "emoji_level":json.loads(job["input_json"])["product"].get("emoji_level","없음"),
+             "product_protection_status":"MANUAL_REVIEW_REQUIRED"
+                if job["state"]=="COMPLETED" else "NOT_REVIEWED"}
         for stored,key in (("research_display_json","research_display"),
                            ("analysis_json","analysis"),
                            ("copy_json","copy"),
@@ -120,6 +185,213 @@ def register_live_api(app:FastAPI, ledger, runtime_root:Path, cookie_name:str):
                 out[key]=json.loads(job[stored])
         return out
 
+    # Isolated developer QA fixture path. NOT a Live Provider substitute:
+    # requires an explicit process permit, loopback-only request, and a QA
+    # identity. It is never enabled by the team's normal serving process.
+    # The prior 127.0.0.1 invitation QA remains unchanged. A51E adds an
+    # isolated, nonbillable *signed-assertion* QA test candidate, allowed
+    # ONLY under private ephemeral test roots and with fully disabled Live.
+    # This is never deployable as a real Provider beta or a team UAT pass.
+    signed_candidate_qa=(
+        os.environ.get("IT_TEM_A51E_SIGNED_BETA_INTAKE")=="YES"
+        and os.environ.get("IT_TEM_A51E_NONBILLABLE_CANDIDATE")=="YES"
+        and os.environ.get("IT_TEM_A51E_MPO_POLICY_STATE")=="PENDING_REJECT"
+        and os.environ.get("IT_TEM_TAILNET_SSO_ONLY")=="YES"
+        and os.environ.get("IT_TEM_TAILNET_AUTH_ENABLED")=="YES")
+    qa_enabled=(os.environ.get("IT_TEM_QA_FIXTURE_ENABLED")=="YES"
+                and os.environ.get("IT_TEM_LIVE_ENABLED")=="NO"
+                and os.environ.get("IT_TEM_LIVE_EXECUTION_APPROVED")=="NO"
+                and (os.environ.get("IT_TEM_DEMO_SECURE_COOKIE")=="NO"
+                     or signed_candidate_qa))
+    qa_actors=frozenset(x.strip() for x in
+          os.environ.get("IT_TEM_QA_ALLOWED_ACTORS","").split(",") if x.strip())
+
+    def qa_access(request,job_id):
+        if not qa_enabled or not qa_actors:
+            raise HTTPException(404,"QA fixture endpoint disabled")
+        if not request.client or request.client.host not in ("127.0.0.1","::1"):
+            raise HTTPException(404,"QA fixture endpoint unavailable")
+        actor=authorized(request,job_id)
+        if actor not in qa_actors:
+            raise HTTPException(404,"QA fixture actor unavailable")
+        return actor
+
+    @app.post("/demo/api/qa/jobs/{job_id}/text")
+    def qa_text(job_id:str,request:Request):
+        actor=qa_access(request,job_id)
+        try:
+            from tests.demo_live.test_pipeline import FakeOwner
+            current=flow.state.get(actor,job_id)
+            if current["state"]!="INPUT_STORED":
+                raise LiveGateError("QA_TEXT_STATE_CONFLICT")
+            product=json.loads(current["input_json"])["product"]
+            if product.get("brand_name")!="라움":
+                raise LiveGateError("QA_FIXTURE_REQUIRES_RAUM_TEST_BRAND")
+            # Existing official DTOs, real compliance, no external provider.
+            return visible(flow.text(actor,job_id,FakeOwner(),offline=True))
+        except (LiveGateError,ValueError) as e:raise safe_error(e) from None
+
+    def qa_generate_one_candidate(actor:str,job_id:str):
+        # QA uses the exact A single-image store/approval path without
+        # provider calls. Rejection retry uses this helper, never a batch API.
+        try:
+            from tests.demo_live.test_pipeline import FakeOwner,png
+            from src.image_generation.backend_adapter import BackendGeneratedImage
+            import hashlib
+            job=flow.state.get(actor,job_id)
+            if job["state"]=="COPY_APPROVED":
+                flow.prompt(actor,job_id,FakeOwner(),offline=True)
+            owner_request=flow.image_input(actor,job_id)
+            if owner_request.safe_zone is None and owner_request.layout_selection is None:
+                raise LiveGateError("QA_OWNER_IMAGE_LAYOUT_REQUIRED")
+            from src.image_generation.size_selection import resolve_size_choice
+            native=(resolve_size_choice(owner_request.layout_selection.aspect_ratio)[1].native
+                if owner_request.layout_selection is not None else (1152,1440))
+            # Synthetic pixel image, not an OpenAI result. Immutable copy and
+            # candidate SHA still go through the real Serving binding gate.
+            attempt=flow.state.current_image_attempt(actor,job_id)
+            version=attempt["attempt_version"] if attempt else 1
+            img=png((215+version%8,225+version%10,235-version%10),size=native)
+            receipt={"mode":"OFFLINE_FIXTURE","provider_calls":0}
+            if owner_request.generation_mode=="freeform":
+                receipt.update({"generation_mode":"freeform","state":"succeeded",
+                                "rendering":"QA_FIXTURE_NO_ACTUAL_MODEL_TEXT"})
+            candidate=BackendGeneratedImage(
+                image_bytes=img,mime_type="image/png",width=native[0],height=native[1],
+                sha256=hashlib.sha256(img).hexdigest(),job_id=job_id,
+                copy_revision=owner_request.copy_revision,
+                copy_hash=owner_request.copy_hash,mock=True,receipt=receipt)
+            return visible(flow.accept_image_result(actor,job_id,candidate,offline=True))
+        except (LiveGateError,ValueError) as e:raise safe_error(e) from None
+
+    @app.post("/demo/api/qa/jobs/{job_id}/prompt-image")
+    async def qa_prompt_image(job_id:str,request:Request):
+        actor=qa_access(request,job_id)
+        try:assert_single_image_request_params(request)
+        except LiveGateError as e:raise safe_error(e) from None
+        if await request.body():
+            raise HTTPException(422,detail={"code":"PM_IMAGE_MULTICANDIDATE_SCOPE_NOT_APPROVED"})
+        return qa_generate_one_candidate(actor,job_id)
+
+    @app.post("/demo/api/qa/jobs/{job_id}/regenerate-image")
+    def qa_regenerate_image(job_id:str,body:ImageRegenerateRequest,request:Request):
+        actor=qa_access(request,job_id)
+        try:
+            assert_single_image_request_params(request)
+            assert_single_image_scope(json.loads(flow.state.get(actor,job_id)["input_json"]))
+            queue.assert_image_retry_safe(actor,job_id)
+            flow.begin_image_retry(actor,job_id,body.expected_image_sha,body.request_key)
+            # This is a deterministic offline candidate, never a new paid request.
+            return qa_generate_one_candidate(actor,job_id)
+        except (LiveGateError,ValueError) as e:raise safe_error(e) from None
+
+    @app.post("/demo/api/qa/jobs/{job_id}/compose")
+    def qa_compose(job_id:str,body:ComposeRequest,request:Request):
+        actor=qa_access(request,job_id)
+        j=flow.state.get(actor,job_id)
+        if j["mode"]!="OFFLINE_FIXTURE":
+            raise HTTPException(409,"QA_REQUIRES_OFFLINE_FIXTURE")
+        try:
+            font=Path(os.environ.get("IT_TEM_LIVE_KOREAN_FONT",
+                "/usr/share/fonts/truetype/nanum/NanumGothic.ttf"))
+            return visible(flow.compose(actor,job_id,layout=body.layout,font_path=font))
+        except (LiveGateError,ValueError) as e:raise safe_error(e) from None
+        except (OSError,sqlite3.Error):
+            raise HTTPException(503,"QA_COMPOSITION_STORAGE_UNAVAILABLE") from None
+
+    @app.get("/demo/api/qa/jobs/{job_id}/artifacts/{kind}")
+    def qa_artifact(job_id:str,kind:str,request:Request):
+        actor=qa_access(request,job_id)
+        j=flow.state.get(actor,job_id)
+        if j["mode"]!="OFFLINE_FIXTURE":
+            raise HTTPException(409,"QA_REQUIRES_OFFLINE_FIXTURE")
+        import hashlib
+        if kind=="candidate":
+            if j["state"] not in ("IMAGE_REVIEW_REQUIRED","IMAGE_APPROVED"):
+                raise HTTPException(409,"QA_IMAGE_NOT_READY")
+            target=flow.image_path(job_id)
+            expected=j["image_sha"]
+            media="image/png"
+        elif kind in ("final","caption"):
+            if j["state"]!="COMPLETED":
+                raise HTTPException(409,"QA_COMPOSITION_NOT_COMPLETED")
+            try:flow.validate_final_artifacts(actor,job_id)
+            except LiveGateError:
+                raise HTTPException(503,"QA_ARTIFACT_INTEGRITY_ERROR") from None
+            target=flow.root/"outputs"/job_id/("final.png" if kind=="final" else "caption.txt")
+            expected=j["final_sha"] if kind=="final" else j["caption_sha"]
+            media="image/png" if kind=="final" else "text/plain; charset=utf-8"
+        else:
+            raise HTTPException(404,"QA_ARTIFACT_NOT_FOUND")
+        try:
+            if not expected or hashlib.sha256(target.read_bytes()).hexdigest()!=expected:
+                raise ValueError
+        except (OSError,ValueError):
+            raise HTTPException(503,"QA_ARTIFACT_INTEGRITY_ERROR") from None
+        return FileResponse(target,media_type=media,filename=target.name,
+            headers={"Cache-Control":"private,no-store",
+                     "X-IT-TEM-Provenance":"OFFLINE_FIXTURE"})
+
+    @app.get(prefix+"/text-cost-estimate")
+    def text_cost_estimate(request:Request,photo_count:int=5,revision_target:str|None=None):
+        """Authenticated, deterministic Text Owner estimate. No model/client/secret."""
+        authorized(request)
+        from src.text_generation.cost import (
+            estimate_generation_cost,estimate_revision_cost,format_usd)
+        from fastapi import HTTPException
+        model=os.environ.get("IT_TEM_TEXT_MODEL","gpt-6-luna")
+        vision_model=os.environ.get("IT_TEM_VISION_MODEL","gpt-6-luna")
+        try:
+            if revision_target is None:
+                estimated=estimate_generation_cost(
+                    photo_count=photo_count,model=model,vision_model=vision_model)
+            elif revision_target in ("copy","image_prompt"):
+                estimated=estimate_revision_cost(revision_target,model=model)
+            else:
+                raise ValueError("Revision target unsupported")
+        except ValueError:
+            # Do not invent prices when configuration/model changes.
+            raise HTTPException(status_code=422,detail="TEXT_ESTIMATE_UNAVAILABLE") from None
+        return {
+            "mode":"NON_BILLABLE_ESTIMATE",
+            "scope":"TEXT_ONLY",
+            "model":estimated.model,
+            "steps":estimated.steps,
+            "total_usd":estimated.total_usd,
+            "display":format_usd(estimated.total_usd),
+            "includes_image_generation":False,
+            "actual_charges_known":False,
+        }
+
+    @app.get(prefix+"/total-cost-estimate")
+    def total_cost_estimate(request:Request,photo_count:int=5,
+                            image_size:str="4:5",generation_mode:str="composed"):
+        """No-provider authenticated estimate: text+one image, no billable IO."""
+        authorized(request)
+        from src.text_generation.cost import estimate_generation_cost,format_usd
+        from .image_cost_estimate import estimate_image_once
+        text_model=os.environ.get("IT_TEM_TEXT_MODEL","gpt-6-luna")
+        vision_model=os.environ.get("IT_TEM_VISION_MODEL","gpt-6-luna")
+        from .image_runtime_profile import effective_image_profile
+        try:
+            execution=effective_image_profile()
+            txt=estimate_generation_cost(photo_count=photo_count,
+                 model=text_model,vision_model=vision_model)
+            image=estimate_image_once(ratio=image_size,generation_mode=generation_mode,
+                 model=execution["model"],quality=execution["quality"],
+                 complexity=execution["complexity"])
+        except (ValueError,LiveGateError):
+            raise HTTPException(status_code=422,detail="TOTAL_ESTIMATE_UNAVAILABLE") from None
+        median=image["reference_median_usd"]
+        return {"mode":"NON_BILLABLE_ESTIMATE","scope":"TEXT_PLUS_ONE_IMAGE",
+            "text":{"model":txt.model,"steps":txt.steps,
+                    "estimate_usd":txt.total_usd,"display":format_usd(txt.total_usd)},
+            "image":image,
+            "total_reference_usd":round(txt.total_usd+median,6) if median is not None else None,
+            "total_display":format_usd(txt.total_usd+median) if median is not None else None,
+            "actual_charges_known":False,"billing_cap":False,
+            "cost_policy":"MONITOR_ONLY"}
+
     @app.get(prefix+"/capabilities")
     def capabilities(request:Request):
         actor=authorized(request)
@@ -128,22 +400,74 @@ def register_live_api(app:FastAPI, ledger, runtime_root:Path, cookie_name:str):
         return {"live_enabled":allowed,
                 "mode":"LIVE_QUEUE_READY" if allowed else "LIVE_BLOCKED",
                 "reason":None if allowed else "COST_AND_CONTRACT_PM_GATE",
-                "provisional_wire":True,"mock_fallback":False}
+                "provisional_wire":True,"mock_fallback":False,
+                "image_generation":{"candidate_count":1,"batch_supported":False,
+                    "generation_modes":["composed","freeform"],
+                    "image_ratios":["3:4","4:5","9:16"]}}
 
     @app.post(prefix+"/jobs/{job_id}/input")
     def create_input(job_id:str,body:InputPayload,request:Request):
         actor=authorized(request,job_id)
         try:
-            return visible(flow.prepare(actor,job_id,body.model_dump(mode="json")))
+            return visible(flow.prepare(actor,job_id,body.model_dump(mode="json"),
+                                        template_profile="A"))
         except (LiveGateError,ValueError) as e:
             raise safe_error(e) from None
+
+    @app.get(prefix+"/jobs")
+    def list_my_jobs(request:Request):
+        """Read-only, Actor-private catalog; deliberately distinct from shared evaluations.
+
+        Reuses the existing B0 claim ledger and LiveStore without migrations.
+        Only jobs with a committed Live input are resumable; uploaded-only
+        B0 records have no durable Live input to recover.
+        """
+        actor=authorized(request)
+        with ledger.connect() as db:
+            owned=db.execute("""SELECT job_id,created_at FROM jobs
+                WHERE actor=? ORDER BY created_at DESC,job_id DESC LIMIT 50""",
+                (actor,)).fetchall()
+        if not owned:
+            return {"jobs":[]}
+        ids=[row["job_id"] for row in owned]
+        marks=",".join("?" for _ in ids)
+        with flow.state.db() as db:
+            rows=db.execute(f"""SELECT job_id,state,mode,input_json
+                FROM live_jobs WHERE actor=? AND job_id IN ({marks})""",
+                (actor,*ids)).fetchall()
+        found={row["job_id"]:row for row in rows}
+        results=[]
+        for entry in owned:
+            row=found.get(entry["job_id"])
+            if row is None:
+                continue
+            details=json.loads(row["input_json"])
+            product=details.get("product") or {}
+            results.append({
+                "job_id":row["job_id"],
+                "state":row["state"],
+                "created_at":entry["created_at"],
+                "product_name":str(product.get("product_name") or "이름 없는 제품")[:100],
+                "image_size":details.get("image_size") or "4:5",
+                "generation_mode":details.get("generation_mode") or "composed",
+            })
+        return {"jobs":results}
 
     @app.get(prefix+"/jobs/{job_id}")
     def get_job(job_id:str,request:Request):
         actor=authorized(request,job_id)
         try:
-            return visible(flow.state.get(actor,job_id))
+            job=flow.state.get(actor,job_id)
+            if job["state"]=="COMPLETED":
+                # Avoid advertising a corrupted finished Job as downloadable.
+                flow.validate_final_artifacts(actor,job_id)
+            return visible(job)
         except LiveGateError as e:
+            if e.code.startswith(("COMPOSITION_MANIFEST_",
+                                  "COMPOSITION_RECEIPT_",
+                                  "FINAL_ARTIFACT_",
+                                  "TEMPLATE_POLICY_")):
+                raise HTTPException(503,detail="Artifact integrity unavailable") from None
             raise safe_error(e) from None
 
     @app.post(prefix+"/jobs/{job_id}/queue-text")
@@ -166,19 +490,99 @@ def register_live_api(app:FastAPI, ledger, runtime_root:Path, cookie_name:str):
         try:flow.state.get(actor,job_id)
         except LiveGateError as e:raise safe_error(e) from None
         with queue.db() as db:
-            last=db.execute("""SELECT id,job_id,stage,state,error_code,mode
+            last=db.execute("""SELECT id,job_id,stage,state,error_code,mode,created_at,
+                MAX(0,CAST(strftime('%s','now') AS INTEGER)-
+                      CAST(strftime('%s',created_at) AS INTEGER)) AS age_seconds
                 FROM queued_ops WHERE actor=? AND job_id=?
                 ORDER BY created_at DESC,rowid DESC LIMIT 1""",
                 (actor,job_id)).fetchone()
         return {"task":({"task_id":last["id"],"job_id":last["job_id"],
                          "stage":last["stage"],"state":last["state"],
-                         "mode":last["mode"],"error_code":last["error_code"]}
+                         "mode":last["mode"],"error_code":last["error_code"],
+                         "created_at":last["created_at"],
+                         "age_seconds":last["age_seconds"]}
                         if last is not None else None)}
 
     @app.post(prefix+"/jobs/{job_id}/copy")
     def edit_copy(job_id:str,body:CopyUpdate,request:Request):
         actor=authorized(request,job_id)
         try:return visible(flow.state.edit_copy(actor,job_id,body.copy_output))
+        except (LiveGateError,ValueError) as e:raise safe_error(e) from None
+
+    @app.post("/demo/api/qa/jobs/{job_id}/revise-copy")
+    def qa_revision_copy(job_id:str,body:CopyRevisionRequest,request:Request):
+        actor=qa_access(request,job_id)
+        try:
+            current=flow.state.get(actor,job_id)
+            if current["mode"]!="OFFLINE_FIXTURE":
+                raise LiveGateError("QA_REQUIRES_OFFLINE_FIXTURE")
+            if current["state"]!="COPY_REVIEW_REQUIRED":
+                raise LiveGateError("COPY_REVISION_STATE_CONFLICT")
+            # Deterministic, named OFFLINE_FIXTURE candidate only. This does
+            # NOT represent an AI model following the user's instruction.
+            from copy import deepcopy
+            original=json.loads(current["copy_json"])
+            proposed=deepcopy(original)
+            options=(
+                ("매일 산뜻하게","가벼운 데일리 보습 루틴","자세히 보기"),
+                ("촉촉한 하루","편안한 수분 케어의 시작","지금 만나기"),
+                ("매일 수분 케어","산뜻하게 마무리되는 보습","제품 살펴보기"),
+            )
+            n=int(current["generation"])%len(options)
+            headline,subline,cta=options[n]
+            proposed["ad_copy"]={"headline":headline,"subline":subline,"cta":cta}
+            proposed["caption"]=f"{headline}. {subline}. {cta}."
+            updated=flow.state.apply_copy_revision(
+                actor,job_id,proposed,body.instruction,
+                body.expected_generation,body.expected_review_sha)
+            return visible(updated)
+        except (LiveGateError,ValueError) as e:raise safe_error(e) from None
+
+    @app.post("/demo/api/qa/jobs/{job_id}/restore-copy")
+    def qa_restore_copy(job_id:str,body:CopyRestoreRequest,request:Request):
+        actor=qa_access(request,job_id)
+        try:
+            current=flow.state.get(actor,job_id)
+            if current["mode"]!="OFFLINE_FIXTURE":
+                raise LiveGateError("QA_REQUIRES_OFFLINE_FIXTURE")
+            return visible(flow.state.restore_previous_copy(
+                actor,job_id,body.expected_generation,body.expected_review_sha))
+        except (LiveGateError,ValueError) as e:raise safe_error(e) from None
+
+    @app.post(prefix+"/jobs/{job_id}/revise-copy")
+    def queue_owner_text_revision(job_id:str,body:CopyRevisionRequest,request:Request):
+        actor=authorized(request,job_id)
+        if not (flow.live_enabled and flow.pm_authorized and
+                actor in flow.approved_actors):
+            raise HTTPException(status_code=423,detail="LIVE_PROVIDER_NOT_APPROVED")
+        try:
+            job=flow.state.get(actor,job_id)
+            if job["mode"]!="LIVE":
+                raise LiveGateError("REVISION_REQUIRES_REAL_MODEL")
+            instruction=body.instruction.strip()
+            text_model=os.environ.get("IT_TEM_TEXT_MODEL","gpt-6-luna")
+            context=flow.revision_context(
+                actor,job_id,instruction,body.expected_generation,
+                body.expected_review_sha,text_model=text_model)
+            from .contracts import digest
+            task,new=queue.enqueue(
+                actor=actor,job_id=job_id,stage="copy_revision",
+                context_sha=digest(context),mode="LIVE",
+                revision_payload={
+                    "instruction":instruction,
+                    "expected_generation":body.expected_generation,
+                    "expected_review_sha":body.expected_review_sha})
+            return JSONResponse({"task_id":task["id"],"state":task["state"],
+                                  "new":new},status_code=202)
+        except (LiveGateError,ValueError) as e:
+            raise safe_error(e) from None
+
+    @app.post(prefix+"/jobs/{job_id}/restore-copy")
+    def live_restore_copy(job_id:str,body:CopyRestoreRequest,request:Request):
+        actor=authorized(request,job_id)
+        try:
+            return visible(flow.state.restore_previous_copy(
+                actor,job_id,body.expected_generation,body.expected_review_sha))
         except (LiveGateError,ValueError) as e:raise safe_error(e) from None
 
     @app.post(prefix+"/jobs/{job_id}/approve-copy")
@@ -205,24 +609,63 @@ def register_live_api(app:FastAPI, ledger, runtime_root:Path, cookie_name:str):
         j=flow.state.get(actor,job_id)
         if j["state"]!="COPY_APPROVED" or not j["approval_sha"]:
             raise HTTPException(status_code=409,detail="COPY_NOT_APPROVED")
+        try:
+            if j["mode"]!="LIVE":
+                raise LiveGateError("PROMPT_LIVE_JOB_PROVENANCE_REQUIRED")
+            context_sha=digest(flow.state.prompt_context(actor,job_id))
+        except LiveGateError as e:raise safe_error(e) from None
         task,new=queue.enqueue(actor=actor,job_id=job_id,stage="image_prompt",
-                               context_sha=j["approval_sha"],mode="LIVE")
+                               context_sha=context_sha,mode="LIVE")
         return JSONResponse({"task_id":task["id"],"state":task["state"],"new":new},
                             status_code=202)
 
     @app.post(prefix+"/jobs/{job_id}/queue-image")
-    def queue_image(job_id:str,request:Request):
+    async def queue_image(job_id:str,request:Request):
         actor=authorized(request,job_id)
+        # FE Owner does not submit a batch payload here: mode and ratio were
+        # immutable at /input. Reject rather than silently discard N/mix flags.
+        try:assert_single_image_request_params(request)
+        except LiveGateError as e:raise safe_error(e) from None
+        if await request.body():
+            raise HTTPException(422,detail={"code":"PM_IMAGE_MULTICANDIDATE_SCOPE_NOT_APPROVED"})
         if not (flow.live_enabled and flow.pm_authorized and
                 actor in flow.approved_actors):
             raise HTTPException(status_code=423,detail="LIVE_PROVIDER_NOT_APPROVED")
         j=flow.state.get(actor,job_id)
+        try:assert_single_image_scope(json.loads(j["input_json"]))
+        except LiveGateError as e:raise safe_error(e) from None
         if j["state"]!="PROMPT_READY" or not j["prompt_json"]:
             raise HTTPException(status_code=409,detail="IMAGE_NOT_READY")
+        attempt=flow.state.current_image_attempt(actor,job_id)
+        ctx=(digest({"approval_sha":j["approval_sha"],"attempt_id":attempt["attempt_id"]})
+             if attempt and attempt["attempt_version"]>1 else j["approval_sha"])
         task,new=queue.enqueue(actor=actor,job_id=job_id,stage="image",
-                         context_sha=j["approval_sha"],mode="LIVE")
+                         context_sha=ctx,mode="LIVE")
         return JSONResponse({"task_id":task["id"],"state":task["state"],"new":new},
                             status_code=202)
+
+    @app.post(prefix+"/jobs/{job_id}/regenerate-image")
+    def regenerate_image(job_id:str,body:ImageRegenerateRequest,request:Request):
+        actor=authorized(request,job_id)
+        try:
+            assert_single_image_request_params(request)
+            assert_single_image_scope(json.loads(flow.state.get(actor,job_id)["input_json"]))
+        except LiveGateError as e:raise safe_error(e) from None
+        if not (flow.live_enabled and flow.pm_authorized and actor in flow.approved_actors):
+            raise HTTPException(423,"LIVE_PROVIDER_NOT_APPROVED")
+        try:
+            queue.assert_image_retry_safe(actor,job_id)
+            attempt=flow.begin_image_retry(actor,job_id,body.expected_image_sha,
+                                           body.request_key)
+            current=flow.state.get(actor,job_id)
+            ctx=digest({"approval_sha":current["approval_sha"],
+                        "attempt_id":attempt["attempt_id"]})
+            task,new=queue.enqueue(actor=actor,job_id=job_id,stage="image",
+                                   context_sha=ctx,mode="LIVE")
+            return JSONResponse({"task_id":task["id"],"state":task["state"],
+                                 "new":new,"attempt_version":attempt["attempt_version"]},
+                                status_code=202)
+        except LiveGateError as e:raise safe_error(e) from None
 
     @app.get(prefix+"/tasks/{task_id}")
     def task_status(task_id:str,request:Request):
@@ -230,9 +673,13 @@ def register_live_api(app:FastAPI, ledger, runtime_root:Path, cookie_name:str):
         task=queue.read(task_id)
         if not task or task["actor"]!=actor:
             raise HTTPException(status_code=404,detail="Task not found")
+        with queue.db() as db:
+            age=db.execute("""SELECT MAX(0,CAST(strftime('%s','now') AS INTEGER)-
+                       CAST(strftime('%s',?) AS INTEGER))""",(task["created_at"],)).fetchone()[0]
         return {"task_id":task_id,"job_id":task["job_id"],"stage":task["stage"],
                 "state":task["state"],"mode":task["mode"],
-                "error_code":task["error_code"]}
+                "error_code":task["error_code"],"created_at":task["created_at"],
+                "age_seconds":age}
 
     @app.post(prefix+"/jobs/{job_id}/approve-image")
     def approve_image(job_id:str,body:ImageApproval,request:Request):
@@ -257,6 +704,10 @@ def register_live_api(app:FastAPI, ledger, runtime_root:Path, cookie_name:str):
                      "/usr/share/fonts/truetype/nanum/NanumGothic.ttf"))
             return visible(flow.compose(actor,job_id,layout=body.layout,font_path=font))
         except (LiveGateError,ValueError) as e:raise safe_error(e) from None
+        except (OSError,sqlite3.Error):
+            # A failed file/DB commit never signals COMPLETED; operator can
+            # inspect the immutable compose identity and retry from IMAGE_APPROVED.
+            raise HTTPException(503,detail="COMPOSITION_STORAGE_UNAVAILABLE") from None
 
     @app.get(prefix+"/jobs/{job_id}/performance")
     def live_performance(job_id:str,request:Request):
@@ -306,10 +757,11 @@ def register_live_api(app:FastAPI, ledger, runtime_root:Path, cookie_name:str):
         import hashlib
         d=flow.root/"outputs"/job_id
         try:
+            flow.validate_final_artifacts(actor,job_id)
             if (hashlib.sha256((d/"final.png").read_bytes()).hexdigest()!=j["final_sha"]
                 or hashlib.sha256((d/"caption.txt").read_bytes()).hexdigest()!=j["caption_sha"]):
                 raise ValueError
-        except (OSError,ValueError):
+        except (OSError,ValueError,LiveGateError):
             raise HTTPException(503,"ARTIFACT_INTEGRITY_UNAVAILABLE") from None
         try:
             item=shares.publish(actor,job_id,j["final_sha"],j["caption_sha"])
@@ -320,9 +772,51 @@ def register_live_api(app:FastAPI, ledger, runtime_root:Path, cookie_name:str):
     @app.get(prefix+"/shared")
     def shared_board(request:Request):
         authorized(request)
-        return {"mode":"LIVE","jobs":[{"job_id":x["job_id"],
-            "final_sha":x["final_sha"],"shared_at":x["shared_at"]}
-            for x in shares.all()]}
+        results=[]
+        for item in shares.all():
+            # Explicit publication history is preserved. A damaged artifact
+            # cannot silently become an eligible evaluation target.
+            valid=False
+            actual_size=None
+            actual_ratio=None
+            if ledger.owns(item["actor"],item["job_id"]):
+                try:
+                    job=flow.validate_final_artifacts(item["actor"],item["job_id"])
+                    valid=(job["mode"]=="LIVE" and
+                        job["final_sha"]==item["final_sha"] and
+                        job["caption_sha"]==item["caption_sha"])
+                    if valid:
+                        # The displayed ratio comes from the exact final PNG
+                        # bytes after SHA verification, never an initial
+                        # selected ratio, CSS default or a screenshot label.
+                        from io import BytesIO
+                        from PIL import Image
+                        import hashlib
+                        file=flow.root/"outputs"/item["job_id"]/"final.png"
+                        payload=file.read_bytes()
+                        if hashlib.sha256(payload).hexdigest()!=item["final_sha"]:
+                            raise ValueError("PUBLISHED_FINAL_CHANGED")
+                        with Image.open(BytesIO(payload)) as image:
+                            if (image.format!="PNG" or image.width<=0 or
+                                image.height<=0 or image.width*image.height>12_000_000):
+                                raise ValueError("PUBLISHED_FINAL_DIMENSIONS_UNSAFE")
+                            actual_size={"width":image.width,"height":image.height}
+                        actual_ratio={(1080,1440):"3:4",
+                                      (1080,1350):"4:5",
+                                      (1080,1920):"9:16"}.get(
+                            (actual_size["width"],actual_size["height"]))
+                except (LiveGateError,OSError,ValueError,KeyError):
+                    valid=False
+                    actual_size=None
+                    actual_ratio=None
+            results.append({"job_id":item["job_id"],"final_sha":item["final_sha"],
+                "shared_at":item["shared_at"],
+                "shared_at_utc":LiveShares.utc_iso8601(item["shared_at"]),
+                "integrity_status":"VERIFIED" if valid else "UNAVAILABLE",
+                "image_size":actual_ratio if valid else None,
+                "output_size":actual_size if valid else None,
+                "dimensions_source":"VERIFIED_FINAL_PNG" if valid else "UNAVAILABLE"})
+        return {"mode":"LIVE","jobs":results}
 
     @app.get(prefix+"/shared/{job_id}/artifacts/{kind}")
     def shared_file(job_id:str,kind:str,request:Request):
@@ -336,6 +830,9 @@ def register_live_api(app:FastAPI, ledger, runtime_root:Path, cookie_name:str):
         if (j["state"]!="COMPLETED" or j["mode"]!="LIVE" or
             j["final_sha"]!=x["final_sha"] or j["caption_sha"]!=x["caption_sha"]):
             raise HTTPException(409,"Shared result no longer current")
+        try:flow.validate_final_artifacts(x["actor"],job_id)
+        except LiveGateError:
+            raise HTTPException(503,"Shared result integrity error") from None
         target=flow.root/"outputs"/job_id/("final.png" if kind=="final" else "caption.txt")
         import hashlib
         expected=x["final_sha"] if kind=="final" else x["caption_sha"]
@@ -357,6 +854,9 @@ def register_live_api(app:FastAPI, ledger, runtime_root:Path, cookie_name:str):
         j=flow.state.get(item["actor"],job_id)
         if j["state"]!="COMPLETED" or j["mode"]!="LIVE" or j["final_sha"]!=item["final_sha"]:
             raise HTTPException(409,"Shared artifact changed")
+        try:flow.validate_final_artifacts(item["actor"],job_id)
+        except LiveGateError:
+            raise HTTPException(503,"Shared result integrity error") from None
         previous=[x for x in ledger.reviews(actor,job_id)
                   if x["scenario_id"]==data.scenario_id and x["category"]==data.category]
         rev=ledger.review(actor,job_id,data,item["final_sha"],
@@ -369,6 +869,9 @@ def register_live_api(app:FastAPI, ledger, runtime_root:Path, cookie_name:str):
         actor=authorized(request)
         item=shares.item(job_id)
         if not item:raise HTTPException(404,"Shared evaluation unavailable")
+        try:flow.validate_final_artifacts(item["actor"],job_id)
+        except LiveGateError:
+            raise HTTPException(503,"Shared result integrity error") from None
         return {"mode":"LIVE","job_id":job_id,
                 "reviews":ledger.reviews(actor,job_id),
                 "final_sha":item["final_sha"]}
@@ -392,15 +895,31 @@ def register_live_api(app:FastAPI, ledger, runtime_root:Path, cookie_name:str):
         j=flow.state.get(actor,job_id)
         if j["state"]!="COMPLETED" or j["mode"]!="LIVE":
             raise HTTPException(status_code=409,detail="LIVE_OUTPUT_NOT_COMPLETED")
-        if kind not in ("final","caption"):
+        # The on-disk composition receipt is a deliverable too. Never expose
+        # a receipt without an authenticated Actor, immutable manifest and
+        # byte-verified PNG/caption. No new model call is performed.
+        if kind not in ("final","caption","receipt"):
             raise HTTPException(status_code=404,detail="Artifact not found")
-        target=flow.root/"outputs"/job_id/("final.png" if kind=="final" else "caption.txt")
+        try:
+            flow.validate_final_artifacts(actor,job_id)
+            manifest=(flow.state.read_manifest(actor,job_id)
+                      if kind=="receipt" else None)
+        except LiveGateError:
+            raise HTTPException(status_code=503,detail="Artifact integrity unavailable") from None
+        if kind=="receipt" and manifest is None:
+            raise HTTPException(status_code=503,detail="Artifact receipt unavailable")
+        names={"final":"final.png","caption":"caption.txt","receipt":"receipt.json"}
+        media={"final":"image/png","caption":"text/plain; charset=utf-8",
+               "receipt":"application/json"}
+        expected=(manifest["receipt_sha"] if kind=="receipt" else
+                  (j["final_sha"] if kind=="final" else j["caption_sha"]))
+        target=flow.root/"outputs"/job_id/names[kind]
         import hashlib
         if not target.is_file():
             raise HTTPException(status_code=503,detail="Artifact unavailable")
-        if hashlib.sha256(target.read_bytes()).hexdigest()!=(
-             j["final_sha"] if kind=="final" else j["caption_sha"]):
+        if hashlib.sha256(target.read_bytes()).hexdigest()!=expected:
             raise HTTPException(status_code=503,detail="Artifact integrity error")
-        return FileResponse(target,media_type="image/png" if kind=="final" else
-                            "text/plain; charset=utf-8",filename=target.name,
-                            headers={"Cache-Control":"private,no-store"})
+        return FileResponse(target,media_type=media[kind],filename=target.name,
+                            headers={"Cache-Control":"private,no-store",
+                                     "X-IT-TEM-Artifact-SHA256":expected,
+                                     "X-IT-TEM-Job-ID":job_id})

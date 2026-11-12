@@ -1,0 +1,12 @@
+{
+  "contract": "IT_TEM_P03_A50F_REAL_ASSET_INTAKE_V1",
+  "authority": "REVIEW_ONLY_NOT_AN_OWNER_PM_SIGNED_APPROVAL",
+  "evidence_state": "ZERO_AUTHORIZED_REAL_PRODUCT_SAMPLES_CURRENTLY_VERIFIED",
+  "notes": [
+    "Fill cases ONLY with rights-cleared real product or customer-provided pictures; do not commit actual customer photos/masks/licenses.",
+    "Each case: case_id, design_id (A_REFLOW_EDITORIAL_CENTER or C_REFLOW_CONTRAST_ACTION), source_type, source_asset_annotation, source_image_path and SHA256, rights_file_path and SHA256, rights_document_ref, rights_scope_statement, rights_owner_role, rights_review_evidence_ref, candidate_canvas_path and SHA256 (1080x1350), protected_mask_path and SHA256 (1080x1350 8bit binary PNG).",
+    "The tool tests only artifact hashes, mask geometry and text-box collisions. Authentic rights review, visual fidelity, typography, cropping and human Owner/PM approval ALWAYS remain HOLD.",
+    "Use a private Mac Studio path for actual image and rights files, out of tracked Git and Owner ZIP. Never assume a photo found in the repo is licensed."
+  ],
+  "cases": []
+}

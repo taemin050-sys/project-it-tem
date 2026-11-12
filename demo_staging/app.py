@@ -27,6 +27,7 @@ from pydantic import BaseModel, Field
 
 from src.serving.main import create_app as create_b0_app
 from src.serving.job_store import get_mock_artifact
+from .tailnet_assertion import TailnetAssertionError, verify_request, key_from_file, TailnetNonceJournal
 
 _ID = re.compile(r"^[0-9a-f]{32}$")
 _STEP = re.compile(r"^/api/v1/jobs(?:/([0-9a-f]{32})(?:/(.*))?)?$")
@@ -227,13 +228,144 @@ class ReviewBody(BaseModel):
 def make_demo_app(root: Path, invite_file: Path, frontend: Path,
                   *, secure_cookie: bool = True, code_sha: str = "UNPINNED"):
     root = Path(root)
-    cookie_name=_COOKIE if secure_cookie else "ittem_demo_local"
+    a51e_candidate=os.environ.get("IT_TEM_A51E_SIGNED_BETA_INTAKE")=="YES"
+    # A51I is a separate GCP-scoped, WORKER-OFF signed-SSO dev/test
+    # contract. It DOES NOT bypass or promote A51E's /pytest-only guard.
+    a51i_devtest=os.environ.get("IT_TEM_A51I_GCP_SIGNED_SSO_DEVTEST")=="YES"
+    if a51i_devtest:
+        canonical=root.resolve()
+        deployment=canonical.parent
+        source_expected=os.environ.get("IT_TEM_A51I_DEPLOYED_SOURCE_SHA","")
+        try:
+            source_observed=(deployment/"SOURCE_SHA.txt").read_text(
+                encoding="utf8").strip()
+        except OSError:
+            source_observed=""
+        allowed_root=(
+            (str(canonical).startswith(
+                "/home/macstudio/ittem-a51i-signed-sso-devtest-")
+             or "/pytest-" in str(canonical))
+            and canonical.name=="runtime" and canonical.is_dir()
+            and deployment.is_dir() and not root.is_symlink()
+            and not deployment.is_symlink()
+            and not (deployment.stat().st_mode & 0o077))
+        if (a51e_candidate or not secure_cookie or not allowed_root
+            or not re.fullmatch(r"[a-f0-9]{40}",source_expected)
+            or source_expected!=source_observed or code_sha!=source_expected
+            or os.environ.get("IT_TEM_A51I_MPO_POLICY")!="REJECT_MULTIFRAME_V1"
+            or os.environ.get("IT_TEM_A51D_SIGNED_BETA_RUNTIME")!="YES"
+            or os.environ.get("IT_TEM_TAILNET_SSO_ONLY")!="YES"
+            or os.environ.get("IT_TEM_TAILNET_AUTH_ENABLED")!="YES"
+            or not os.environ.get("IT_TEM_TAILNET_EXPECTED_HOST","").endswith(
+                ".ts.net:10444")
+            or os.environ.get("IT_TEM_LIVE_COST_POLICY")!="HARD_CAP"
+            or os.environ.get("IT_TEM_A51C_HARD_CAP_ENABLE")!="YES"
+            or any(os.environ.get(k)!="NO" for k in (
+                "IT_TEM_LIVE_ENABLED","IT_TEM_LIVE_EXECUTION_APPROVED",
+                "IT_TEM_LIVE_WEB_QUEUE_ENABLED",
+                "IT_TEM_ENABLE_BILLABLE_TEXT_CALLS",
+                "IT_TEM_QA_FIXTURE_ENABLED","IT_TEM_A51D_MPO_FIXTURE_BRIDGE"))
+            or any(os.environ.get(k) for k in (
+                "OPENAI_API_KEY","ANTHROPIC_API_KEY",
+                "GOOGLE_API_KEY","GEMINI_API_KEY"))):
+            raise RuntimeError("A51I_GCP_SIGNED_SSO_WORKER_OFF_GATES_NOT_MET")
+    signed_beta_ingress=a51e_candidate or a51i_devtest
+    if a51e_candidate:
+        # This is a sealed NONBILLABLE signed-SSO integration rehearsal, NOT
+        # an authorized GCP or paid beta. No MPO policy or asset-use grant
+        # may be invented by environment variables. New Beta uploads
+        # reject all MPO until formally signed Owner/PM policy is reviewed.
+        candidate_root=str(root.resolve())
+        if (not secure_cookie or
+            not (candidate_root.startswith("/private/tmp/ittem-a51e-")
+                 or "/pytest-" in candidate_root)
+            or os.environ.get("IT_TEM_A51E_NONBILLABLE_CANDIDATE")!="YES"
+            or os.environ.get("IT_TEM_A51E_MPO_POLICY_STATE")!="PENDING_REJECT"
+            or os.environ.get("IT_TEM_A51D_SIGNED_BETA_RUNTIME")!="YES"
+            or os.environ.get("IT_TEM_TAILNET_SSO_ONLY")!="YES"
+            or os.environ.get("IT_TEM_TAILNET_AUTH_ENABLED")!="YES"
+            or os.environ.get("IT_TEM_LIVE_COST_POLICY")!="HARD_CAP"
+            or os.environ.get("IT_TEM_A51C_HARD_CAP_ENABLE")!="YES"
+            or os.environ.get("IT_TEM_LIVE_ENABLED")=="YES"
+            or os.environ.get("IT_TEM_LIVE_EXECUTION_APPROVED")=="YES"
+            or os.environ.get("IT_TEM_LIVE_WEB_QUEUE_ENABLED")=="YES"
+            or os.environ.get("IT_TEM_ENABLE_BILLABLE_TEXT_CALLS")=="YES"
+            or os.environ.get("IT_TEM_A51D_MPO_FIXTURE_BRIDGE")=="YES"):
+            raise RuntimeError("A51E_SIGNED_SSO_CANDIDATE_HARD_GATES_NOT_MET")
+    if os.environ.get("IT_TEM_A51D_SIGNED_BETA_RUNTIME")=="YES" and (
+            os.environ.get("IT_TEM_A51C_HARD_CAP_ENABLE")!="YES" or
+            os.environ.get("IT_TEM_LIVE_COST_POLICY")!="HARD_CAP" or
+            os.environ.get("IT_TEM_TAILNET_SSO_ONLY")!="YES" or
+            os.environ.get("IT_TEM_TAILNET_AUTH_ENABLED")!="YES"):
+        raise RuntimeError("A51D_SIGNED_BETA_STARTUP_MONITOR_ONLY_OR_SSO_BYPASS")
+    # BP18 isolated A/B sessions: use per-track cookie audience rather than
+    # a shared localhost cookie. Default keeps existing Live/QA unchanged.
+    configured_cookie=os.environ.get("IT_TEM_DEMO_COOKIE_NAME")
+    cookie_name=configured_cookie or (_COOKIE if secure_cookie else "ittem_demo_local")
+    # HTTPS A/B share one Tailnet hostname but use different ports. Cookies
+    # ignore ports, so distinct __Host- names are mandatory for Actor isolation.
+    # Retain old nonsecure naming for historical loopback-only QA sessions.
+    if configured_cookie and not re.fullmatch(
+        r"(?:__Host-[A-Za-z][A-Za-z0-9_-]{2,40}|[A-Za-z][A-Za-z0-9_-]{6,48})",
+        configured_cookie,
+    ):
+        raise ValueError("DEMO_COOKIE_AUDIENCE_INVALID")
+    if secure_cookie and not cookie_name.startswith("__Host-"):
+        raise ValueError("SECURE_COOKIE_REQUIRES_HOST_PREFIX")
     ledger=DemoLedger(root/"demo.sqlite3")
     ledger.register_invites(invite_file)
     app=create_b0_app(root/"jobs")
     app.state.demo_ledger=ledger
     app.state.demo_mode="MOCK_ONLY"
     app.state.demo_code_sha=code_sha
+
+    tailnet_enabled=os.environ.get("IT_TEM_TAILNET_AUTH_ENABLED")=="YES"
+    tailnet_sso_only=os.environ.get("IT_TEM_TAILNET_SSO_ONLY")=="YES"
+    if tailnet_sso_only and not tailnet_enabled:
+        raise RuntimeError("TAILNET_SSO_ONLY_REQUIRES_SIGNED_AUTH")
+    tailnet_expected_host=os.environ.get("IT_TEM_TAILNET_EXPECTED_HOST") if tailnet_sso_only else None
+    if tailnet_sso_only and not (tailnet_expected_host and
+            re.fullmatch(r"[a-z0-9.-]+\.ts\.net:(?:10443|10444|10500)",tailnet_expected_host)):
+        raise RuntimeError("TAILNET_SSO_ONLY_HOST_NOT_PINNED")
+    if tailnet_enabled:
+        key_path=os.environ.get("IT_TEM_TAILNET_AUTH_KEY_FILE","")
+        users_path=os.environ.get("IT_TEM_TAILNET_ACTORS_FILE","")
+        if not key_path or not users_path:
+            raise RuntimeError("TAILNET_AUTH_CONFIG_MISSING")
+        tailnet_key=key_from_file(key_path)
+        tailnet_roles=json.loads(Path(users_path).read_text(encoding="utf8"))
+        if (not isinstance(tailnet_roles,dict) or len(tailnet_roles)!=5 or
+            any(not re.fullmatch(r"[a-zA-Z0-9_-]{3,40}",k) or
+                v not in ("admin","evaluator") for k,v in tailnet_roles.items())):
+            raise RuntimeError("TAILNET_AUTH_ACTOR_REGISTRY_INVALID")
+    else:
+        tailnet_key=None
+        tailnet_roles={}
+
+    # Only the new isolated A51I candidate requires preinitialized durable
+    # nonce consumption. Do not silently create or migrate operational DBs.
+    tailnet_nonce=(TailnetNonceJournal(root/"tailnet_nonce.sqlite")
+                   if a51i_devtest else None)
+
+    def request_identity(request:Request):
+        cached=request.scope.get("a51i_verified_identity")
+        if a51i_devtest and cached is not None:
+            return cached
+        tailnet=verify_request(request,tailnet_key,tailnet_roles,tailnet_expected_host)
+        if tailnet:
+            if tailnet_nonce is not None:
+                tailnet_nonce.consume(request.headers.get("x-ittem-tailnet-nonce",""))
+                # Middleware and nested route handlers re-use the same ASGI
+                # scope; the same request MUST NOT consume its nonce twice.
+                request.scope["a51i_verified_identity"]=tailnet
+            return tailnet
+        # A/B SSO: never fall back to legacy invite cookies. An unsigned
+        # request remains unauthenticated even with a valid old QA cookie.
+        if tailnet_sso_only:
+            return None
+        return ledger.identity(request.cookies.get(cookie_name))
+
+    app.state.demo_request_identity=request_identity
 
     @app.middleware("http")
     async def guarded(request: Request, call_next):
@@ -244,7 +376,11 @@ def make_demo_app(root: Path, invite_file: Path, frontend: Path,
             response=await call_next(request)
             response.headers["Cache-Control"]="no-store" if path=="/health" else "no-cache"
             return response
-        identity=ledger.identity(request.cookies.get(cookie_name))
+        try:
+            identity=request_identity(request)
+        except TailnetAssertionError:
+            return JSONResponse({"detail":"Invalid signed Tailscale identity"},
+                                status_code=401,headers={"Cache-Control":"no-store"})
         is_login=path=="/demo/api/session" and request.method=="POST"
         if not is_login and not identity and not (path=="/demo/api/session" and request.method=="GET"):
             return JSONResponse({"detail":"Login required"},status_code=401,
@@ -260,6 +396,13 @@ def make_demo_app(root: Path, invite_file: Path, frontend: Path,
                                     headers={"Cache-Control":"no-store"})
         actor=identity[0] if identity else None
         job_id=None
+        # In the isolated signed beta candidate, forbid direct B0 POST
+        # creation (its legacy MPO/frame-zero codec is v2-only). All new
+        # uploads must enter a separate audited signed-Actor route.
+        if signed_beta_ingress and path=="/api/v1/jobs" and request.method=="POST":
+            return JSONResponse({"detail":"A51E_USE_SIGNED_BETA_INGRESS"},
+                                status_code=423,
+                                headers={"Cache-Control":"no-store"})
         if is_b0:
             match=_STEP.fullmatch(path)
             if not match:
@@ -301,14 +444,20 @@ def make_demo_app(root: Path, invite_file: Path, frontend: Path,
 
     @app.get("/demo/api/session")
     def session(request: Request):
-        actor=ledger.identity(request.cookies.get(cookie_name))
+        actor=request_identity(request)
         if not actor:
             return JSONResponse({"authenticated":False},status_code=401)
+        is_tailnet=verify_request(request,tailnet_key,tailnet_roles,tailnet_expected_host) is not None
         return {"authenticated":True,"evaluator_id":actor[0],"role":actor[1],
+                "auth_provider":"TAILSCALE_SERVE" if is_tailnet else "INVITE_COOKIE",
                 "mode":"MOCK","live_enabled":False}
 
     @app.post("/demo/api/session")
-    def login(payload: InviteLogin):
+    def login(payload: InviteLogin,request: Request):
+        if tailnet_sso_only:
+            raise HTTPException(status_code=403,detail="TAILNET_SSO_REQUIRED")
+        if verify_request(request,tailnet_key,tailnet_roles,tailnet_expected_host) is not None:
+            raise HTTPException(status_code=409,detail="Tailscale SSO already active")
         identity=ledger.login(payload.invite_code)
         if identity is None:
             raise HTTPException(status_code=401,detail="Invalid invitation or rate limit")
@@ -322,13 +471,15 @@ def make_demo_app(root: Path, invite_file: Path, frontend: Path,
 
     @app.delete("/demo/api/session")
     def logout(request: Request):
+        if verify_request(request,tailnet_key,tailnet_roles,tailnet_expected_host) is not None:
+            raise HTTPException(409,"Tailscale session is managed by Tailscale")
         ledger.logout(request.cookies.get(cookie_name))
         response=JSONResponse({"authenticated":False})
         response.delete_cookie(cookie_name,path="/",secure=secure_cookie,httponly=True,samesite="lax")
         return response
 
     def authorize(request,job_id):
-        actor=ledger.identity(request.cookies.get(cookie_name))
+        actor=request_identity(request)
         if not actor:
             raise HTTPException(401,"Login required")
         if not ledger.owns(actor[0],job_id):
@@ -369,7 +520,7 @@ def make_demo_app(root: Path, invite_file: Path, frontend: Path,
 
     @app.get("/demo/api/admin/evaluations")
     def admin_summary(request: Request):
-        actor=ledger.identity(request.cookies.get(cookie_name))
+        actor=request_identity(request)
         if not actor or actor[1]!="admin":
             raise HTTPException(403,"Admin only")
         rows=ledger.admin_summary()
@@ -377,7 +528,7 @@ def make_demo_app(root: Path, invite_file: Path, frontend: Path,
 
     @app.get("/demo/api/admin/timings")
     def admin_timings(request: Request):
-        actor=ledger.identity(request.cookies.get(cookie_name))
+        actor=request_identity(request)
         if not actor or actor[1]!="admin":
             raise HTTPException(403,"Admin only")
         return {"mode":"MOCK","units":"ms","provider_elapsed_ms":None,
@@ -385,7 +536,7 @@ def make_demo_app(root: Path, invite_file: Path, frontend: Path,
 
     @app.get("/demo/api/admin/evaluations.csv")
     def admin_csv(request: Request):
-        actor=ledger.identity(request.cookies.get(cookie_name))
+        actor=request_identity(request)
         if not actor or actor[1]!="admin":
             raise HTTPException(403,"Admin only")
         rows=ledger.admin_summary()
@@ -405,6 +556,37 @@ def make_demo_app(root: Path, invite_file: Path, frontend: Path,
     # Provisional Live routes ONLY on independent staging. No official B0 routes edited.
     from .live.http_api import register_live_api
     register_live_api(app,ledger,root,cookie_name)
+
+    if signed_beta_ingress:
+        # Operator must preinitialize a private, isolated candidate ledger.
+        # Never create/migrate current GCP or historical Job/Provider DB here.
+        from .live.a51e_signed_beta_ingress_ledger import BetaUploadLedger
+        from .live.a51e_signed_beta_ingress import register_a51e_signed_beta_ingress
+        upload_ledger=BetaUploadLedger(
+            root/"a51e_beta_upload_request.sqlite",initialize=False)
+        app.state.a51e_beta_upload_ledger=upload_ledger
+        register_a51e_signed_beta_ingress(app,ledger,upload_ledger)
+
+    # A51D candidate HTTP bridge is strictly local, MOCK/OFFLINE and test-only.
+    # Future MPO approval requires Image Owner #24, FE #26 and PM authority,
+    # dedicated signed Beta policy, SSO and audited persistent anti-replay.
+    # The old B0 and v2 Owner routes remain unchanged by this opt-in branch.
+    if os.environ.get("IT_TEM_A51D_MPO_FIXTURE_BRIDGE")=="YES":
+        candidate_root=str(root.resolve())
+        if (not (candidate_root.startswith("/private/tmp/ittem-a41-a51d-")
+                    or "/pytest-" in candidate_root)
+            or os.environ.get("IT_TEM_QA_FIXTURE_ENABLED")!="YES"
+            or os.environ.get("IT_TEM_ENABLE_BILLABLE_TEXT_CALLS")=="YES"
+            or secure_cookie
+            or os.environ.get("IT_TEM_A51D_NONDEPLOYABLE_TEST_ONLY")!="YES"
+            or os.environ.get("IT_TEM_LIVE_ENABLED")=="YES"
+            or os.environ.get("IT_TEM_LIVE_EXECUTION_APPROVED")=="YES"
+            or os.environ.get("IT_TEM_A51C_HARD_CAP_ENABLE")=="YES"
+            or os.environ.get("IT_TEM_TAILNET_AUTH_ENABLED")=="YES"
+            or os.environ.get("IT_TEM_TAILNET_SSO_ONLY")=="YES"):
+            raise RuntimeError("A51D_MPO_FIXTURE_BRIDGE_NEVER_ACTIVATES_LIVE_OR_TAILNET")
+        from .live.a51d_mpo_fixture_bridge import register_fixture_mpo_bridge
+        register_fixture_mpo_bridge(app,ledger)
 
     frontend=Path(frontend)
     app.mount("/assets",StaticFiles(directory=frontend/"assets"),name="frontend-assets")

@@ -12,7 +12,7 @@ from pathlib import Path
 from pydantic import BaseModel
 from .contracts import digest, LiveGateError
 
-_STAGES=frozenset({"vision","research","copy","image_prompt"})
+_STAGES=frozenset({"vision","research","copy","image_prompt","copy_revision"})
 _MODES=frozenset({"LIVE","OFFLINE_FIXTURE"})
 
 
@@ -29,6 +29,16 @@ class LiveCheckpoints:
               payload_sha TEXT NOT NULL,payload_json TEXT NOT NULL,
               created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
               PRIMARY KEY(job_id,stage));
+            -- New Owner copy revisions may run repeatedly for one Job, each
+            -- bound to a distinct approved-for-review generation and request.
+            -- Historical one-shot checkpoints are not migrated or modified.
+            CREATE TABLE IF NOT EXISTS text_revision_checkpoints (
+              job_id TEXT NOT NULL,actor TEXT NOT NULL,stage TEXT NOT NULL,
+              context_sha TEXT NOT NULL,mode TEXT NOT NULL,
+              payload_sha TEXT NOT NULL,payload_json TEXT NOT NULL,
+              created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+              PRIMARY KEY(job_id,stage,context_sha)
+            );
             """)
 
     def db(self):
@@ -46,8 +56,21 @@ class LiveCheckpoints:
     def load(self,actor,job_id,stage,context_sha,mode,model:type[BaseModel]):
         self._check(stage,mode,context_sha)
         with self.db() as db:
-            row=db.execute("SELECT * FROM text_checkpoints WHERE job_id=? AND stage=?",
-                           (job_id,stage)).fetchone()
+            if stage in ("copy_revision","image_prompt"):
+                row=db.execute("""SELECT * FROM text_revision_checkpoints
+                    WHERE job_id=? AND stage=? AND context_sha=?""",
+                    (job_id,stage,context_sha)).fetchone()
+                if row is None and stage=="image_prompt":
+                    # Read old single-slot checkpoint only if exact context.
+                    # A newer approved generation must not be blocked by a
+                    # prior prompt's immutable historical checkpoint.
+                    old=db.execute("""SELECT * FROM text_checkpoints
+                        WHERE job_id=? AND stage='image_prompt'""",(job_id,)).fetchone()
+                    if old is not None and old["context_sha"]==context_sha:
+                        row=old
+            else:
+                row=db.execute("SELECT * FROM text_checkpoints WHERE job_id=? AND stage=?",
+                               (job_id,stage)).fetchone()
         if row is None:
             return None
         if (row["actor"]!=actor or row["context_sha"]!=context_sha
@@ -73,15 +96,28 @@ class LiveCheckpoints:
             raise LiveGateError("CHECKPOINT_RESULT_INVALID") from None
         with self.db() as db:
             db.execute("BEGIN IMMEDIATE")
-            existing=db.execute("SELECT * FROM text_checkpoints WHERE job_id=? AND stage=?",
-                                (job_id,stage)).fetchone()
+            table=("text_revision_checkpoints" if stage in ("copy_revision","image_prompt")
+                   else "text_checkpoints")
+            if stage in ("copy_revision","image_prompt"):
+                existing=db.execute("""SELECT * FROM text_revision_checkpoints
+                    WHERE job_id=? AND stage=? AND context_sha=?""",
+                    (job_id,stage,context_sha)).fetchone()
+            else:
+                existing=db.execute("SELECT * FROM text_checkpoints WHERE job_id=? AND stage=?",
+                                    (job_id,stage)).fetchone()
+            if existing is None and stage=="image_prompt":
+                legacy=db.execute("""SELECT * FROM text_checkpoints
+                    WHERE job_id=? AND stage='image_prompt' AND context_sha=?""",
+                    (job_id,context_sha)).fetchone()
+                if legacy is not None:
+                    existing=legacy
             if existing:
                 if (existing["actor"]!=actor or existing["context_sha"]!=context_sha
                     or existing["mode"]!=mode or existing["payload_sha"]!=sha
                     or existing["payload_json"]!=encoded):
                     raise LiveGateError("CHECKPOINT_REWRITE_DENIED")
                 return payload
-            db.execute("""INSERT INTO text_checkpoints
+            db.execute(f"""INSERT INTO {table}
               (job_id,actor,stage,context_sha,mode,payload_sha,payload_json)
               VALUES (?,?,?,?,?,?,?)""",
               (job_id,actor,stage,context_sha,mode,sha,encoded))

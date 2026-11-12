@@ -9,7 +9,12 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
-from .config import MODEL_TEXT, MODEL_VISION
+# This module is used by the authenticated *web* estimate endpoint. Reading
+# config.py would require OPENAI_API_KEY at import time even for pure arithmetic.
+# Keep exactly the same model env defaults without loading provider secrets.
+import os
+MODEL_TEXT = os.getenv("OPENAI_MODEL_TEXT", "gpt-6-luna")
+MODEL_VISION = os.getenv("OPENAI_MODEL_VISION", "gpt-6-luna")
 
 # 1M 토큰당 달러 (입력, 출력). 추론 토큰은 출력 토큰에 포함되어 과금
 PRICES: dict[str, tuple[float, float]] = {

@@ -1,0 +1,39 @@
+{
+  "a5_1_implementation_authorized": false,
+  "assessment": "Use existing FE Pretendard as priority D50-04 review candidate, not as an approved deployed server font.",
+  "contract": "IT_TEM_P03_A50D_FE_INSTALLED_PRETENDARD_FONT_CANDIDATE_DISCOVERY_V1",
+  "cta_at_48px_glyph_bbox": [
+    0,
+    8,
+    299,
+    50
+  ],
+  "font_file_copied_to_evidence": false,
+  "font_license_local_path_from_package": "app/node_modules/pretendard/dist/LICENSE.txt",
+  "font_local_path_from_package": "app/node_modules/pretendard/dist/public/variable/PretendardVariable.ttf",
+  "font_sha256": "3090ccde0442bb347aa7685d9ba8b17436a60682df6e8f92a9a670de14056e22",
+  "font_sha_signed_by_image_owner_pm": false,
+  "installed_package_version": "1.3.9",
+  "license_notice_redistribution_verified": false,
+  "license_sha256": "b04538c9abec39a3db75108cf0af0fd9c77032fe8aa2cf38345b4d250e98e38e",
+  "license_type": "OFL-1.1",
+  "locked_integrity": "sha512-PaQAADyLY5v4kYFwkpSJHbSSYIkiriY/1xXw75TKoZ9UQQqeU+tvP05yTdZAWibiIYoo8ZKtRv8PM7w0IaywSw==",
+  "locked_version": "1.3.9",
+  "lockfile_path": "app/package-lock.json",
+  "lockfile_sha256": "de5d56ac4eff9570c11b2dcb9c939088073f500537df02eaa25019b49fb0b6e7",
+  "package_name": "pretendard",
+  "pillow_font_family": "Pretendard Variable",
+  "pillow_freetype_load_success": true,
+  "production_server_font_distribution_approved": false,
+  "publisher_license_url": "https://github.com/orioncactus/pretendard/blob/main/LICENSE",
+  "qa_copy_supported_glyphs": 19,
+  "qa_copy_unique_glyphs": 19,
+  "server_font_actual_production_selected": false,
+  "status": "EXISTING_FE_FONT_DISCOVERED_NOT_OWNER_PM_APPROVED",
+  "variable_weight_axis": {
+    "default": 400,
+    "maximum": 930,
+    "minimum": 45
+  },
+  "weight_policy_approved": false
+}

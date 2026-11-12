@@ -59,7 +59,8 @@ class AttemptLedger:
                 pm_authorized=False):
         if not (self.live_enabled and pm_authorized and role=="live_operator"):
             raise LiveNotAuthorized("LIVE_DISABLED_OR_ROLE_NOT_AUTHORIZED")
-        if stage not in {"text","vision","research","copy","image_prompt","image"} or not actor or not job_id:
+        if stage not in {"text","vision","research","copy","image_prompt","image",
+                         "copy_revision"} or not actor or not job_id:
             raise LiveNotAuthorized("INVALID_STAGE_OR_PRINCIPAL")
         cost=int(round(float(estimated_usd)*1_000_000))
         if self.monitoring_only:

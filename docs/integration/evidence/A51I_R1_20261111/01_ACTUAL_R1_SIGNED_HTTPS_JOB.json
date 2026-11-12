@@ -1,0 +1,19 @@
+{
+  "actual_product_rights_and_quality": "NOT_AUDITED",
+  "contract": "A51I_R1_ACTUAL_TAILNET_SIGNED_SSO_REAL_GCP_B0_REPLAY_V1",
+  "created": 201,
+  "deployed_code_sha": "46a8de353ceae557dd8585481c2028fa9451e17c",
+  "executing_https": "https://macstudio-macstudio.tail17dfff.ts.net:10444",
+  "health": 200,
+  "job_get": 200,
+  "legacy_b0": 423,
+  "live_worker_enabled": false,
+  "mpo_spoof": 422,
+  "one_synthetic_job_id": "567c41bc9769423abf222eb1e39e35d7",
+  "paid_provider_calls": 0,
+  "replay": 200,
+  "session": 200,
+  "source_tamper": 409,
+  "sso_provider": "TAILSCALE_SERVE",
+  "team_browser_uat": "NOT_AUDITED"
+}

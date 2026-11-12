@@ -1,0 +1,821 @@
+{
+  "contract": "IT_TEM_A42_OFFICIAL_REACT_CHROME_FIXTURE_V1",
+  "scenario_id": "A4-S02",
+  "generation_mode": "composed",
+  "image_size": "3:4",
+  "source_commit": "0a6ab598807f7bd29405d0d5ea983acd744c1b21",
+  "qa_fixture": true,
+  "actual_react_app": true,
+  "real_provider_e2e": "NOT_AUDITED",
+  "human_ad_quality": "NOT_ACCEPTED",
+  "origin": "http://127.0.0.1:18540",
+  "steps": [
+    {
+      "label": "QA_USER_LOGIN",
+      "job_id": null,
+      "state": null,
+      "input_sha": null,
+      "copy_sha": null,
+      "review_sha": null,
+      "generation": null,
+      "approval_current": null,
+      "image_sha": null,
+      "image_attempt_version": null,
+      "final_sha": null,
+      "caption_sha": null,
+      "generation_mode": null,
+      "image_size": null,
+      "user": "alice",
+      "auth": "INVITE_COOKIE_LOOPBACK_ONLY"
+    },
+    {
+      "label": "UPLOAD_AND_COPY_FIXTURE",
+      "job_id": "b03bf2c85b9c456f87ce5c91e949d1e8",
+      "state": "COPY_REVIEW_REQUIRED",
+      "input_sha": "49747476123a4714b1da8120e66c1e816fd09eb1809b2a836ef391b83aef8d8f",
+      "copy_sha": "50c1dc6eba5029c8cb8355951aacf8dacd2012351447e198fa7efd5eeee2a98c",
+      "review_sha": "1acce773d411065eade66a7437fc2235e3eda972229f13fc51c595249d38aa76",
+      "generation": 1,
+      "approval_current": false,
+      "image_sha": null,
+      "image_attempt_version": 1,
+      "final_sha": null,
+      "caption_sha": null,
+      "generation_mode": "composed",
+      "image_size": "3:4",
+      "uploaded_product_photos": 2
+    },
+    {
+      "label": "PREAPPROVAL_AND_BATCH_REJECTION",
+      "job_id": "b03bf2c85b9c456f87ce5c91e949d1e8",
+      "state": "COPY_REVIEW_REQUIRED",
+      "input_sha": "49747476123a4714b1da8120e66c1e816fd09eb1809b2a836ef391b83aef8d8f",
+      "copy_sha": "50c1dc6eba5029c8cb8355951aacf8dacd2012351447e198fa7efd5eeee2a98c",
+      "review_sha": "1acce773d411065eade66a7437fc2235e3eda972229f13fc51c595249d38aa76",
+      "generation": 1,
+      "approval_current": false,
+      "image_sha": null,
+      "image_attempt_version": 1,
+      "final_sha": null,
+      "caption_sha": null,
+      "generation_mode": "composed",
+      "image_size": "3:4",
+      "http_unapproved_candidate": 409,
+      "candidate_count_2": 422,
+      "candidate_count_3": 422,
+      "candidate_count_4": 422,
+      "mixed_modes_http": 422
+    },
+    {
+      "label": "COPY_REVISION_CHANGED_SHA_AND_GENERATION",
+      "job_id": "b03bf2c85b9c456f87ce5c91e949d1e8",
+      "state": "COPY_REVIEW_REQUIRED",
+      "input_sha": "49747476123a4714b1da8120e66c1e816fd09eb1809b2a836ef391b83aef8d8f",
+      "copy_sha": "35c5f22dd754c575b140e1857fd549bdde28b1562671327dbc788dcbec13cd74",
+      "review_sha": "fb29e80859d5d8b07b95971ddf499091f85e64bdd5d22018e8fa2d2ffc5845d9",
+      "generation": 2,
+      "approval_current": false,
+      "image_sha": null,
+      "image_attempt_version": 1,
+      "final_sha": null,
+      "caption_sha": null,
+      "generation_mode": "composed",
+      "image_size": "3:4"
+    },
+    {
+      "label": "COPY_RESTORED_BUT_OLD_APPROVAL_NOT_REVIVED",
+      "job_id": "b03bf2c85b9c456f87ce5c91e949d1e8",
+      "state": "COPY_REVIEW_REQUIRED",
+      "input_sha": "49747476123a4714b1da8120e66c1e816fd09eb1809b2a836ef391b83aef8d8f",
+      "copy_sha": "50c1dc6eba5029c8cb8355951aacf8dacd2012351447e198fa7efd5eeee2a98c",
+      "review_sha": "3139f7b8585d701070713e48e56b273b199a00b834434a98f2ef02b8743f5c50",
+      "generation": 3,
+      "approval_current": false,
+      "image_sha": null,
+      "image_attempt_version": 1,
+      "final_sha": null,
+      "caption_sha": null,
+      "generation_mode": "composed",
+      "image_size": "3:4"
+    },
+    {
+      "label": "STALE_COPY_APPROVAL_DENIED",
+      "job_id": "b03bf2c85b9c456f87ce5c91e949d1e8",
+      "state": "COPY_REVIEW_REQUIRED",
+      "input_sha": "49747476123a4714b1da8120e66c1e816fd09eb1809b2a836ef391b83aef8d8f",
+      "copy_sha": "50c1dc6eba5029c8cb8355951aacf8dacd2012351447e198fa7efd5eeee2a98c",
+      "review_sha": "3139f7b8585d701070713e48e56b273b199a00b834434a98f2ef02b8743f5c50",
+      "generation": 3,
+      "approval_current": false,
+      "image_sha": null,
+      "image_attempt_version": 1,
+      "final_sha": null,
+      "caption_sha": null,
+      "generation_mode": "composed",
+      "image_size": "3:4",
+      "http_stale_approval": 409
+    },
+    {
+      "label": "ONE_IMAGE_AFTER_COPY_APPROVAL",
+      "job_id": "b03bf2c85b9c456f87ce5c91e949d1e8",
+      "state": "IMAGE_REVIEW_REQUIRED",
+      "input_sha": "49747476123a4714b1da8120e66c1e816fd09eb1809b2a836ef391b83aef8d8f",
+      "copy_sha": "50c1dc6eba5029c8cb8355951aacf8dacd2012351447e198fa7efd5eeee2a98c",
+      "review_sha": "3139f7b8585d701070713e48e56b273b199a00b834434a98f2ef02b8743f5c50",
+      "generation": 3,
+      "approval_current": true,
+      "image_sha": "aa5eb0a7355d9b1c92977e7afbabb73f2056da96a129573e5d438da803be9b54",
+      "image_attempt_version": 1,
+      "final_sha": null,
+      "caption_sha": null,
+      "generation_mode": "composed",
+      "image_size": "3:4",
+      "candidate_bytes": 8536
+    },
+    {
+      "label": "EXPLICIT_IMAGE_REJECTION",
+      "job_id": "b03bf2c85b9c456f87ce5c91e949d1e8",
+      "state": "IMAGE_REJECTED",
+      "input_sha": "49747476123a4714b1da8120e66c1e816fd09eb1809b2a836ef391b83aef8d8f",
+      "copy_sha": "50c1dc6eba5029c8cb8355951aacf8dacd2012351447e198fa7efd5eeee2a98c",
+      "review_sha": "3139f7b8585d701070713e48e56b273b199a00b834434a98f2ef02b8743f5c50",
+      "generation": 3,
+      "approval_current": true,
+      "image_sha": "aa5eb0a7355d9b1c92977e7afbabb73f2056da96a129573e5d438da803be9b54",
+      "image_attempt_version": 1,
+      "final_sha": null,
+      "caption_sha": null,
+      "generation_mode": "composed",
+      "image_size": "3:4"
+    },
+    {
+      "label": "SECOND_CANDIDATE_NEW_ATTEMPT_NEW_SHA",
+      "job_id": "b03bf2c85b9c456f87ce5c91e949d1e8",
+      "state": "IMAGE_REVIEW_REQUIRED",
+      "input_sha": "49747476123a4714b1da8120e66c1e816fd09eb1809b2a836ef391b83aef8d8f",
+      "copy_sha": "50c1dc6eba5029c8cb8355951aacf8dacd2012351447e198fa7efd5eeee2a98c",
+      "review_sha": "3139f7b8585d701070713e48e56b273b199a00b834434a98f2ef02b8743f5c50",
+      "generation": 3,
+      "approval_current": true,
+      "image_sha": "43507668c56e0fc4f209cc1e5886c945a6bb16e2df9c764c4d32e72217a5c41b",
+      "image_attempt_version": 2,
+      "final_sha": null,
+      "caption_sha": null,
+      "generation_mode": "composed",
+      "image_size": "3:4",
+      "first_image_sha": "aa5eb0a7355d9b1c92977e7afbabb73f2056da96a129573e5d438da803be9b54",
+      "second_image_sha": "43507668c56e0fc4f209cc1e5886c945a6bb16e2df9c764c4d32e72217a5c41b",
+      "old_approval_http": 409
+    },
+    {
+      "label": "SCENARIO_FINAL_ARTIFACT_READY",
+      "job_id": "b03bf2c85b9c456f87ce5c91e949d1e8",
+      "state": "COMPLETED",
+      "input_sha": "49747476123a4714b1da8120e66c1e816fd09eb1809b2a836ef391b83aef8d8f",
+      "copy_sha": "50c1dc6eba5029c8cb8355951aacf8dacd2012351447e198fa7efd5eeee2a98c",
+      "review_sha": "3139f7b8585d701070713e48e56b273b199a00b834434a98f2ef02b8743f5c50",
+      "generation": 3,
+      "approval_current": true,
+      "image_sha": "43507668c56e0fc4f209cc1e5886c945a6bb16e2df9c764c4d32e72217a5c41b",
+      "image_attempt_version": 2,
+      "final_sha": "dc2ecd16a30eb4f11c49f1a495a3f7885027d90635f45864ceed78edc92df21e",
+      "caption_sha": "a2269c826e49dd43406c281935c1fc411e720c278ef24b14f6f9c10ab109c839",
+      "generation_mode": "composed",
+      "image_size": "3:4",
+      "scenario_id": "A4-S02"
+    },
+    {
+      "label": "ACTUAL_CHROME_DOWNLOAD_SHA_MATCH",
+      "job_id": "b03bf2c85b9c456f87ce5c91e949d1e8",
+      "state": "COMPLETED",
+      "input_sha": "49747476123a4714b1da8120e66c1e816fd09eb1809b2a836ef391b83aef8d8f",
+      "copy_sha": "50c1dc6eba5029c8cb8355951aacf8dacd2012351447e198fa7efd5eeee2a98c",
+      "review_sha": "3139f7b8585d701070713e48e56b273b199a00b834434a98f2ef02b8743f5c50",
+      "generation": 3,
+      "approval_current": true,
+      "image_sha": "43507668c56e0fc4f209cc1e5886c945a6bb16e2df9c764c4d32e72217a5c41b",
+      "image_attempt_version": 2,
+      "final_sha": "dc2ecd16a30eb4f11c49f1a495a3f7885027d90635f45864ceed78edc92df21e",
+      "caption_sha": "a2269c826e49dd43406c281935c1fc411e720c278ef24b14f6f9c10ab109c839",
+      "generation_mode": "composed",
+      "image_size": "3:4",
+      "file_image_sha256": "dc2ecd16a30eb4f11c49f1a495a3f7885027d90635f45864ceed78edc92df21e",
+      "file_caption_sha256": "a2269c826e49dd43406c281935c1fc411e720c278ef24b14f6f9c10ab109c839",
+      "png_bytes": 42986,
+      "caption_bytes": 50
+    },
+    {
+      "label": "GET_ONLY_REFRESH_RESUME",
+      "job_id": "b03bf2c85b9c456f87ce5c91e949d1e8",
+      "state": "COMPLETED",
+      "input_sha": "49747476123a4714b1da8120e66c1e816fd09eb1809b2a836ef391b83aef8d8f",
+      "copy_sha": "50c1dc6eba5029c8cb8355951aacf8dacd2012351447e198fa7efd5eeee2a98c",
+      "review_sha": "3139f7b8585d701070713e48e56b273b199a00b834434a98f2ef02b8743f5c50",
+      "generation": 3,
+      "approval_current": true,
+      "image_sha": "43507668c56e0fc4f209cc1e5886c945a6bb16e2df9c764c4d32e72217a5c41b",
+      "image_attempt_version": 2,
+      "final_sha": "dc2ecd16a30eb4f11c49f1a495a3f7885027d90635f45864ceed78edc92df21e",
+      "caption_sha": "a2269c826e49dd43406c281935c1fc411e720c278ef24b14f6f9c10ab109c839",
+      "generation_mode": "composed",
+      "image_size": "3:4",
+      "post_count_after_reload": 0
+    },
+    {
+      "label": "MOBILE_VIEWPORT_390",
+      "job_id": "b03bf2c85b9c456f87ce5c91e949d1e8",
+      "state": "COMPLETED",
+      "input_sha": "49747476123a4714b1da8120e66c1e816fd09eb1809b2a836ef391b83aef8d8f",
+      "copy_sha": "50c1dc6eba5029c8cb8355951aacf8dacd2012351447e198fa7efd5eeee2a98c",
+      "review_sha": "3139f7b8585d701070713e48e56b273b199a00b834434a98f2ef02b8743f5c50",
+      "generation": 3,
+      "approval_current": true,
+      "image_sha": "43507668c56e0fc4f209cc1e5886c945a6bb16e2df9c764c4d32e72217a5c41b",
+      "image_attempt_version": 2,
+      "final_sha": "dc2ecd16a30eb4f11c49f1a495a3f7885027d90635f45864ceed78edc92df21e",
+      "caption_sha": "a2269c826e49dd43406c281935c1fc411e720c278ef24b14f6f9c10ab109c839",
+      "generation_mode": "composed",
+      "image_size": "3:4",
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
+      "scroll_width": 390
+    },
+    {
+      "label": "MOBILE_VIEWPORT_360",
+      "job_id": "b03bf2c85b9c456f87ce5c91e949d1e8",
+      "state": "COMPLETED",
+      "input_sha": "49747476123a4714b1da8120e66c1e816fd09eb1809b2a836ef391b83aef8d8f",
+      "copy_sha": "50c1dc6eba5029c8cb8355951aacf8dacd2012351447e198fa7efd5eeee2a98c",
+      "review_sha": "3139f7b8585d701070713e48e56b273b199a00b834434a98f2ef02b8743f5c50",
+      "generation": 3,
+      "approval_current": true,
+      "image_sha": "43507668c56e0fc4f209cc1e5886c945a6bb16e2df9c764c4d32e72217a5c41b",
+      "image_attempt_version": 2,
+      "final_sha": "dc2ecd16a30eb4f11c49f1a495a3f7885027d90635f45864ceed78edc92df21e",
+      "caption_sha": "a2269c826e49dd43406c281935c1fc411e720c278ef24b14f6f9c10ab109c839",
+      "generation_mode": "composed",
+      "image_size": "3:4",
+      "viewport": {
+        "width": 360,
+        "height": 844
+      },
+      "scroll_width": 360
+    },
+    {
+      "label": "FOREIGN_ACTOR_AND_UNAUTHENTICATED_DENIED",
+      "job_id": "b03bf2c85b9c456f87ce5c91e949d1e8",
+      "state": "COMPLETED",
+      "input_sha": "49747476123a4714b1da8120e66c1e816fd09eb1809b2a836ef391b83aef8d8f",
+      "copy_sha": "50c1dc6eba5029c8cb8355951aacf8dacd2012351447e198fa7efd5eeee2a98c",
+      "review_sha": "3139f7b8585d701070713e48e56b273b199a00b834434a98f2ef02b8743f5c50",
+      "generation": 3,
+      "approval_current": true,
+      "image_sha": "43507668c56e0fc4f209cc1e5886c945a6bb16e2df9c764c4d32e72217a5c41b",
+      "image_attempt_version": 2,
+      "final_sha": "dc2ecd16a30eb4f11c49f1a495a3f7885027d90635f45864ceed78edc92df21e",
+      "caption_sha": "a2269c826e49dd43406c281935c1fc411e720c278ef24b14f6f9c10ab109c839",
+      "generation_mode": "composed",
+      "image_size": "3:4",
+      "http_without_session": 401,
+      "http_foreign_actor": 404
+    }
+  ],
+  "http": [
+    {
+      "method": "GET",
+      "path": "/demo/api/session",
+      "status": 401
+    },
+    {
+      "method": "POST",
+      "path": "/demo/api/session",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/demo/api/live/capabilities",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/demo/api/session",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/demo/api/live/text-cost-estimate",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/demo/api/live/total-cost-estimate",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/demo/api/live/total-cost-estimate",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/jobs",
+      "status": 201
+    },
+    {
+      "method": "GET",
+      "path": "/demo/api/live/jobs/b03bf2c85b9c456f87ce5c91e949d1e8/task-status",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/demo/api/live/jobs/b03bf2c85b9c456f87ce5c91e949d1e8/input",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/demo/api/live/jobs/b03bf2c85b9c456f87ce5c91e949d1e8",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/demo/api/live/jobs/b03bf2c85b9c456f87ce5c91e949d1e8",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/demo/api/qa/jobs/b03bf2c85b9c456f87ce5c91e949d1e8/text",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/jobs/b03bf2c85b9c456f87ce5c91e949d1e8",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/demo/api/live/jobs/b03bf2c85b9c456f87ce5c91e949d1e8",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/demo/api/live/jobs/b03bf2c85b9c456f87ce5c91e949d1e8",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/demo/api/live/jobs/b03bf2c85b9c456f87ce5c91e949d1e8/task-status",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/demo/api/live/jobs/b03bf2c85b9c456f87ce5c91e949d1e8",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/jobs/b03bf2c85b9c456f87ce5c91e949d1e8",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/demo/api/live/jobs/b03bf2c85b9c456f87ce5c91e949d1e8",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/demo/api/qa/jobs/b03bf2c85b9c456f87ce5c91e949d1e8/artifacts/candidate",
+      "status": 409
+    },
+    {
+      "method": "GET",
+      "path": "/demo/api/qa/jobs/b03bf2c85b9c456f87ce5c91e949d1e8/artifacts/final",
+      "status": 409
+    },
+    {
+      "method": "POST",
+      "path": "/demo/api/qa/jobs/b03bf2c85b9c456f87ce5c91e949d1e8/prompt-image",
+      "status": 422
+    },
+    {
+      "method": "POST",
+      "path": "/demo/api/qa/jobs/b03bf2c85b9c456f87ce5c91e949d1e8/prompt-image",
+      "status": 422
+    },
+    {
+      "method": "POST",
+      "path": "/demo/api/qa/jobs/b03bf2c85b9c456f87ce5c91e949d1e8/prompt-image",
+      "status": 422
+    },
+    {
+      "method": "POST",
+      "path": "/demo/api/qa/jobs/b03bf2c85b9c456f87ce5c91e949d1e8/prompt-image",
+      "status": 422
+    },
+    {
+      "method": "GET",
+      "path": "/demo/api/live/text-cost-estimate",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/demo/api/live/jobs/b03bf2c85b9c456f87ce5c91e949d1e8",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/demo/api/live/jobs/b03bf2c85b9c456f87ce5c91e949d1e8",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/demo/api/qa/jobs/b03bf2c85b9c456f87ce5c91e949d1e8/revise-copy",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/demo/api/live/jobs/b03bf2c85b9c456f87ce5c91e949d1e8",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/jobs/b03bf2c85b9c456f87ce5c91e949d1e8",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/demo/api/live/jobs/b03bf2c85b9c456f87ce5c91e949d1e8",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/demo/api/live/jobs/b03bf2c85b9c456f87ce5c91e949d1e8",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/demo/api/live/jobs/b03bf2c85b9c456f87ce5c91e949d1e8",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/demo/api/live/jobs/b03bf2c85b9c456f87ce5c91e949d1e8",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/demo/api/live/jobs/b03bf2c85b9c456f87ce5c91e949d1e8",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/demo/api/qa/jobs/b03bf2c85b9c456f87ce5c91e949d1e8/restore-copy",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/demo/api/live/jobs/b03bf2c85b9c456f87ce5c91e949d1e8",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/jobs/b03bf2c85b9c456f87ce5c91e949d1e8",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/demo/api/live/jobs/b03bf2c85b9c456f87ce5c91e949d1e8",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/demo/api/live/jobs/b03bf2c85b9c456f87ce5c91e949d1e8",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/demo/api/live/jobs/b03bf2c85b9c456f87ce5c91e949d1e8/approve-copy",
+      "status": 409
+    },
+    {
+      "method": "GET",
+      "path": "/demo/api/live/jobs/b03bf2c85b9c456f87ce5c91e949d1e8",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/demo/api/live/jobs/b03bf2c85b9c456f87ce5c91e949d1e8/approve-copy",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/demo/api/qa/jobs/b03bf2c85b9c456f87ce5c91e949d1e8/prompt-image",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/demo/api/live/jobs/b03bf2c85b9c456f87ce5c91e949d1e8/task-status",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/demo/api/live/jobs/b03bf2c85b9c456f87ce5c91e949d1e8",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/demo/api/live/jobs/b03bf2c85b9c456f87ce5c91e949d1e8",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/demo/api/live/jobs/b03bf2c85b9c456f87ce5c91e949d1e8",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/demo/api/qa/jobs/b03bf2c85b9c456f87ce5c91e949d1e8/artifacts/candidate",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/jobs/b03bf2c85b9c456f87ce5c91e949d1e8",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/demo/api/live/jobs/b03bf2c85b9c456f87ce5c91e949d1e8",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/jobs/b03bf2c85b9c456f87ce5c91e949d1e8/assets/f7e7e39d4dcc4259b68d7dcd610dcac0",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/jobs/b03bf2c85b9c456f87ce5c91e949d1e8/assets/882a1f71afbd46e49b70ee351f36e37f",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/demo/api/qa/jobs/b03bf2c85b9c456f87ce5c91e949d1e8/artifacts/candidate",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/demo/api/live/jobs/b03bf2c85b9c456f87ce5c91e949d1e8",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/demo/api/live/jobs/b03bf2c85b9c456f87ce5c91e949d1e8",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/demo/api/live/jobs/b03bf2c85b9c456f87ce5c91e949d1e8/reject-image",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/demo/api/live/jobs/b03bf2c85b9c456f87ce5c91e949d1e8",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/jobs/b03bf2c85b9c456f87ce5c91e949d1e8",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/demo/api/live/jobs/b03bf2c85b9c456f87ce5c91e949d1e8",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/demo/api/live/jobs/b03bf2c85b9c456f87ce5c91e949d1e8",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/demo/api/qa/jobs/b03bf2c85b9c456f87ce5c91e949d1e8/artifacts/candidate",
+      "status": 409
+    },
+    {
+      "method": "GET",
+      "path": "/demo/api/live/jobs/b03bf2c85b9c456f87ce5c91e949d1e8",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/demo/api/qa/jobs/b03bf2c85b9c456f87ce5c91e949d1e8/regenerate-image",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/demo/api/live/jobs/b03bf2c85b9c456f87ce5c91e949d1e8",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/demo/api/live/jobs/b03bf2c85b9c456f87ce5c91e949d1e8",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/jobs/b03bf2c85b9c456f87ce5c91e949d1e8",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/demo/api/qa/jobs/b03bf2c85b9c456f87ce5c91e949d1e8/artifacts/candidate",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/demo/api/live/jobs/b03bf2c85b9c456f87ce5c91e949d1e8",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/demo/api/qa/jobs/b03bf2c85b9c456f87ce5c91e949d1e8/artifacts/candidate",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/demo/api/live/jobs/b03bf2c85b9c456f87ce5c91e949d1e8/approve-image",
+      "status": 409
+    },
+    {
+      "method": "GET",
+      "path": "/demo/api/live/jobs/b03bf2c85b9c456f87ce5c91e949d1e8",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/demo/api/live/jobs/b03bf2c85b9c456f87ce5c91e949d1e8/approve-image",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/demo/api/qa/jobs/b03bf2c85b9c456f87ce5c91e949d1e8/compose",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/demo/api/live/jobs/b03bf2c85b9c456f87ce5c91e949d1e8/task-status",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/demo/api/live/jobs/b03bf2c85b9c456f87ce5c91e949d1e8",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/demo/api/live/jobs/b03bf2c85b9c456f87ce5c91e949d1e8",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/jobs/b03bf2c85b9c456f87ce5c91e949d1e8",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/demo/api/live/jobs/b03bf2c85b9c456f87ce5c91e949d1e8",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/demo/api/live/shared",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/demo/api/qa/jobs/b03bf2c85b9c456f87ce5c91e949d1e8/artifacts/caption",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/demo/api/qa/jobs/b03bf2c85b9c456f87ce5c91e949d1e8/artifacts/final",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/demo/api/session",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/jobs/b03bf2c85b9c456f87ce5c91e949d1e8",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/demo/api/live/jobs/b03bf2c85b9c456f87ce5c91e949d1e8/task-status",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/demo/api/live/jobs/b03bf2c85b9c456f87ce5c91e949d1e8",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/demo/api/live/jobs/b03bf2c85b9c456f87ce5c91e949d1e8",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/demo/api/live/shared",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/demo/api/qa/jobs/b03bf2c85b9c456f87ce5c91e949d1e8/artifacts/caption",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/demo/api/qa/jobs/b03bf2c85b9c456f87ce5c91e949d1e8/artifacts/final",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/demo/api/live/jobs/b03bf2c85b9c456f87ce5c91e949d1e8",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/demo/api/live/capabilities",
+      "status": 200
+    }
+  ],
+  "screenshots": [
+    {
+      "filename": "01_qa_login.png",
+      "sha256": "46dcc10a88c409276f81db296ba6e61c960e5fbfb6aa79e2a41b64596435c088"
+    },
+    {
+      "filename": "02_selected_composed_3x4.png",
+      "sha256": "cb6acfb6c24eee2c808ccef567ec366f9bc20e1520cdce7b686ca0c9ba1bfe50"
+    },
+    {
+      "filename": "03_copy_review_initial.png",
+      "sha256": "f86c01f4efd2b4e4f5099dde51f0d769164ae0996afc0fb738bcf8aaa4a5136d"
+    },
+    {
+      "filename": "04_revised_copy.png",
+      "sha256": "a76e2e5fd979e775ca649b13008b142f19f158a572a22ee1dbaa87642e7865cf"
+    },
+    {
+      "filename": "05_copy_restore_no_ack.png",
+      "sha256": "03da80b840c28d2cfeeaed55e0e558335b51bcbdafedc85b6e20c6770447d79d"
+    },
+    {
+      "filename": "06_first_candidate_1_of_1.png",
+      "sha256": "6c855c6ef4463cd147921c73b4e04329d8309da5437be6f2d7877b68ab9c9373"
+    },
+    {
+      "filename": "07_image_rejected.png",
+      "sha256": "e1567328fdc2bd6b355acba2846a3c1a74d55807b6183c6b61fc6da0fc5ef6e6"
+    },
+    {
+      "filename": "08_new_candidate_after_retry.png",
+      "sha256": "22372a7dba7842e6e19c882f9ad40919a5d9d7106b98ff529780197459de2385"
+    },
+    {
+      "filename": "09_final_desktop.png",
+      "sha256": "e86811bc7531ba143540e9374d0afebb3524f5c4380ad7e8c94e4b2ff8ed0175"
+    },
+    {
+      "filename": "10_final_refresh.png",
+      "sha256": "4fb96d7d1ebeec2a10a18138e0fef08e904a30b172dc2047b6916bc3032d21a2"
+    },
+    {
+      "filename": "11_mobile_390.png",
+      "sha256": "e9f41a4b9b9b5fbff7054e4468a6b248a5dfd7a5d9a1abe7dad07dc1321e6618"
+    },
+    {
+      "filename": "11_mobile_360.png",
+      "sha256": "d5552fa3d6431ca21503167cc854471c535d2480debf6943b766ddc30a57260c"
+    }
+  ],
+  "exfiltration_attempts": [],
+  "browser_errors": [],
+  "network_external_post_count": 0,
+  "product_quality_gate": "HOLD",
+  "quality_note": "HUMAN_OWNER_PM_DESIGN_REVIEW_PENDING",
+  "completed_job_id": "b03bf2c85b9c456f87ce5c91e949d1e8",
+  "final_state": "COMPLETED",
+  "final_sha": "dc2ecd16a30eb4f11c49f1a495a3f7885027d90635f45864ceed78edc92df21e",
+  "caption_sha": "a2269c826e49dd43406c281935c1fc411e720c278ef24b14f6f9c10ab109c839",
+  "image_attempt_version": 2,
+  "http_totals": {
+    "post": 18,
+    "get": 76
+  }
+}

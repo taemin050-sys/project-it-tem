@@ -1,0 +1,727 @@
+{
+  "actual_customer_rights_approved": false,
+  "actual_jpeg": 9,
+  "actual_mpo": 15,
+  "contract": "IT_TEM_P03_A51BR1_MPO_FRAME_READ_ONLY_PROVENANCE_V1",
+  "explicit_mpo_frame_selections_made": 0,
+  "external_provider_requests": 0,
+  "files": [
+    {
+      "actual_container": "JPEG",
+      "conversion_version": null,
+      "decoded_source_frames": [
+        {
+          "decoded_rgb_pixel_sha256": "e13f1a5bdbf25ac1755295b846d6e191de07dc6ec28f04366b69aa72350297ab",
+          "height_px": 3000,
+          "index": 0,
+          "width_px": 4000
+        }
+      ],
+      "filename": "가스비 무빙락스프레이엑스트라하드 253ml -5.jpg",
+      "frame_user_confirmation": "SINGLE_FRAME_NO_SELECTION_REQUIRED",
+      "frontend_input_policy": "JPEG_SOURCE_MIME_CHECK_REQUIRED",
+      "normalized_image_sha256": null,
+      "original_bytes": 3901584,
+      "original_file_mutated": false,
+      "original_sha256": "0b75470b0c41696f04651f490291e1ebb78413f5ea00f7f939db8c4db12f6b37",
+      "provider_upload_authorized": false,
+      "rights_and_product_identity": "NOT_AUDITED",
+      "selected_frame": null,
+      "source_exif_orientation": 6,
+      "source_frame_count": 1,
+      "source_icc_sha256": "d2956be6a5694171fb8a900534560cee8a529af533f40788f08d231644f422a7",
+      "source_image_bytes_exported": false
+    },
+    {
+      "actual_container": "JPEG",
+      "conversion_version": null,
+      "decoded_source_frames": [
+        {
+          "decoded_rgb_pixel_sha256": "81e5a6c5953aa07b19d5545f1116a44e904f41690154c9c07cc031b2ec865bd8",
+          "height_px": 3000,
+          "index": 0,
+          "width_px": 4000
+        }
+      ],
+      "filename": "가스비 무빙락스프레이엑스트라하드 253ml -6.jpg",
+      "frame_user_confirmation": "SINGLE_FRAME_NO_SELECTION_REQUIRED",
+      "frontend_input_policy": "JPEG_SOURCE_MIME_CHECK_REQUIRED",
+      "normalized_image_sha256": null,
+      "original_bytes": 3782914,
+      "original_file_mutated": false,
+      "original_sha256": "e87731c7e6585c61645e7664fd7a8696ae6f1e60530e3a0b45fbc306c3487459",
+      "provider_upload_authorized": false,
+      "rights_and_product_identity": "NOT_AUDITED",
+      "selected_frame": null,
+      "source_exif_orientation": 6,
+      "source_frame_count": 1,
+      "source_icc_sha256": "d2956be6a5694171fb8a900534560cee8a529af533f40788f08d231644f422a7",
+      "source_image_bytes_exported": false
+    },
+    {
+      "actual_container": "MPO",
+      "conversion_version": null,
+      "decoded_source_frames": [
+        {
+          "decoded_rgb_pixel_sha256": "dd03e619bbae9498ed128e5621a2835349832fe3d1522c4c33f383ebdc7b4b35",
+          "height_px": 3024,
+          "index": 0,
+          "width_px": 4032
+        },
+        {
+          "decoded_rgb_pixel_sha256": "8a9bb15f16ad34b732a89796e2163a9ca1ad8aeaee0ef6a8705d7dfc55355eb8",
+          "height_px": 1512,
+          "index": 1,
+          "width_px": 2016
+        }
+      ],
+      "filename": "라운드랩독도토너-1.jpg",
+      "frame_user_confirmation": "REQUIRED_FOR_MPO_AND_NOT_RECEIVED",
+      "frontend_input_policy": "MPO_PENDING_IMAGE_OWNER_PM_VERSIONED_CONTRACT",
+      "normalized_image_sha256": null,
+      "original_bytes": 3128569,
+      "original_file_mutated": false,
+      "original_sha256": "93339e6632a1fe141ef3c9329ac320ad8f7d6c9e59ac42aa827370969f71c91e",
+      "provider_upload_authorized": false,
+      "rights_and_product_identity": "NOT_AUDITED",
+      "selected_frame": null,
+      "source_exif_orientation": 6,
+      "source_frame_count": 2,
+      "source_icc_sha256": "0ff6958f98684c61f6bbdce1368ddeaf3873baf84545baba482e920d92a914c0",
+      "source_image_bytes_exported": false
+    },
+    {
+      "actual_container": "MPO",
+      "conversion_version": null,
+      "decoded_source_frames": [
+        {
+          "decoded_rgb_pixel_sha256": "1a9133c1538b69b8d0403ba4eb20539738c15419762f52a700757b1b06fac24b",
+          "height_px": 3024,
+          "index": 0,
+          "width_px": 4032
+        },
+        {
+          "decoded_rgb_pixel_sha256": "eb02b0d433daf32ad90103554e43d835573dba223102a3132707575d0aa6da95",
+          "height_px": 1512,
+          "index": 1,
+          "width_px": 2016
+        }
+      ],
+      "filename": "라운드랩독도토너-2.jpg",
+      "frame_user_confirmation": "REQUIRED_FOR_MPO_AND_NOT_RECEIVED",
+      "frontend_input_policy": "MPO_PENDING_IMAGE_OWNER_PM_VERSIONED_CONTRACT",
+      "normalized_image_sha256": null,
+      "original_bytes": 3316901,
+      "original_file_mutated": false,
+      "original_sha256": "a60f03d9c19c4aed3b7a31d867c1172b2bb8e224d943bf40276336b74a426ac5",
+      "provider_upload_authorized": false,
+      "rights_and_product_identity": "NOT_AUDITED",
+      "selected_frame": null,
+      "source_exif_orientation": 6,
+      "source_frame_count": 2,
+      "source_icc_sha256": "0ff6958f98684c61f6bbdce1368ddeaf3873baf84545baba482e920d92a914c0",
+      "source_image_bytes_exported": false
+    },
+    {
+      "actual_container": "MPO",
+      "conversion_version": null,
+      "decoded_source_frames": [
+        {
+          "decoded_rgb_pixel_sha256": "5e18379b8694eeff57b6b0f41b497da4c75f4a01566d7f7c0e4068a9eedabdc8",
+          "height_px": 3024,
+          "index": 0,
+          "width_px": 4032
+        },
+        {
+          "decoded_rgb_pixel_sha256": "0feb9177453407a5baf3ff89a4cff72aadc7cae5cd7c0386597bb43251f96c39",
+          "height_px": 1512,
+          "index": 1,
+          "width_px": 2016
+        }
+      ],
+      "filename": "롬앤글래스팅스프링피버-1.jpg",
+      "frame_user_confirmation": "REQUIRED_FOR_MPO_AND_NOT_RECEIVED",
+      "frontend_input_policy": "MPO_PENDING_IMAGE_OWNER_PM_VERSIONED_CONTRACT",
+      "normalized_image_sha256": null,
+      "original_bytes": 2641940,
+      "original_file_mutated": false,
+      "original_sha256": "e412046460d39b6ff34551be5ac1862ba8c055aec9b8aedd75a33b07f68d7381",
+      "provider_upload_authorized": false,
+      "rights_and_product_identity": "NOT_AUDITED",
+      "selected_frame": null,
+      "source_exif_orientation": 6,
+      "source_frame_count": 2,
+      "source_icc_sha256": "0ff6958f98684c61f6bbdce1368ddeaf3873baf84545baba482e920d92a914c0",
+      "source_image_bytes_exported": false
+    },
+    {
+      "actual_container": "MPO",
+      "conversion_version": null,
+      "decoded_source_frames": [
+        {
+          "decoded_rgb_pixel_sha256": "53e31154a7f5cf9dec80d61e1b148b40e2d0d26602be2a1190dbd7b3cb13ff3d",
+          "height_px": 3024,
+          "index": 0,
+          "width_px": 4032
+        },
+        {
+          "decoded_rgb_pixel_sha256": "4dcc905f357568715ee8c66193822ee78ffcc801ebd6e97b6785ddcf0ab2eea6",
+          "height_px": 1512,
+          "index": 1,
+          "width_px": 2016
+        }
+      ],
+      "filename": "롬앤글래스팅스프링피버-3.jpg",
+      "frame_user_confirmation": "REQUIRED_FOR_MPO_AND_NOT_RECEIVED",
+      "frontend_input_policy": "MPO_PENDING_IMAGE_OWNER_PM_VERSIONED_CONTRACT",
+      "normalized_image_sha256": null,
+      "original_bytes": 2806384,
+      "original_file_mutated": false,
+      "original_sha256": "cf3f34d02841824bed1125bbb980e2551666b1be286e4a52698e7304523c9c2a",
+      "provider_upload_authorized": false,
+      "rights_and_product_identity": "NOT_AUDITED",
+      "selected_frame": null,
+      "source_exif_orientation": 6,
+      "source_frame_count": 2,
+      "source_icc_sha256": "0ff6958f98684c61f6bbdce1368ddeaf3873baf84545baba482e920d92a914c0",
+      "source_image_bytes_exported": false
+    },
+    {
+      "actual_container": "MPO",
+      "conversion_version": null,
+      "decoded_source_frames": [
+        {
+          "decoded_rgb_pixel_sha256": "39d28397879bc4183e180c81a22f67dc2063f323c54bcbfb766f07bb20a5d058",
+          "height_px": 3024,
+          "index": 0,
+          "width_px": 4032
+        },
+        {
+          "decoded_rgb_pixel_sha256": "aeb284d4099b96569a89a0a4e2acbb2b1bc3daef6006053dd76b18266f759dec",
+          "height_px": 1512,
+          "index": 1,
+          "width_px": 2016
+        }
+      ],
+      "filename": "메노킨버블마스크-1.jpg",
+      "frame_user_confirmation": "REQUIRED_FOR_MPO_AND_NOT_RECEIVED",
+      "frontend_input_policy": "MPO_PENDING_IMAGE_OWNER_PM_VERSIONED_CONTRACT",
+      "normalized_image_sha256": null,
+      "original_bytes": 3506536,
+      "original_file_mutated": false,
+      "original_sha256": "b21588f2f52d5beeaf40959a4c080de6b6452be840c57db91712bc2734da5517",
+      "provider_upload_authorized": false,
+      "rights_and_product_identity": "NOT_AUDITED",
+      "selected_frame": null,
+      "source_exif_orientation": 6,
+      "source_frame_count": 2,
+      "source_icc_sha256": "0ff6958f98684c61f6bbdce1368ddeaf3873baf84545baba482e920d92a914c0",
+      "source_image_bytes_exported": false
+    },
+    {
+      "actual_container": "MPO",
+      "conversion_version": null,
+      "decoded_source_frames": [
+        {
+          "decoded_rgb_pixel_sha256": "d79d6187a7f9c3976b5a869c834648a9ef5a4abf02e43e3bae70c9f8bc568667",
+          "height_px": 3024,
+          "index": 0,
+          "width_px": 4032
+        },
+        {
+          "decoded_rgb_pixel_sha256": "1315174b9da7820ba02ff554cfa9d7034880cce2a4da4b310a21fe7f3aaa05d2",
+          "height_px": 1512,
+          "index": 1,
+          "width_px": 2016
+        }
+      ],
+      "filename": "메노킨버블마스크-2.jpg",
+      "frame_user_confirmation": "REQUIRED_FOR_MPO_AND_NOT_RECEIVED",
+      "frontend_input_policy": "MPO_PENDING_IMAGE_OWNER_PM_VERSIONED_CONTRACT",
+      "normalized_image_sha256": null,
+      "original_bytes": 3749461,
+      "original_file_mutated": false,
+      "original_sha256": "3318a3820eab51858952227bd5e1d02f54e3f8f7c3d12f36e374fd1e3c9fbd9f",
+      "provider_upload_authorized": false,
+      "rights_and_product_identity": "NOT_AUDITED",
+      "selected_frame": null,
+      "source_exif_orientation": 6,
+      "source_frame_count": 2,
+      "source_icc_sha256": "0ff6958f98684c61f6bbdce1368ddeaf3873baf84545baba482e920d92a914c0",
+      "source_image_bytes_exported": false
+    },
+    {
+      "actual_container": "JPEG",
+      "conversion_version": null,
+      "decoded_source_frames": [
+        {
+          "decoded_rgb_pixel_sha256": "fa4f73363011dbd7ffed2a32379486cb4d9bd00fc68a1cbf5969638f5c0ae982",
+          "height_px": 3000,
+          "index": 0,
+          "width_px": 4000
+        }
+      ],
+      "filename": "메디힐 히알루론산 랩핑 세럼 마스크-2 (1).jpg",
+      "frame_user_confirmation": "SINGLE_FRAME_NO_SELECTION_REQUIRED",
+      "frontend_input_policy": "JPEG_SOURCE_MIME_CHECK_REQUIRED",
+      "normalized_image_sha256": null,
+      "original_bytes": 4390407,
+      "original_file_mutated": false,
+      "original_sha256": "94c7cb80195e0dcf5956739031be24b32d87030af1db090869da1ee4be64cb04",
+      "provider_upload_authorized": false,
+      "rights_and_product_identity": "NOT_AUDITED",
+      "selected_frame": null,
+      "source_exif_orientation": 6,
+      "source_frame_count": 1,
+      "source_icc_sha256": "d2956be6a5694171fb8a900534560cee8a529af533f40788f08d231644f422a7",
+      "source_image_bytes_exported": false
+    },
+    {
+      "actual_container": "JPEG",
+      "conversion_version": null,
+      "decoded_source_frames": [
+        {
+          "decoded_rgb_pixel_sha256": "e1e9ff8409fbf8f2059daacf14c73d6f0cea6035e261f59e7f8c940e2bed43e8",
+          "height_px": 3000,
+          "index": 0,
+          "width_px": 4000
+        }
+      ],
+      "filename": "메디힐 히알루론산 랩핑 세럼 마스크-3 (1).jpg",
+      "frame_user_confirmation": "SINGLE_FRAME_NO_SELECTION_REQUIRED",
+      "frontend_input_policy": "JPEG_SOURCE_MIME_CHECK_REQUIRED",
+      "normalized_image_sha256": null,
+      "original_bytes": 3974957,
+      "original_file_mutated": false,
+      "original_sha256": "799b8209dd33daf3c22986d2d39c611d7e526b95eefdc4b7b39e968002df2121",
+      "provider_upload_authorized": false,
+      "rights_and_product_identity": "NOT_AUDITED",
+      "selected_frame": null,
+      "source_exif_orientation": 6,
+      "source_frame_count": 1,
+      "source_icc_sha256": "d2956be6a5694171fb8a900534560cee8a529af533f40788f08d231644f422a7",
+      "source_image_bytes_exported": false
+    },
+    {
+      "actual_container": "JPEG",
+      "conversion_version": null,
+      "decoded_source_frames": [
+        {
+          "decoded_rgb_pixel_sha256": "e1e9ff8409fbf8f2059daacf14c73d6f0cea6035e261f59e7f8c940e2bed43e8",
+          "height_px": 3000,
+          "index": 0,
+          "width_px": 4000
+        }
+      ],
+      "filename": "메디힐 히알루론산 랩핑 세럼 마스크-3 (2).jpg",
+      "frame_user_confirmation": "SINGLE_FRAME_NO_SELECTION_REQUIRED",
+      "frontend_input_policy": "JPEG_SOURCE_MIME_CHECK_REQUIRED",
+      "normalized_image_sha256": null,
+      "original_bytes": 3974957,
+      "original_file_mutated": false,
+      "original_sha256": "799b8209dd33daf3c22986d2d39c611d7e526b95eefdc4b7b39e968002df2121",
+      "provider_upload_authorized": false,
+      "rights_and_product_identity": "NOT_AUDITED",
+      "selected_frame": null,
+      "source_exif_orientation": 6,
+      "source_frame_count": 1,
+      "source_icc_sha256": "d2956be6a5694171fb8a900534560cee8a529af533f40788f08d231644f422a7",
+      "source_image_bytes_exported": false
+    },
+    {
+      "actual_container": "MPO",
+      "conversion_version": null,
+      "decoded_source_frames": [
+        {
+          "decoded_rgb_pixel_sha256": "f439db57cc9c250e1837ac8ba93b6ed8e0f9ad81ef7bde1d1d00454644cf7ebb",
+          "height_px": 2048,
+          "index": 0,
+          "width_px": 1536
+        },
+        {
+          "decoded_rgb_pixel_sha256": "82303debee122838cd37ff04639504e540f396c5a689ea7d47414c2bca092c96",
+          "height_px": 1024,
+          "index": 1,
+          "width_px": 768
+        }
+      ],
+      "filename": "모다모다 블루비오틴 스칼프 두피가글 스케일러 -3.JPG",
+      "frame_user_confirmation": "REQUIRED_FOR_MPO_AND_NOT_RECEIVED",
+      "frontend_input_policy": "MPO_PENDING_IMAGE_OWNER_PM_VERSIONED_CONTRACT",
+      "normalized_image_sha256": null,
+      "original_bytes": 355091,
+      "original_file_mutated": false,
+      "original_sha256": "1c42be7e12cb73d31f76eadd88d07c46c15670a60dd34f4183b5cee88915e521",
+      "provider_upload_authorized": false,
+      "rights_and_product_identity": "NOT_AUDITED",
+      "selected_frame": null,
+      "source_exif_orientation": 1,
+      "source_frame_count": 2,
+      "source_icc_sha256": null,
+      "source_image_bytes_exported": false
+    },
+    {
+      "actual_container": "MPO",
+      "conversion_version": null,
+      "decoded_source_frames": [
+        {
+          "decoded_rgb_pixel_sha256": "9c41046b6fec174341bf330d360394410957462eb8e1fd3e35fca39457816f63",
+          "height_px": 2048,
+          "index": 0,
+          "width_px": 1536
+        },
+        {
+          "decoded_rgb_pixel_sha256": "9cc05bb6e92fc9df03dd15dfde640a98c8d87775d854fc5e88d1144e469d664e",
+          "height_px": 1024,
+          "index": 1,
+          "width_px": 768
+        }
+      ],
+      "filename": "모다모다 블루비오틴 스칼프 두피가글 스케일러 -5.JPG",
+      "frame_user_confirmation": "REQUIRED_FOR_MPO_AND_NOT_RECEIVED",
+      "frontend_input_policy": "MPO_PENDING_IMAGE_OWNER_PM_VERSIONED_CONTRACT",
+      "normalized_image_sha256": null,
+      "original_bytes": 587120,
+      "original_file_mutated": false,
+      "original_sha256": "6a76eec7d53c77fe37391e0bc734b7e87020e314559dab6f9b41e00e54283b22",
+      "provider_upload_authorized": false,
+      "rights_and_product_identity": "NOT_AUDITED",
+      "selected_frame": null,
+      "source_exif_orientation": 1,
+      "source_frame_count": 2,
+      "source_icc_sha256": null,
+      "source_image_bytes_exported": false
+    },
+    {
+      "actual_container": "MPO",
+      "conversion_version": null,
+      "decoded_source_frames": [
+        {
+          "decoded_rgb_pixel_sha256": "50842983de22bda0b6919d618419e2e90873cbea97003972c161a6690e9c1831",
+          "height_px": 2048,
+          "index": 0,
+          "width_px": 1536
+        },
+        {
+          "decoded_rgb_pixel_sha256": "1079940628acc7e1bd70fd32f0c576dc27f040e7839c5f5b684e336e478ad71d",
+          "height_px": 1024,
+          "index": 1,
+          "width_px": 768
+        }
+      ],
+      "filename": "모다모다 블루비오틴 스칼프 두피가글 스케일러 -6.JPG",
+      "frame_user_confirmation": "REQUIRED_FOR_MPO_AND_NOT_RECEIVED",
+      "frontend_input_policy": "MPO_PENDING_IMAGE_OWNER_PM_VERSIONED_CONTRACT",
+      "normalized_image_sha256": null,
+      "original_bytes": 671912,
+      "original_file_mutated": false,
+      "original_sha256": "a600df6dbfcbe49799da43bd5b4f7e7f99c801e7538226c1dbc82589b52015d3",
+      "provider_upload_authorized": false,
+      "rights_and_product_identity": "NOT_AUDITED",
+      "selected_frame": null,
+      "source_exif_orientation": 1,
+      "source_frame_count": 2,
+      "source_icc_sha256": null,
+      "source_image_bytes_exported": false
+    },
+    {
+      "actual_container": "MPO",
+      "conversion_version": null,
+      "decoded_source_frames": [
+        {
+          "decoded_rgb_pixel_sha256": "fb2168a3679452f03bd91d97dc4e948691cd745bc432c3a3c0053dab41c05fd1",
+          "height_px": 2048,
+          "index": 0,
+          "width_px": 1536
+        },
+        {
+          "decoded_rgb_pixel_sha256": "5ebda554dc013a07ea0a6509e6baa1a7a3d36ce229bde05cb6b5a1cabc59dadf",
+          "height_px": 1024,
+          "index": 1,
+          "width_px": 768
+        }
+      ],
+      "filename": "스킨푸드 캐롯 카로틴 카밍 워터패드 -5.JPG",
+      "frame_user_confirmation": "REQUIRED_FOR_MPO_AND_NOT_RECEIVED",
+      "frontend_input_policy": "MPO_PENDING_IMAGE_OWNER_PM_VERSIONED_CONTRACT",
+      "normalized_image_sha256": null,
+      "original_bytes": 701955,
+      "original_file_mutated": false,
+      "original_sha256": "cf083dbbaec6f089e59d2755ad650266faea74c4f4ec70af1ca5f5bd675d01db",
+      "provider_upload_authorized": false,
+      "rights_and_product_identity": "NOT_AUDITED",
+      "selected_frame": null,
+      "source_exif_orientation": 1,
+      "source_frame_count": 2,
+      "source_icc_sha256": null,
+      "source_image_bytes_exported": false
+    },
+    {
+      "actual_container": "MPO",
+      "conversion_version": null,
+      "decoded_source_frames": [
+        {
+          "decoded_rgb_pixel_sha256": "aa0c690b937c5ddcd018c9cd9d1f0a0f5a5e50b953e08dea161ae180be296146",
+          "height_px": 2048,
+          "index": 0,
+          "width_px": 1536
+        },
+        {
+          "decoded_rgb_pixel_sha256": "4aa1efca560c12f407a97b570d0b211084f81cc01b54467175389d235b3f560d",
+          "height_px": 1024,
+          "index": 1,
+          "width_px": 768
+        }
+      ],
+      "filename": "스킨푸드 캐롯 카로틴 카밍 워터패드 -7.JPG",
+      "frame_user_confirmation": "REQUIRED_FOR_MPO_AND_NOT_RECEIVED",
+      "frontend_input_policy": "MPO_PENDING_IMAGE_OWNER_PM_VERSIONED_CONTRACT",
+      "normalized_image_sha256": null,
+      "original_bytes": 839307,
+      "original_file_mutated": false,
+      "original_sha256": "f0416c107ab770dfa3166e629e76581d97d5b147c5cefeee46c29fd8decc411b",
+      "provider_upload_authorized": false,
+      "rights_and_product_identity": "NOT_AUDITED",
+      "selected_frame": null,
+      "source_exif_orientation": 1,
+      "source_frame_count": 2,
+      "source_icc_sha256": null,
+      "source_image_bytes_exported": false
+    },
+    {
+      "actual_container": "MPO",
+      "conversion_version": null,
+      "decoded_source_frames": [
+        {
+          "decoded_rgb_pixel_sha256": "e2833ac451f8c23732a88c8dfae0a0f74b4b50bda1e2bb37d57f8857af73ef74",
+          "height_px": 2048,
+          "index": 0,
+          "width_px": 1536
+        },
+        {
+          "decoded_rgb_pixel_sha256": "3402ef949b0105a97175cd60fe9ced5458529cc53eede0ecc6f84cc9c5899e63",
+          "height_px": 1024,
+          "index": 1,
+          "width_px": 768
+        }
+      ],
+      "filename": "스킨푸드 캐롯 카로틴 카밍 워터패드 -8 (1).JPG",
+      "frame_user_confirmation": "REQUIRED_FOR_MPO_AND_NOT_RECEIVED",
+      "frontend_input_policy": "MPO_PENDING_IMAGE_OWNER_PM_VERSIONED_CONTRACT",
+      "normalized_image_sha256": null,
+      "original_bytes": 676281,
+      "original_file_mutated": false,
+      "original_sha256": "fea4e7a26c688aa7c6b85f29604d9f815cb321f497d7d6dec8bc356b8f80fdac",
+      "provider_upload_authorized": false,
+      "rights_and_product_identity": "NOT_AUDITED",
+      "selected_frame": null,
+      "source_exif_orientation": 1,
+      "source_frame_count": 2,
+      "source_icc_sha256": null,
+      "source_image_bytes_exported": false
+    },
+    {
+      "actual_container": "JPEG",
+      "conversion_version": null,
+      "decoded_source_frames": [
+        {
+          "decoded_rgb_pixel_sha256": "d2520ab81c7d31cdfef3a3d2db7933294dccfae7868d02c6b230c4526b55972a",
+          "height_px": 3000,
+          "index": 0,
+          "width_px": 4000
+        }
+      ],
+      "filename": "오브제 포이 제로 오일 컨트롤 선스틱-4.jpg",
+      "frame_user_confirmation": "SINGLE_FRAME_NO_SELECTION_REQUIRED",
+      "frontend_input_policy": "JPEG_SOURCE_MIME_CHECK_REQUIRED",
+      "normalized_image_sha256": null,
+      "original_bytes": 3832892,
+      "original_file_mutated": false,
+      "original_sha256": "e20c7ae67ca177b0ca084843cd540ea15a52761c0b7b4c16d5b28e16f322d1ea",
+      "provider_upload_authorized": false,
+      "rights_and_product_identity": "NOT_AUDITED",
+      "selected_frame": null,
+      "source_exif_orientation": 6,
+      "source_frame_count": 1,
+      "source_icc_sha256": "d2956be6a5694171fb8a900534560cee8a529af533f40788f08d231644f422a7",
+      "source_image_bytes_exported": false
+    },
+    {
+      "actual_container": "JPEG",
+      "conversion_version": null,
+      "decoded_source_frames": [
+        {
+          "decoded_rgb_pixel_sha256": "1cfebe8f4b355d55dddc030269d02702faa94052fcf96847210f77e672038d8b",
+          "height_px": 3000,
+          "index": 0,
+          "width_px": 4000
+        }
+      ],
+      "filename": "오브제 포이 제로 오일 컨트롤 선스틱-5.jpg",
+      "frame_user_confirmation": "SINGLE_FRAME_NO_SELECTION_REQUIRED",
+      "frontend_input_policy": "JPEG_SOURCE_MIME_CHECK_REQUIRED",
+      "normalized_image_sha256": null,
+      "original_bytes": 3747681,
+      "original_file_mutated": false,
+      "original_sha256": "ce2637969dd4c06929398fbc1807d647de73c774d7a3248c127ee7b3a53d13ee",
+      "provider_upload_authorized": false,
+      "rights_and_product_identity": "NOT_AUDITED",
+      "selected_frame": null,
+      "source_exif_orientation": 6,
+      "source_frame_count": 1,
+      "source_icc_sha256": "d2956be6a5694171fb8a900534560cee8a529af533f40788f08d231644f422a7",
+      "source_image_bytes_exported": false
+    },
+    {
+      "actual_container": "JPEG",
+      "conversion_version": null,
+      "decoded_source_frames": [
+        {
+          "decoded_rgb_pixel_sha256": "0a3b7398ae43d10def3ba2e6c8123001cd28a5e330e50b84db8e2b6d2c9b2123",
+          "height_px": 3000,
+          "index": 0,
+          "width_px": 4000
+        }
+      ],
+      "filename": "피지오겔 레드수딩 AI 로션 200ml -2.jpg",
+      "frame_user_confirmation": "SINGLE_FRAME_NO_SELECTION_REQUIRED",
+      "frontend_input_policy": "JPEG_SOURCE_MIME_CHECK_REQUIRED",
+      "normalized_image_sha256": null,
+      "original_bytes": 3434527,
+      "original_file_mutated": false,
+      "original_sha256": "e40d648654ae060252c0f6630fdb1fbf9da2f0fb443f693e9d837fb84799bb28",
+      "provider_upload_authorized": false,
+      "rights_and_product_identity": "NOT_AUDITED",
+      "selected_frame": null,
+      "source_exif_orientation": 6,
+      "source_frame_count": 1,
+      "source_icc_sha256": "d2956be6a5694171fb8a900534560cee8a529af533f40788f08d231644f422a7",
+      "source_image_bytes_exported": false
+    },
+    {
+      "actual_container": "JPEG",
+      "conversion_version": null,
+      "decoded_source_frames": [
+        {
+          "decoded_rgb_pixel_sha256": "d2b30131e9076093b4e6219546b11b4dace4e24aa90de7bf0f3c3be8c1196717",
+          "height_px": 3000,
+          "index": 0,
+          "width_px": 4000
+        }
+      ],
+      "filename": "피지오겔 레드수딩 AI 로션 200ml -3.jpg",
+      "frame_user_confirmation": "SINGLE_FRAME_NO_SELECTION_REQUIRED",
+      "frontend_input_policy": "JPEG_SOURCE_MIME_CHECK_REQUIRED",
+      "normalized_image_sha256": null,
+      "original_bytes": 3916386,
+      "original_file_mutated": false,
+      "original_sha256": "50ac49f5b27274e0177e80d8bcc41ea2390c303e8d18f608e076e84d7e265ac7",
+      "provider_upload_authorized": false,
+      "rights_and_product_identity": "NOT_AUDITED",
+      "selected_frame": null,
+      "source_exif_orientation": 6,
+      "source_frame_count": 1,
+      "source_icc_sha256": "d2956be6a5694171fb8a900534560cee8a529af533f40788f08d231644f422a7",
+      "source_image_bytes_exported": false
+    },
+    {
+      "actual_container": "MPO",
+      "conversion_version": null,
+      "decoded_source_frames": [
+        {
+          "decoded_rgb_pixel_sha256": "b8ec396806e73c41cfd763367c2637667224e01173a6a8bff2e52aa0b8010762",
+          "height_px": 2048,
+          "index": 0,
+          "width_px": 1536
+        },
+        {
+          "decoded_rgb_pixel_sha256": "e3566324ee1eb7995dc1c9b391940e8878fc7f8b4f2731eb188e944edaa899f5",
+          "height_px": 1024,
+          "index": 1,
+          "width_px": 768
+        }
+      ],
+      "filename": "히알루론 액티브 B3 안티에이징 세럼 -3.JPG",
+      "frame_user_confirmation": "REQUIRED_FOR_MPO_AND_NOT_RECEIVED",
+      "frontend_input_policy": "MPO_PENDING_IMAGE_OWNER_PM_VERSIONED_CONTRACT",
+      "normalized_image_sha256": null,
+      "original_bytes": 437081,
+      "original_file_mutated": false,
+      "original_sha256": "5f5122a68da6df4be7fd0054c94300095fd853c8e5019b8a9b110ab715fdc305",
+      "provider_upload_authorized": false,
+      "rights_and_product_identity": "NOT_AUDITED",
+      "selected_frame": null,
+      "source_exif_orientation": 1,
+      "source_frame_count": 2,
+      "source_icc_sha256": null,
+      "source_image_bytes_exported": false
+    },
+    {
+      "actual_container": "MPO",
+      "conversion_version": null,
+      "decoded_source_frames": [
+        {
+          "decoded_rgb_pixel_sha256": "49c041267b6b8d15e2526cafc24046e6a26be563595bda666036cff7a256ed1d",
+          "height_px": 2048,
+          "index": 0,
+          "width_px": 1536
+        },
+        {
+          "decoded_rgb_pixel_sha256": "6b50bd6c899fc6327157b32a3436b0c54e4202d33c543b906dec9edc0a946ea0",
+          "height_px": 1024,
+          "index": 1,
+          "width_px": 768
+        }
+      ],
+      "filename": "히알루론 액티브 B3 안티에이징 세럼 -4.JPG",
+      "frame_user_confirmation": "REQUIRED_FOR_MPO_AND_NOT_RECEIVED",
+      "frontend_input_policy": "MPO_PENDING_IMAGE_OWNER_PM_VERSIONED_CONTRACT",
+      "normalized_image_sha256": null,
+      "original_bytes": 525823,
+      "original_file_mutated": false,
+      "original_sha256": "ef7e19053c36db904a72664862adfcf6d202c95e4c4497194bc7cc9f2d873c90",
+      "provider_upload_authorized": false,
+      "rights_and_product_identity": "NOT_AUDITED",
+      "selected_frame": null,
+      "source_exif_orientation": 1,
+      "source_frame_count": 2,
+      "source_icc_sha256": null,
+      "source_image_bytes_exported": false
+    },
+    {
+      "actual_container": "MPO",
+      "conversion_version": null,
+      "decoded_source_frames": [
+        {
+          "decoded_rgb_pixel_sha256": "c4dfa46f94cc9d79c072300ec33c8c9d38ee487cc0e0c61f429a59bac5b4ff4f",
+          "height_px": 2048,
+          "index": 0,
+          "width_px": 1536
+        },
+        {
+          "decoded_rgb_pixel_sha256": "1414e7733031996082c1e2b019a30d425ecdbbf85aa127a4e6a7878b03a04b9f",
+          "height_px": 1024,
+          "index": 1,
+          "width_px": 768
+        }
+      ],
+      "filename": "히알루론 액티브 B3 안티에이징 세럼 -6.JPG",
+      "frame_user_confirmation": "REQUIRED_FOR_MPO_AND_NOT_RECEIVED",
+      "frontend_input_policy": "MPO_PENDING_IMAGE_OWNER_PM_VERSIONED_CONTRACT",
+      "normalized_image_sha256": null,
+      "original_bytes": 569511,
+      "original_file_mutated": false,
+      "original_sha256": "caebe78d066f8dc4145c6b87e55409b9fbe893b7ca737beb9e7c89e36b96da16",
+      "provider_upload_authorized": false,
+      "rights_and_product_identity": "NOT_AUDITED",
+      "selected_frame": null,
+      "source_exif_orientation": 1,
+      "source_frame_count": 2,
+      "source_icc_sha256": null,
+      "source_image_bytes_exported": false
+    }
+  ],
+  "normalized_image_outputs_created": 0,
+  "total_decoded_frames": 39,
+  "total_files": 24
+}

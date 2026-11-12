@@ -1,0 +1,38 @@
+{
+  "actual_paid_provider_receipts": "NONE",
+  "actual_paid_worker_started": false,
+  "actual_signed_actor_required": true,
+  "all_four_schemas_preinitialized_and_gate_checked": true,
+  "contract": "IT_TEM_A51I_R1_ACTUAL_GCP_SIGNED_SSO_WORKER_OFF_SQLITE_SNAPSHOT_AUDIT_V1",
+  "cross_db_snapshot_atomicity": "NOT_PROVEN_CONCURRENT_WRITES_CANNOT_BE_ASSUMED_ATOMIC",
+  "executed_head": "46a8de353ceae557dd8585481c2028fa9451e17c",
+  "executed_tree": "a62e89927f29bd21007215dbc1692a65b5d6cffc",
+  "four_ledgers_rows": {
+    "application": 0,
+    "cost": 0,
+    "owner_provider": 0,
+    "queue": 0
+  },
+  "gcp_pid": 196402,
+  "gcp_root": "/home/macstudio/ittem-a51i-signed-sso-devtest-r1-20261111",
+  "live_paid_flags_all_no": true,
+  "loopback_port": 18564,
+  "observation_utc": "2026-11-11T05:03:42.059754+00:00",
+  "old_a_source_unchanged": "9879eb0f85747312a224ecd898aaff84d834590b",
+  "provider_secrets_absent": true,
+  "real_provider_calls": 0,
+  "restored_actor_job_count": 2,
+  "restored_get_job": "PASS",
+  "sql_integrity_checks": "ALL_OK",
+  "sqlite_snapshot_count": 6,
+  "sqlite_snapshot_sha256": {
+    "a51e_beta_upload_request.sqlite": "40907ffe0beb82a6f5b1f4c26394c5c6a4e0451b305d01b5d6350cd87678a538",
+    "demo.sqlite3": "7f8816ebdba4bd9427ab7a1365217a5b6ab910880482dcf27247012f98fa7521",
+    "live/cost.sqlite": "5e0c03d04084c6e0322c6e8acab4bad40552199763c71d9ae7ba65bc295d482c",
+    "live/live.sqlite": "519f898bba2383bfa0508f333d8e88d13b8e39df988e7b07dc4d50e10631fda7",
+    "live/owner_image/image_attempts.sqlite": "724184c916819304cef2c4ef1e3d5578559cd4b4390c8bb4dfeeeda0521e9eba",
+    "live/queue.sqlite": "bdb0ab891105a064ed969872bac0e23ded285e38f90f36cea8eb09558d209295"
+  },
+  "team_uat_and_real_provider_six_jobs": "NOT_AUDITED_0_OF_6",
+  "worker_hard_cap_profile_config": "CONFIGURED_BUT_NOT_PAID_VALIDATED"
+}

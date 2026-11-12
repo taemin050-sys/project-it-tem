@@ -17,9 +17,13 @@ const mockSession: Plugin = {
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd())
   return {
-    plugins: env.VITE_USE_MOCK === 'true' ? [react(), mockSession] : [react()],
-    // 개발 중 /api는 같은 출처로 받아 서버로 넘긴다 (레거시 서버에 CORS 설정이 없음).
-    // 대상은 팀이 허가한 서버만. 브라우저 기준 127.0.0.1은 사용자 PC다
-    server: { proxy: { '/api': env.VITE_API_PROXY_TARGET || 'http://localhost:8000' } },
+    // Offline local dev ONLY. Neither production builds nor the pinned
+    // GCP OFFLINE_FIXTURE QA may synthesize an authenticated user session.
+    plugins: mode === 'development' && env.VITE_USE_MOCK === 'true' &&
+      env.VITE_QA_OFFLINE_FIXTURE !== 'YES' ? [react(), mockSession] : [react()],
+    // Even when mock login is explicitly enabled the dev server only binds
+    // loopback. Never expose the mock-session middleware to teammates.
+    server: { host: env.VITE_USE_MOCK === 'true' ? '127.0.0.1' : undefined,
+      proxy: { '/api': env.VITE_API_PROXY_TARGET || 'http://localhost:8000' } },
   }
 })

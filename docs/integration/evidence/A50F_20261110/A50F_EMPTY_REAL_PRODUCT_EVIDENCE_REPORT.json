@@ -1,0 +1,20 @@
+{
+  "a5_1_implementation_authorized": false,
+  "authentic_rights_clearance": "NOT_AUDITED",
+  "blocked": [],
+  "blocked_cases": 0,
+  "cases_total": 0,
+  "contract": "IT_TEM_P03_A50F_RIGHTS_MASK_READONLY_PREFLIGHT_V1",
+  "cta_platform_safe_zone": "NOT_AUDITED",
+  "d50_05_d50_06_gate": "HOLD",
+  "evidence_present_cases": 0,
+  "gcp_qa_deployment": "HOLD",
+  "owner_pm_human_review": "PENDING",
+  "paid_worker": "HOLD",
+  "real_product_fidelity": "NOT_AUDITED",
+  "release": "NOT_RELEASE_READY",
+  "reports": [],
+  "review_only": true,
+  "source_binary_copied_to_output": false,
+  "source_reference_a50e_sha256": "42995a82027e727eebfb416f9cf4270b3870b1849b041f2e0151a0578e2615b8"
+}

@@ -1,0 +1,1 @@
+{"existing_destination_changed": false, "loser_per_round": 1, "partial_or_orphan_stage": false, "platform": "Linux", "primitive": "renameat2(RENAME_NOREPLACE)", "result": "PASS", "rounds": 30, "winner_per_round": 1}

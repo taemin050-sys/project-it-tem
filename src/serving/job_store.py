@@ -33,6 +33,7 @@ class ValidatedUpload:
     width: int
     height: int
     sha256: str
+    provenance: dict[str, Any] | None = None
 
 
 class JobStore:
@@ -100,7 +101,7 @@ class JobStore:
                             file.write(upload.data)
                             file.flush()
                             os.fsync(file.fileno())
-                        metadata["assets"].append({
+                        asset_record = {
                             "asset_id": asset_id,
                             "role": role,
                             "original_filename": upload.original_filename,
@@ -109,7 +110,10 @@ class JobStore:
                             "width": upload.width,
                             "height": upload.height,
                             "sha256": upload.sha256,
-                        })
+                        }
+                        if upload.provenance is not None:
+                            asset_record["source_provenance"] = upload.provenance
+                        metadata["assets"].append(asset_record)
                 temp = job_dir / "job.json.tmp"
                 with temp.open("x", encoding="utf-8") as file:
                     json.dump(metadata, file, ensure_ascii=False, indent=2)

@@ -1,0 +1,99 @@
+{
+  "bound_context_sha": "8f5bbe05ac029d5a7edaf43c521b87e81a75ade53e6346bb65d8669cea5226a3",
+  "bound_font_sha": "3090ccde0442bb347aa7685d9ba8b17436a60682df6e8f92a9a670de14056e22",
+  "layout": {
+    "canvas_size": [
+      1080,
+      1350
+    ],
+    "cta_placement": "image",
+    "protected_regions": [
+      {
+        "bottom": 0.7666666666666668,
+        "left": 0.4037037037037037,
+        "right": 0.5962962962962964,
+        "top": 0.29999999999999993
+      }
+    ],
+    "text_regions": {
+      "cta": {
+        "align": "center",
+        "background": "#503B58",
+        "bottom": 0.9155555555555557,
+        "color": "#FFFFFF",
+        "left": 0.07407407407407406,
+        "max_font_size": 60,
+        "max_lines": 1,
+        "min_font_size": 48,
+        "padding": 16,
+        "right": 0.925925925925926,
+        "top": 0.8103703703703703,
+        "vertical_align": "center"
+      },
+      "headline": {
+        "align": "center",
+        "background": null,
+        "bottom": 0.1651851851851852,
+        "color": "#463447",
+        "left": 0.07962962962962962,
+        "max_font_size": 116,
+        "max_lines": 1,
+        "min_font_size": 64,
+        "padding": 16,
+        "right": 0.9203703703703705,
+        "top": 0.060740740740740734,
+        "vertical_align": "center"
+      },
+      "subline": {
+        "align": "center",
+        "background": null,
+        "bottom": 0.282962962962963,
+        "color": "#6A526A",
+        "left": 0.07962962962962962,
+        "max_font_size": 75,
+        "max_lines": 1,
+        "min_font_size": 54,
+        "padding": 16,
+        "right": 0.9203703703703705,
+        "top": 0.18148148148148147,
+        "vertical_align": "center"
+      }
+    }
+  },
+  "layout_sha": "277e0a0f748bfa07d3bc6abd5085375df8935fef89af918b52f67c20f9dd4d90",
+  "profile_id": "OWNER_COMPOSED_4X5_V3_BETA_C",
+  "profile_version": "owner-composed-4x5-v3-beta-proposal1",
+  "safe_zone": {
+    "deployment_authority": "OFFLINE_FIXTURE_ONLY_NOT_PM_OWNER_SIGNED",
+    "final_size": [
+      1080,
+      1350
+    ],
+    "font_file_sha256_required": "3090ccde0442bb347aa7685d9ba8b17436a60682df6e8f92a9a670de14056e22",
+    "font_license_sha256_reference": "b04538c9abec39a3db75108cf0af0fd9c77032fe8aa2cf38345b4d250e98e38e",
+    "layout_selection": {
+      "aspect_ratio": "4:5",
+      "placement": "feed"
+    },
+    "mode": "composed",
+    "native_size": [
+      1152,
+      1440
+    ],
+    "policy_epoch": "a5-v3-beta-unsigned-20261110",
+    "proposal_sha256": "eec55373cca228de34838b33baaf3b11e703e341b05739b34f4c909b1afea6fd",
+    "protection_basis": "SYNTHETIC_TARGET_NOT_REAL_MASK",
+    "real_customer_assets_permitted": false,
+    "real_provider_permitted": false,
+    "safe_frame_ltrb": [
+      64,
+      64,
+      1016,
+      1286
+    ],
+    "size": "4:5"
+  },
+  "safe_zone_sha": "eb2e388c7fe3dcbe38f356cd6d189fe0f71be68659a17beb1696c7bd5b1cef6e",
+  "source": "READ_ONLY_REAL_SQLITE_TEMPLATE_SNAPSHOT",
+  "source_job_id": "6e82503cbd0444dd93913f99c03c0428"
+}
