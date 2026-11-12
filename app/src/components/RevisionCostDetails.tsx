@@ -4,7 +4,7 @@ export type RevisionCostAttempt = {
   receipt_sha?: string | null; provider_response_id?: string | null
 }
 export type RevisionCostGroup = {
-  revision_id: string; kind: 'image_correction' | 'composed_copy_edit'; state: string
+  revision_id: string; kind: 'image_correction' | 'composed_copy_edit' | 'final_inpainting'; state: string
   provider_attempt_count: number; status: string; actual_usd: null; attempts: RevisionCostAttempt[]
 }
 export type RevisionCostSummary = {
@@ -20,7 +20,7 @@ const STATUS: Record<string, string> = {
   UNPRICED: '사용량은 기록됐으며 실제 USD 청구액은 확인 전입니다.',
   BILLING_UNKNOWN: '과금 여부 확인이 필요합니다. 자동으로 다시 호출하지 않습니다.',
 }
-const LABEL = {image_correction: '자유형 오타 수정 · 이미지 편집', composed_copy_edit: '합성형 문구 수정 · LLM 검수'}
+const LABEL = {image_correction: '자유형 오타 수정 · 이미지 편집', composed_copy_edit: '합성형 문구 수정 · LLM 검수', final_inpainting: '최종 광고 부분 수정 · 인페인팅'}
 const COUNT = new Intl.NumberFormat('ko-KR')
 const count = (n: number | undefined) => typeof n === 'number' && Number.isSafeInteger(n) && n >= 0 ? COUNT.format(n) : '확인 중'
 

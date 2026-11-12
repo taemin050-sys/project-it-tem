@@ -72,6 +72,7 @@ def _change_span(observed, target):
 
 
 class ImageCorrections:
+    protocol = PROTOCOL
     def __init__(self, flow):
         self.flow = flow
         self.file = flow.root / "image_corrections.sqlite"
@@ -385,7 +386,7 @@ class ImageCorrections:
                 final = resize_ad_png(preview, final_size=target).image_bytes
                 caption_copy = json.loads(job["copy_json"])
                 caption = (caption_copy["caption"] + "\n\n" + " ".join(caption_copy["hashtags"])).encode("utf-8")
-                approved = {"protocol": PROTOCOL, "correction_id": correction_id, "actor": actor,
+                approved = {"protocol": self.protocol, "correction_id": correction_id, "actor": actor,
                     "source_context_sha": row["context_sha"], "preview_sha": row["preview_sha"], "checks": checks}
                 approval_sha = digest(approved)
                 receipt_bytes = (folder / "receipt.json").read_bytes()
@@ -510,7 +511,7 @@ def _prompt(payload):
     return payload.get("edit_prompt") or _prompt_v1(payload)
 
 
-def _masked_provider(flow, row, source, mask, size, payload, transport=None):
+def _masked_provider(flow, row, source, mask, size, payload, transport=None, *, protocol=PROTOCOL):
     """Native Owner attempt store + aggregate CostLedger both persist this call."""
     from src.image_generation.assets import LocalAssetStore
     from src.image_generation.provider_attempts import ProviderAttemptStore
@@ -520,12 +521,12 @@ def _masked_provider(flow, row, source, mask, size, payload, transport=None):
     adapter = transport or OpenAIImagesAdapter(OpenAIImagesConfig(live_calls=True,
         api_key=os.environ.get("OPENAI_API_KEY"), timeout_seconds=120))
     adapter._validate_config()
-    project = uuid5(flow.project_id, "image-correction/" + row["job_id"])
+    project = uuid5(flow.project_id, protocol + "/" + row["job_id"]) if protocol != PROTOCOL else uuid5(flow.project_id, "image-correction/" + row["job_id"])
     owner_job = UUID(row["correction_id"])
     owner = ProviderAttemptStore(flow.root / "owner_image" / "image_attempts.sqlite")
     assets = LocalAssetStore(flow.root / "owner_image" / "image_assets")
     prompt = _prompt(payload)
-    request = {"protocol": PROTOCOL, "source_sha": sha256(source).hexdigest(), "mask_sha": sha256(mask).hexdigest(),
+    request = {"protocol": protocol, "source_sha": sha256(source).hexdigest(), "mask_sha": sha256(mask).hexdigest(),
                "prompt_sha": sha256(prompt.encode()).hexdigest(), "size": list(size), "profile": profile,
                "source_context_sha": row["context_sha"]}
     attempt_id = owner.begin(owner_job, project, digest(request), budget_limit_usd="0", reservation_usd="0", monitoring_only=True)

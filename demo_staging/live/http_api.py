@@ -208,6 +208,10 @@ def register_live_api(app:FastAPI, ledger, runtime_root:Path, cookie_name:str):
     from .composed_copy_edit_api import install_composed_copy_edit_routes
     install_image_correction_routes(app, flow, authorized, require_queue)
     install_composed_copy_edit_routes(app, flow, authorized, require_queue)
+    from .final_inpainting import FinalInpainting
+    from .image_correction_api import InpaintingRequest
+    install_image_correction_routes(app, flow, authorized, require_queue,
+        service_type=FinalInpainting, namespace="final-inpainting", request_model=InpaintingRequest)
 
     # Historical results remain readable under the same signed parent ACL even
     # when execution is paused or its Worker is stopped.

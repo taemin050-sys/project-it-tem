@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query'
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { dualArtifactPath, matchesDualImageSize, type DualArtifactKind } from '../api/dualArtifacts'
 import { canResumeDualJob, decideDualVariant, dualQueryKey, getDualJob, resumeDualJob, selectDualVariant,
@@ -22,6 +22,7 @@ import StepPage from './StepPage'
 
 type Stage = 'draft' | 'export'
 const MODES = ['composed', 'freeform'] as const
+const FinalInpaintingPanel = lazy(() => import('./FinalInpaintingPanel'))
 const LABELS = {composed: '시안 A · 합성형 (Composed)', freeform: '시안 B · 자유형 (Freeform)'}
 const GROUP_STATUS: Record<DualSnapshot['state'], string> = {
   READY: '카피 승인 대기', GENERATING: '두 시안 준비 중', REVIEW_REQUIRED: '시안 검토 필요',
@@ -202,6 +203,9 @@ function VariantCard({group, mode, stage, variant, canMutate, approvedCopy, onRe
         onClick={() => void change(() => selectDualVariant(group, mode, variant.final_sha!))}>
         {selected ? '선택한 시안' : '이 시안 선택'}
       </button>
+      {live && variant.variant_job_id && <Suspense fallback={<p>부분 수정 도구 준비 중…</p>}>
+        <FinalInpaintingPanel key={variant.variant_job_id} jobId={variant.variant_job_id} mode={mode} canMutate={canMutate} />
+      </Suspense>}
       <details className="dual-provenance">
         <summary>파일 무결성과 검수 기록</summary>
         <dl>

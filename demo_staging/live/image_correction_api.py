@@ -45,10 +45,22 @@ class CorrectionDecision(BaseModel):
     visual_review: CorrectionVisualReview | None = None
 
 
-def install_image_correction_routes(app, flow, authorized, require_queue):
-    service = ImageCorrections(flow)
-    prefix = "/demo/api/live/jobs/{job_id}/image-corrections"
-    app.state.image_corrections = service
+class InpaintingRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+    expected_image_sha: str = Field(pattern=r"^[0-9a-f]{64}$")
+    expected_copy_sha: str = Field(pattern=r"^[0-9a-f]{64}$")
+    expected_approval_sha: str = Field(pattern=r"^[0-9a-f]{64}$")
+    mask_png_base64: str = Field(min_length=1, max_length=2_800_000)
+    prompt: str = Field(min_length=3, max_length=1200)
+    request_key: str = Field(pattern=r"^[0-9a-f]{32}$")
+    acknowledge_paid_edit: bool
+
+
+def install_image_correction_routes(app, flow, authorized, require_queue, *, service_type=ImageCorrections,
+                                    namespace="image-corrections", request_model=CorrectionRequest):
+    service = service_type(flow)
+    prefix = "/demo/api/live/jobs/{job_id}/" + namespace
+    setattr(app.state, namespace.replace("-", "_"), service)
 
     def actor_for(request, job_id, *, write=False):
         actor = authorized(request)
@@ -96,11 +108,12 @@ def install_image_correction_routes(app, flow, authorized, require_queue):
                     "cost_summary": revision_cost_summary(flow, actor, job_id)}
         return call(snapshot)
 
-    @app.post(prefix)
-    def prepare(job_id: str, body: CorrectionRequest, request: Request):
+    def prepare(job_id: str, body, request: Request):
         actor = actor_for(request, job_id, write=True)
         require_queue(actor)
         return call(lambda: JSONResponse(service.request(actor, job_id, body.model_dump(mode="json", exclude_defaults=True)), status_code=202))
+    prepare.__annotations__["body"] = request_model
+    app.post(prefix)(prepare)
 
     @app.get(prefix + "/source")
     def source(job_id: str, sha256: str, request: Request):

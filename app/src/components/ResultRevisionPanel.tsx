@@ -1,12 +1,11 @@
 import { useQuery } from '@tanstack/react-query'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { request } from '../api/client'
-import { getBlob } from '../api/jobs'
 import { queryClient } from '../api/queryClient'
 import { revisionArtifactPath, revisionPath, revisionSourcePath, validTextRegion,
   type CopyFields, type RevisionKind, type TextRegion } from '../api/resultRevisionContract'
 import { download } from '../lib/download'
-import { useObjectUrls } from '../lib/useObjectUrls'
+import { useFile } from '../lib/useVerifiedRevisionFile'
 import RevisionCostDetails, { type RevisionCostSummary } from './RevisionCostDetails'
 
 type Revision = {
@@ -35,19 +34,6 @@ const STATES: Record<string, string> = {
 const EMPTY_COPY: CopyFields = {headline: '', subline: '', cta: ''}
 const EMPTY_REVIEW = {product_matches: false, label_matches: false, cta_policy_matches: false, no_extra_text: false}
 
-function useFile(path: string | undefined, sha: string | null | undefined) {
-  const query = useQuery({queryKey: ['revision-artifact', path], enabled: Boolean(path && sha),
-    retry: false, staleTime: Infinity, refetchOnWindowFocus: false, queryFn: async () => {
-      const blob = await getBlob(path!)
-      const digest = await crypto.subtle.digest('SHA-256', await blob.arrayBuffer())
-      const actual = Array.from(new Uint8Array(digest), n => n.toString(16).padStart(2, '0')).join('')
-      if (actual !== sha) throw Error('수정본 파일의 SHA-256이 일치하지 않습니다.')
-      return blob
-    }})
-  const blobs = useMemo(() => query.data ? [query.data] : [], [query.data])
-  const [url] = useObjectUrls(blobs)
-  return {url, query}
-}
 
 export default function ResultRevisionPanel({jobId, mode, canMutate, onCompletedChange, showRequestForm = true}: {
   jobId: string; mode: 'composed' | 'freeform'; canMutate: boolean; onCompletedChange?: (completed: boolean) => void

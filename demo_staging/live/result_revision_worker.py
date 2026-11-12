@@ -5,11 +5,13 @@ namespace must also stop the other and the ordinary Dual queue.
 """
 from .image_correction import run_image_correction_once
 from .composed_copy_edit import run_composed_copy_edit_once
+from .final_inpainting import run_final_inpainting_once
 
 
 def run_result_revision_once(flow):
     hooks = ((run_image_correction_once, "NO_IMAGE_CORRECTION_TASK"),
-             (run_composed_copy_edit_once, "NO_COMPOSED_COPY_EDIT"))
+             (run_composed_copy_edit_once, "NO_COMPOSED_COPY_EDIT"),
+             (run_final_inpainting_once, "NO_FINAL_INPAINT_TASK"))
     held = None
     for hook, empty in hooks:
         result = hook(flow, recover_only=True)

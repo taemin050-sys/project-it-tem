@@ -92,12 +92,12 @@ def _aggregate(attempts):
         "status": _status(attempts), "actual_usd": None, "attempts": attempts}
 
 
-def _image_revision(row, actor, job_id):
+def _image_revision(row, actor, job_id, *, protocol=_IMAGE_PROTOCOL, kind="image_correction"):
     payload = _strict_json(row["payload_json"])
     source = payload["source_context"]
     if (not _ID.fullmatch(row["correction_id"]) or not _SHA.fullmatch(row["request_sha"])
             or digest(payload) != row["request_sha"] or digest(source) != row["context_sha"]
-            or source["protocol"] != _IMAGE_PROTOCOL or source["actor"] != actor or source["job_id"] != job_id
+            or source["protocol"] != protocol or source["actor"] != actor or source["job_id"] != job_id
             or payload["request_key"] != row["request_key"]
             or any(payload[name] != source[target] for name, target in (
                 ("expected_image_sha", "source_image_sha"), ("expected_copy_sha", "copy_sha"),
@@ -106,8 +106,8 @@ def _image_revision(row, actor, job_id):
     for field in ("source_image_sha", "copy_sha", "approval_sha", "review_sha"):
         if not _SHA.fullmatch(source[field]):
             raise ValueError
-    return {"revision_id": row["correction_id"], "kind": "image_correction", "state": row["state"],
-        "fingerprints": {digest({"protocol": _IMAGE_PROTOCOL, "correction_id": row["correction_id"],
+    return {"revision_id": row["correction_id"], "kind": kind, "state": row["state"],
+        "fingerprints": {digest({"protocol": protocol, "correction_id": row["correction_id"],
                                 "request_sha": row["request_sha"]})},
         "stage": "image", "evidence": None, "nonbillable":"stroke_source_box" in payload}
 
@@ -153,7 +153,9 @@ def revision_cost_summary(flow, actor, job_id):
     try:
         revisions = []
         specs = (("image_corrections.sqlite", "image_corrections", _image_revision),
-                 ("composed_copy_edits.sqlite", "composed_copy_edits", _copy_revision))
+                 ("composed_copy_edits.sqlite", "composed_copy_edits", _copy_revision),
+                 ("final_inpainting.sqlite", "image_corrections", lambda row, actor, job_id:
+                    _image_revision(row, actor, job_id, protocol="FINAL_AD_INPAINT_V1", kind="final_inpainting")))
         for filename, table, parser in specs:
             file = Path(flow.root)/filename
             if not file.exists() and not file.is_symlink():

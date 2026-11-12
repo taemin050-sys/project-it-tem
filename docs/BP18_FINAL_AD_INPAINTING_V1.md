@@ -1,0 +1,30 @@
+# Final advertisement inpainting v1
+
+Track B user-authorized extension of RC9, not a change to the Release Master.
+The Composed/Freeform **approved final PNG** is the editable source. Pure Freeform generation, prior text corrections, source-stroke retouch and protected Hybrid contracts remain unchanged. A partially edited result is explicitly `final_ad_masked_inpainting_v1`, not a new pure-Freeform generation or inherited approval.
+
+## Open-source selection
+
+React Konva 19.3.2 and Konva 10.9.1, both MIT, pinned in package-lock.json. Official source https://github.com/konvajs/react-konva and https://github.com/konvajs/konva. Free drawing/eraser, retained paths and native PNG export adapt the official example https://konvajs.org/docs/react/Free_Drawing.html. Notices ship in app/public/licenses. React Konva 19.3 matches our React 19.3; no commercial SDK subscription, new VM or new provider credential.
+
+Compared with react-sketch-canvas (SVG-oriented general drawing) and Fabric (broader object/document editor), Konva fits a bounded React canvas mask with touch, compositing/eraser and precise native coordinates. Only our existing form, approval and artifact workflow is added. No whole design editor or third-party storage is introduced. The editor is a lazy chunk.
+
+## Lifecycle and trust
+
+GET/POST `/demo/api/live/jobs/{job}/final-inpainting`; GET `/source`; GET `/{id}/artifacts/{preview|final|caption|receipt}`; POST `/{id}/decision`.
+
+Signed SSO and source Job ownership apply to every request, including GET. Registered admin/evaluator actors may request/review only their own Jobs under the existing paid allowlist. The source must be COMPLETED LIVE Dual, final PNG/Caption/manifest/provider receipt intact, with current Copy/F09 approval. The context freezes mode, final/manifest SHA, generation, copy, approval, F09 and Actor. It is rechecked before/after provider I/O and review/download. Unsupported/stale/rejected sources fail closed.
+
+PNG RGBA mask: nonzero alpha selects editable pixels. Server decodes and canonicalizes the exact native mask, rejects empty/wrong-size/animated/non-PNG/oversized masks and selection over 85%. Erased holes remain protected. Native 1080×1440/1350/1920 supported. The model gets a padded multiple-of-64 source and transparent edit mask; output is cropped without scaling. Outside-selection RGB is copied exactly from the source and reverified on retrieval. Transparent model pixels retain the source. This does not guarantee seamless design or text fidelity inside the mask; separate human checks remain mandatory.
+
+Separate opt-in `runtime/live/final_inpainting.sqlite` reuses the audited revision-row schema and CAS/final download transaction. No active core DB migration and no database creation on import, cold start or listing before first explicit request. QUEUED→RUNNING→REVIEW_REQUIRED→COMPLETED/REJECTED, or HOLD/BILLING_UNKNOWN. Crash/uncertain sends never auto retry. The existing lifetime paid Worker/operator lock owns all dispatch. Recovery scans all revision namespaces before any paid claim. Each request freezes prompt/profile/mask/context and an idempotency key; one explicit request has at most one provider attempt. No provider secrets in Web, browser or Derived Worker.
+
+Existing image edit adapter and native Owner Attempt/Receipt/asset plus outer CostLedger are reused. New fingerprint protocol `FINAL_AD_INPAINT_V1`; revision accounting excludes the same attempt from base Dual counts and never counts it twice. No invoice reconciliation is invented: actual USD remains UNPRICED/USD_UNRECONCILED. Same key after uncertain HTTP reuses the frozen body. Failed/rejected/incomplete derivatives cannot download final PNG/Caption.
+
+The prompt preserves approved claims and copy. New copy content uses the separate copy/F09/reapproval flow. Even a visual edit needs new independent product/label/CTA/no-extra-text checks and an exact readback of Head/Sub/CTA. Old final approval is not inherited by the derivative; existing files/receipts never change. Final Receipt binds candidate receipt, human decision, final PNG and UTF-8 Caption.
+
+## Deployment boundary
+
+B-only reviewed source pair, whole-release inventories, B5 Dual/Derived/Auth/Review contracts and compatible rollback source. Existing queues must be idle/UNKNOWN0, Workers stop normally, all existing DB/Artifact bytes and record identities are backed up and compared before activation. New private DB is created by the first explicit edit, not boot. Fallback must include this queue namespace; old RC9 cannot consume pending/new inpainting rows safely and is not an activation rollback target. Actual rollback execution remains separately NOT_TESTED. No changes to A/Live/QA/dev.
+
+Product NOT_RELEASE_READY. CODE/FIXTURE/REAL/HUMAN/RELEASE remain separate.

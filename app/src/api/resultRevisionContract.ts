@@ -1,6 +1,6 @@
 export type CopyFields = {headline: string; subline: string; cta: string}
 export type TextRegion = [number, number, number, number]
-export type RevisionKind = 'image-corrections' | 'composed-copy-edits'
+export type RevisionKind = 'image-corrections' | 'composed-copy-edits' | 'final-inpainting'
 export const revisionPath = (jobId: string, kind: RevisionKind) =>
   `/demo/api/live/jobs/${encodeURIComponent(jobId)}/${kind}`
 
