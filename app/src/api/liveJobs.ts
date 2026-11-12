@@ -95,13 +95,13 @@ export function restoreLiveCopy(s:LiveSnapshot){
   return request<LiveSnapshot>(root+encodeURIComponent(s.job_id)+'/restore-copy',
     json({expected_generation:s.generation,expected_review_sha:s.review_sha}))
 }
-export function copyApprovalPayload(s:LiveSnapshot,acknowledgeEvidence:boolean){
-  guardCopyApproval(s)
+export function copyApprovalPayload(s:LiveSnapshot,acknowledgeEvidence:boolean,acknowledgeResponsibility=false){
+  guardCopyApproval(s,acknowledgeResponsibility)
   return {expected_generation:s.generation,expected_review_sha:s.review_sha,
-    acknowledge_evidence:acknowledgeEvidence}
+    acknowledge_evidence:acknowledgeEvidence,...(acknowledgeResponsibility===true?{acknowledge_responsibility:true}:{})}
 }
-export const approveLiveCopy=(s:LiveSnapshot,acknowledgeEvidence:boolean)=>
-  request<LiveSnapshot>(url(s.job_id)+'/approve-copy',json(copyApprovalPayload(s,acknowledgeEvidence)))
+export const approveLiveCopy=(s:LiveSnapshot,acknowledgeEvidence:boolean,acknowledgeResponsibility=false)=>
+  request<LiveSnapshot>(url(s.job_id)+'/approve-copy',json(copyApprovalPayload(s,acknowledgeEvidence,acknowledgeResponsibility)))
 export const rejectLiveCopy=(id:string)=>request<LiveSnapshot>(url(id)+'/reject-copy',{method:'POST'})
 export const approveLiveImage=(s:LiveSnapshot)=>{
   guardImageApproval(s)

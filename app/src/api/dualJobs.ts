@@ -70,10 +70,10 @@ function mutate(jobId: string, provenance: DualProvenance, action: string, body:
 
 export const getDualJob = (jobId: string, provenance: DualProvenance = 'OFFLINE_FIXTURE') =>
   request<DualSnapshot>(dualPath(jobId, provenance)).then(checkedDualSnapshotRatio)
-export function startDualJob(snapshot: LiveSnapshot, acknowledgeEvidence: boolean, acknowledgeTwoImages = false) {
+export function startDualJob(snapshot: LiveSnapshot, acknowledgeEvidence: boolean, acknowledgeTwoImages = false, acknowledgeResponsibility=false) {
   const provenance = snapshotDualProvenance(snapshot)
   return mutate(snapshot.job_id, provenance, '/start', {
-    ...copyApprovalPayload(snapshot, acknowledgeEvidence),
+    ...copyApprovalPayload(snapshot, acknowledgeEvidence,acknowledgeResponsibility),
     ...(provenance === 'LIVE_DUAL' ? {acknowledge_two_images: acknowledgeTwoImages} : {}),
   })
 }

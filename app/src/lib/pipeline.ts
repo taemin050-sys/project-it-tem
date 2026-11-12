@@ -47,9 +47,9 @@ export function nextStep(job: Job, flow: Flow): Step | null {
 
 // 검수 리포트가 있으면 통과(위반 의심 0건)일 때만 승인 가능. 리포트 없이 승인할 수 있는 건
 // 레거시 mock 문구(실제 AI 카피 아님, 흐름 확인용)뿐 — 실제 카피에 검수가 없으면 승인 불가 (계약 2.6)
-export function canApproveCopy(job: Job): boolean {
+export function canApproveCopy(job: Job, acknowledgeResponsibility = false): boolean {
   if (job.status !== 'COPY_REVIEW_REQUIRED') return false
-  if (job.compliance_report) return job.compliance_report.passed
+  if (job.compliance_report) return job.compliance_report.passed || acknowledgeResponsibility === true
   return job.copy_candidate?.mock === true
 }
 

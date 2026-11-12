@@ -319,7 +319,7 @@ class LivePipeline:
                 CopyReviewCheckpoint(result=result,receipt=receipt),CopyReviewCheckpoint)
         return self.state.complete_copy_review(actor,job_id,context,saved.result,saved.receipt)
 
-    def verify_live_dual_f09(self,actor,parent_id):
+    def verify_live_dual_f09(self,actor,parent_id,*,allow_warnings=False):
         """Verify the original F09 result and cost evidence before either mode can dispatch."""
         from .contracts import strict_review
         from .copy_review import CopyReviewCheckpoint,complete_report
@@ -354,7 +354,8 @@ class LivePipeline:
             product=ProductInput.model_validate(raw_product,strict=True)
             baseline=strict_review(raw_copy,raw_product,json.loads(job["analysis_json"]))
             if (complete_report(baseline,copy,product,saved.result,context,receipt)!=report
-                or report["passed"] is not True):
+                or (report["passed"] is not True and allow_warnings is not True
+                    and not self.state.responsibility_authorized(actor,parent_id))):
                 raise ValueError
         except (KeyError,TypeError,ValueError):
             raise LiveGateError("LIVE_DUAL_F09_RECEIPT_MISMATCH") from None

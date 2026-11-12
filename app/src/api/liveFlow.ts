@@ -59,18 +59,18 @@ async function queuePromptAndImage(id:string){
   const image=await queueLive(id,'image')
   useProjectStore.getState().setLiveTask(image.task_id)
 }
-export async function approveCopyAndCreateImage(s:LiveSnapshot,ack:boolean,onApproved:()=>void=()=>{},ackTwoImages=false){
-  guardCopyApproval(s)
+export async function approveCopyAndCreateImage(s:LiveSnapshot,ack:boolean,onApproved:()=>void=()=>{},ackTwoImages=false,ackResponsibility=false){
+  guardCopyApproval(s,ackResponsibility)
   await run(s.job_id,'ai/image',async()=>{
     if(s.dual_requested){
       if(s.dual_provenance==='LIVE_DUAL' && s.mode!=='LIVE')throw Error('두 시안 작업의 모델 실행 출처를 확인해야 합니다.')
       if(s.dual_provenance!=='LIVE_DUAL' && (!DUAL_QA || s.mode!=='OFFLINE_FIXTURE'))throw Error('이 두 시안 작업은 지정된 QA 환경에서만 진행할 수 있습니다.')
-      const result=await startDualJob(s,ack,ackTwoImages)
+      const result=await startDualJob(s,ack,ackTwoImages,ackResponsibility)
       queryClient.setQueryData(dualQueryKey(s.job_id,snapshotDualProvenance(s)),result)
       onApproved()
       return
     }
-    await approveLiveCopy(s,ack)
+    await approveLiveCopy(s,ack,ackResponsibility)
     // Owner #26: navigate only after actual approval POST success.
     onApproved()
     await queuePromptAndImage(s.job_id)

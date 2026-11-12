@@ -24,6 +24,10 @@ test('copy approval locks generation, compliance and review SHA',()=>{
   assert.doesNotThrow(()=>guardCopyApproval(review))
   assert.throws(()=>guardCopyApproval({...review,compliance:{...review.compliance,passed:false}}))
   assert.throws(()=>guardCopyApproval({...review,review_sha:null}))
+  assert.doesNotThrow(()=>guardCopyApproval({...review,compliance:{...review.compliance,passed:false}},true))
+  assert.throws(()=>guardCopyApproval({...review,compliance:undefined},true))
+  assert.throws(()=>guardCopyApproval({...review,llm_review_pending:true},true))
+  assert.throws(()=>guardCopyApproval({...review,review_sha:null},true))
 })
 test('failed compliance copy can be revised/restored but never approved; stale CAS guard stays closed',()=>{
   const review:LiveSnapshot={...example,state:'COPY_REVIEW_REQUIRED',mode:'LIVE',

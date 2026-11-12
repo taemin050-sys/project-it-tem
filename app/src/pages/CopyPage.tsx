@@ -108,7 +108,7 @@ export default function CopyPage() {
   const reviewing = job?.status === 'COPY_REVIEW_REQUIRED'
   const rejected = job?.status === 'COPY_REJECTED'
   const approved = job !== undefined && ['COPY_APPROVED', 'IMAGE_REVIEW_REQUIRED', 'IMAGE_APPROVED', 'IMAGE_REJECTED', 'COMPLETED'].includes(job.status)
-  const canApprove = job !== undefined && canApproveCopy(job) && liveReady &&
+  const canApprove = job !== undefined && canApproveCopy(job,!mock && evidenceAck) && liveReady &&
     !live?.llm_review_pending &&
     !(['REVALIDATION_REQUIRED','LEGACY_UNBOUND','BINDING_TAMPERED','RESTART_REQUIRED']
       .includes(live?.review_policy?.status??'CURRENT'))
@@ -174,9 +174,10 @@ export default function CopyPage() {
       void getLiveSnapshot(jobId).then(current=>{
         if(current.copy_sha!==live?.copy_sha || current.review_sha!==live?.review_sha ||
            current.generation!==live?.generation ||
-           current.state!=='COPY_REVIEW_REQUIRED' || current.compliance?.passed!==true)
+           current.state!=='COPY_REVIEW_REQUIRED' || !current.compliance ||
+           (!current.compliance.passed&&!evidenceAck))
           throw Error('COPY_APPROVAL_SERVER_REVISION_CHANGED')
-        return approveCopyAndCreateImage(current,evidenceAck,()=>navigate('/create/draft'),twoImagesAck)
+        return approveCopyAndCreateImage(current,evidenceAck,()=>navigate('/create/draft'),twoImagesAck,evidenceAck)
       }).catch(e=>useProjectStore.getState().setRun({
         error:e instanceof Error?e.message:'승인 상태 조회 실패. 재호출하지 마세요.'
       })).finally(()=>{approvalInFlight.current=false})
@@ -300,11 +301,11 @@ export default function CopyPage() {
         {reviewing && !liveReady && !mock && <p role="status" className="field-hint">
           현재 카피·검수 버전을 동기화하고 있습니다. 확인·승인 전에 잠시 상태를 확인해 주세요.
         </p>}
-        {reviewing && liveReady && !aiReviewPending && <label className="field-hint">
+        {reviewing && liveReady && !aiReviewPending && <label className="consent-label">
           <input type="checkbox" checked={evidenceAck}
             onChange={e=>setAckKey(e.target.checked?copyKey:null)}/>
-          근거 확인 필요 표현과 제품 정보의 근거를 직접 확인하겠습니다.
-          (검수 결과는 법적 적합성 판단을 대신하지 않습니다)
+          검수 경고·제품 정보·표현 근거를 직접 확인했으며, 이 카피의 제작·생성·사용·게시와 관련한 법적 책임을 부담하고 진행합니다.
+          (검수 경고는 보존되며 법적 적합성을 보증하지 않습니다)
         </label>}
         {!mock && task?.state==='BILLING_UNKNOWN' && <p role="alert" className="notice notice-warning">
           AI 작업의 과금 여부가 불확실합니다. 재호출하지 말고 담당자에게 확인하세요.
@@ -464,7 +465,7 @@ function ApprovalNote({ job }: { job: Job }) {
   if (report) {
     return report.passed
       ? <p className="field-hint">{report.notice}</p>
-      : <p className="field-error">위반 의심 표현이 있어 이 카피는 승인할 수 없습니다. 수정하기로 표현을 고쳐 주세요.</p>
+      : <p className="field-hint">검수에서 주의가 필요한 표현을 발견했습니다. 수정하거나, 아래 책임 확인에 동의한 뒤 현재 카피로 진행할 수 있습니다.</p>
   }
   return canApproveCopy(job)
     ? <p className="field-hint">mock 카피는 규제 검수 없이 흐름 확인용으로만 승인할 수 있습니다. 실제 광고에 쓰지 마세요.</p>
@@ -511,7 +512,7 @@ function ReviewSummary({ report }: { report: ComplianceReport }) {
     return (
       <div className="notice notice-danger" role="alert">
         <p className="notice-title">위반 의심 표현 {danger}건{warning > 0 && ` · 근거 확인 필요 ${warning}건`}</p>
-        <p>위반 의심 표현이 있는 카피는 승인할 수 없습니다. 아래 대체 제안을 참고해 주세요.</p>
+        <p>아래 이유와 대체 제안을 확인해 주세요. 카피를 수정하거나, 책임 확인에 동의한 뒤 현재 문구로 진행할 수 있습니다.</p>
         <p>{report.notice}</p>
       </div>
     )

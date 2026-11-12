@@ -414,7 +414,8 @@ class LiveStore:
             raise LiveGateError("LIVE_DUAL_EXECUTION_PROFILE_REQUIRED")
 
     def start_live_dual(self,actor,parent_id,*,expected_generation,expected_review_sha,
-                        acknowledge_evidence=False,acknowledge_two_images=False,execution_profile):
+                        acknowledge_evidence=False,acknowledge_two_images=False,execution_profile,
+                        acknowledge_responsibility=False):
         """Commit canonical approval, derived authority, and the first queue intent together."""
         if type(expected_generation) is not int:
             raise LiveGateError("REVISION_TYPE_INVALID")
@@ -445,7 +446,8 @@ class LiveStore:
                     or digest(json.loads(parent["copy_json"]))!=parent["copy_sha"]):
                 raise LiveGateError("LIVE_DUAL_SOURCE_INPUT_CHANGED")
             parent=self._approve_copy_locked(c,parent,expected_generation,expected_review_sha,
-                                            acknowledge_evidence=acknowledge_evidence)
+                                            acknowledge_evidence=acknowledge_evidence,
+                                            acknowledge_responsibility=acknowledge_responsibility)
             policy=self._ensure_current_review_policy(c,parent)
             report=self._live_dual_child_report(parent,self._live_dual_f09_proof(parent))
             snapshot={**source,"generation_mode":"freeform"}
@@ -454,6 +456,8 @@ class LiveStore:
                 json.loads(parent["copy_json"]),report,expected_generation,policy)
             child_id=uuid4().hex
             child={**parent,"job_id":child_id,"input_sha":input_sha,"review_sha":review_sha}
+            if self._responsibility_proof(c,parent):
+                self._record_responsibility(c,child)
             approval_sha=self.approval_binding(child,c)
             c.execute("""INSERT INTO live_jobs (job_id,actor,state,mode,generation,input_json,
                 input_sha,analysis_json,research_json,research_display_json,copy_json,copy_sha,
@@ -625,7 +629,7 @@ class LiveStore:
             return self._dual_group(c,actor,parent_id)
 
     def start_dual(self,actor,parent_id,*,expected_generation,expected_review_sha,
-                   acknowledge_evidence=False):
+                   acknowledge_evidence=False,acknowledge_responsibility=False):
         """Approve the source Copy once and derive an isolated fixture sibling."""
         if type(expected_generation) is not int:
             raise LiveGateError("REVISION_TYPE_INVALID")
@@ -661,8 +665,11 @@ class LiveStore:
                 raise LiveGateError("DUAL_SOURCE_REVIEW_CHANGED")
             review_sha=review_digest(input_sha,analysis,copy,report,expected_generation,policy)
             parent=self._approve_copy_locked(c,parent,expected_generation,expected_review_sha,
-                                              acknowledge_evidence=acknowledge_evidence)
+                                              acknowledge_evidence=acknowledge_evidence,
+                                              acknowledge_responsibility=acknowledge_responsibility)
             child={**parent,"job_id":child_id,"input_sha":input_sha,"review_sha":review_sha}
+            if self._responsibility_proof(c,parent):
+                self._record_responsibility(c,child)
             approval_sha=self.approval_binding(child,c)
             c.execute("""INSERT INTO live_jobs (job_id,actor,state,mode,generation,input_json,
                 input_sha,analysis_json,research_json,research_display_json,copy_json,copy_sha,
@@ -1272,11 +1279,39 @@ class LiveStore:
             c.commit()
             return updated
 
+    @staticmethod
+    def _responsibility_payload(job):
+        return {"version":"USER_COPY_RESPONSIBILITY_V1","actor":job["actor"],
+                "job_id":job["job_id"],"generation":job["generation"],
+                "input_sha":job["input_sha"],"copy_sha":job["copy_sha"],
+                "review_sha":job["review_sha"],"declaration":
+                "검수 경고·제품 정보·표현 근거를 직접 확인했으며, 이 카피의 제작·생성·사용·게시와 관련한 법적 책임을 부담하고 진행합니다."}
+
+    def _responsibility_proof(self,c,job):
+        payload=self._responsibility_payload(job)
+        return payload if c.execute("""SELECT 1 FROM live_events WHERE job_id=? AND generation=?
+            AND event='user_copy_responsibility_acknowledged' AND payload_sha=?""",
+            (job["job_id"],job["generation"],digest(payload))).fetchone() else None
+
+    def _record_responsibility(self,c,job):
+        self._event(c,job,"user_copy_responsibility_acknowledged",job["state"],
+                    digest(self._responsibility_payload(job)))
+
+    def responsibility_authorized(self,actor,job_id):
+        with self.db() as c:
+            return self._responsibility_proof(c,self._read(c,job_id,actor)) is not None
+
     def approval_binding(self,job,c=None):
+        if c is None:
+            with self.db() as opened:
+                return self.approval_binding(job,opened)
         payload={"input_sha":job["input_sha"],"analysis":json.loads(job["analysis_json"]),
                  "copy_sha":job["copy_sha"],"review_sha":job["review_sha"],
                  "generation":job["generation"],
                  "evidence_acknowledged":bool(job["evidence_acknowledged"])}
+        responsibility=self._responsibility_proof(c,job)
+        if responsibility:
+            payload["user_responsibility_sha"]=digest(responsibility)
         if policy_enabled():
             if c is None:
                 with self.db() as opened:
@@ -1288,7 +1323,8 @@ class LiveStore:
                            review_policy_epoch=policy["epoch"])
         return digest(payload)
 
-    def approve_copy(self,actor,job_id,expected_generation,expected_review_sha,*,acknowledge_evidence=False):
+    def approve_copy(self,actor,job_id,expected_generation,expected_review_sha,*,acknowledge_evidence=False,
+                     acknowledge_responsibility=False):
         if type(expected_generation) is not int:
             raise LiveGateError("REVISION_TYPE_INVALID")
         with self.db() as c:
@@ -1297,11 +1333,13 @@ class LiveStore:
             if self._dual_row(c,actor,job_id) or self._live_dual_row(c,actor,job_id):
                 raise LiveGateError("DUAL_COPY_APPROVAL_REQUIRED")
             updated=self._approve_copy_locked(c,job,expected_generation,expected_review_sha,
-                                              acknowledge_evidence=acknowledge_evidence)
+                                              acknowledge_evidence=acknowledge_evidence,
+                                              acknowledge_responsibility=acknowledge_responsibility)
             c.commit()
             return updated
 
-    def _approve_copy_locked(self,c,job,expected_generation,expected_review_sha,*,acknowledge_evidence):
+    def _approve_copy_locked(self,c,job,expected_generation,expected_review_sha,*,acknowledge_evidence,
+                             acknowledge_responsibility=False):
         if job["state"]!="COPY_REVIEW_REQUIRED":
             raise LiveGateError("COPY_APPROVAL_STATE_CONFLICT")
         if job["generation"]!=expected_generation or job["review_sha"]!=expected_review_sha:
@@ -1309,7 +1347,7 @@ class LiveStore:
         policy=self._ensure_current_review_policy(c,job)
         self._require_llm_review(job,policy)
         review=json.loads(job["compliance_json"])
-        if not review["passed"]:
+        if not review["passed"] and acknowledge_responsibility is not True:
             raise LiveGateError("REAL_COMPLIANCE_BLOCKED")
         # FE Owner #22 length policy is also an authoritative approval
         # boundary: a non-browser caller cannot bypass disabled FE controls.
@@ -1319,6 +1357,7 @@ class LiveStore:
             len(current["cta"])>10):
             raise LiveGateError("COPY_LENGTH_LIMIT_EXCEEDED")
         if (any(x["risk_level"]=="근거 확인 필요" for x in review["issues"])
+                and acknowledge_responsibility is not True
                 and acknowledge_evidence is not True):
             raise LiveGateError("EVIDENCE_ACKNOWLEDGEMENT_REQUIRED")
         job_id,actor=job["job_id"],job["actor"]
@@ -1326,6 +1365,8 @@ class LiveStore:
         c.execute("UPDATE live_jobs SET evidence_acknowledged=? WHERE job_id=?",
                   (int(acknowledge_evidence is True),job_id))
         bound=self._read(c,job_id,actor)
+        if acknowledge_responsibility is True:
+            self._record_responsibility(c,bound)
         binding=self.approval_binding(bound,c)
         c.execute("""UPDATE live_jobs SET state='COPY_APPROVED',approval_sha=?,
             approved_generation=? WHERE job_id=?""",
@@ -1383,7 +1424,7 @@ class LiveStore:
         if not (job["state"] in states
                 and job["approval_sha"] and job["approved_generation"]==job["generation"]
                 and job["approval_sha"]==self.approval_binding(job,c)
-                and json.loads(job["compliance_json"])["passed"]):
+                and (json.loads(job["compliance_json"])["passed"] or self._responsibility_proof(c,job))):
             raise LiveGateError("APPROVAL_CONTEXT_NOT_CURRENT")
 
     def _assert_live_dual_binding(self,c,job,group):

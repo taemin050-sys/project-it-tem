@@ -25,7 +25,7 @@ export default function JobBadges({ job }: { job: Job }) {
   if (job.compliance_report) {
     badges.push(job.compliance_report.passed
       ? { label: '검수', value: '통과(참고용)', tone: 'success' }
-      : { label: '검수', value: '위반 의심 · 승인 불가', tone: 'danger' })
+      : { label: '검수', value: '주의 표현 · 사용자 확인', tone: 'warning' })
   } else if (job.copy_candidate) {
     badges.push({ label: '검수', value: '미실시', tone: 'warning' })
   }

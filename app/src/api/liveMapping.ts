@@ -109,9 +109,10 @@ export function guardCopyReviewMutation(s:LiveSnapshot){
 }
 // Owner #26 naming retained as a single alias, never a second/looser approval gate.
 export const guardCopyRevision=guardCopyReviewMutation
-export function guardCopyApproval(s:LiveSnapshot){
+export function guardCopyApproval(s:LiveSnapshot,acknowledgeResponsibility=false){
   if(s.state!=='COPY_REVIEW_REQUIRED'||!s.review_sha||!s.copy_sha||
-      !Number.isSafeInteger(s.generation)||s.generation<1||!s.compliance?.passed||
+      !Number.isSafeInteger(s.generation)||s.generation<1||!s.compliance||
+      (!s.compliance.passed&&acknowledgeResponsibility!==true)||
       s.llm_review_pending||
       (s.review_policy && !['CURRENT','LEGACY_POLICY_MODE'].includes(s.review_policy.status)))
     throw Error('COPY_COMPLIANCE_OR_REVISION_NOT_APPROVED')

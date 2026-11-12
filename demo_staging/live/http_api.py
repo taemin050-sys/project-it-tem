@@ -63,6 +63,7 @@ class CopyApproval(BaseModel):
     expected_generation:int
     expected_review_sha:str
     acknowledge_evidence:bool=False
+    acknowledge_responsibility:bool=False
 
 
 class ImageApproval(BaseModel):
@@ -603,7 +604,8 @@ def register_live_api(app:FastAPI, ledger, runtime_root:Path, cookie_name:str):
         dual_group(actor,job_id)
         try:
             group=flow.state.start_dual(actor,job_id,expected_generation=body.expected_generation,
-                expected_review_sha=body.expected_review_sha,acknowledge_evidence=body.acknowledge_evidence)
+                expected_review_sha=body.expected_review_sha,acknowledge_evidence=body.acknowledge_evidence,
+                acknowledge_responsibility=body.acknowledge_responsibility)
             for mode in ("composed","freeform"):
                 variant_id=variant_job(group,mode)
                 with flow.state.dual_dispatch_lock(actor,job_id,variant_id) as acquired:
@@ -975,11 +977,11 @@ def register_live_api(app:FastAPI, ledger, runtime_root:Path, cookie_name:str):
         try:
             if current["generation"]!=body.expected_generation or current["review_sha"]!=body.expected_review_sha:
                 raise LiveGateError("STALE_REVIEW_OR_REVISION")
-            flow.verify_live_dual_f09(actor,job_id)
+            flow.verify_live_dual_f09(actor,job_id,allow_warnings=body.acknowledge_responsibility)
             group=flow.state.start_live_dual(actor,job_id,
                 expected_generation=body.expected_generation,expected_review_sha=body.expected_review_sha,
                 acknowledge_evidence=body.acknowledge_evidence,acknowledge_two_images=body.acknowledge_two_images,
-                execution_profile=live_dual_profile(size))
+                execution_profile=live_dual_profile(size),acknowledge_responsibility=body.acknowledge_responsibility)
             # The Worker projects the durable intent. HTTP never claims or
             # performs a provider request, including on a duplicate start.
             return live_dual_snapshot(request,actor,group)
@@ -1251,7 +1253,8 @@ def register_live_api(app:FastAPI, ledger, runtime_root:Path, cookie_name:str):
         try:
             return visible(flow.state.approve_copy(
                 actor,job_id,body.expected_generation,body.expected_review_sha,
-                acknowledge_evidence=body.acknowledge_evidence))
+                acknowledge_evidence=body.acknowledge_evidence,
+                acknowledge_responsibility=body.acknowledge_responsibility))
         except (LiveGateError,ValueError) as e:raise safe_error(e) from None
 
     @app.post(prefix+"/jobs/{job_id}/reject-copy")

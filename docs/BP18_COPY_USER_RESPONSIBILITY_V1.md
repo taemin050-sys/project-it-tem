@@ -1,0 +1,13 @@
+# User-confirmed copy warnings — Track B extension, 2026-11-12
+
+User explicitly requested that checked legal responsibility permit proceeding despite advisory copy findings. This changes the previous Track B F09 approval policy, not the original Release Master or the finding itself. No legal-compliance PASS is inferred from a checkbox.
+
+The copy page preserves rule + actual LLM findings, alternatives, review/copy SHA and current policy. A revision-scoped checkbox declares: “검수 경고·제품 정보·표현 근거를 직접 확인했으며, 이 카피의 제작·생성·사용·게시와 관련한 법적 책임을 부담하고 진행합니다.” Submission sends a strict acknowledge_responsibility:true. No pre-check or implicit consent on generation/restore; current copy/review/generation must still match. Dual paid-two-image acknowledgement remains independent.
+
+Server accepts warnings only with this explicit declaration. It does not rewrite report.passed, omit LLM review, or manufacture a new review receipt. An existing live_events record binds protocol USER_COPY_RESPONSIBILITY_V1, declaration, Signed Actor, Job, input/copy/review SHA and generation; its SHA is included in the approval digest. The shared copy approval derives a separately fingerprinted child declaration for Freeform. Removing/changing the marker invalidates the approval. New revisions cannot reuse the old declaration. No DB schema migration or old data rewrite.
+
+Actual F09 checkpoint/Cost receipt equality is still verified; advisory severity is permitted by explicit HTTP consent before approval and by the persisted approval declaration during Worker dispatch. Stale/missing/tampered F09, Actor ACL, source/policy integrity, copy layout capacity, image approval, BILLING_UNKNOWN, idempotency, Worker-only secrets and cost controls are unchanged. This is an explicit human decision over advisory findings, not a security/financial override.
+
+Existing passed approvals without the new event retain exactly the same digest. Existing original results/receipts stay unchanged. Deployment must pair two compatible sources; do not roll back to source that cannot interpret responsibility-bound approvals after new Jobs are admitted.
+
+Verification: Signed MockTransport warning report remains false; unchecked/nonboolean/stale/cross-Actor/missing-review paths reject; checked consent reaches both mode image dispatches with one shared actual-review fixture; duplicate start creates no extra Attempt; deleting child declaration invalidates derived approval. Real server UI checkbox/button verification is read-only with respect to approval: do not submit the user's current copy on their behalf. Product remains NOT_RELEASE_READY and C differential audit pending.
