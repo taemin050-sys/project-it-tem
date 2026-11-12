@@ -200,3 +200,14 @@ def test_identity_and_ingress_denials_never_open_upstream(monkeypatch,method,add
     if method=="HEAD":
         assert value.wfile.getvalue().endswith(b"\r\n\r\n")
     assert state["constructs"]==0
+
+
+def test_real_listener_uses_burst_backlog_without_changing_identity_or_request_handling():
+    # Real ephemeral loopback listener, not a Provider/server fixture. The
+    # production class (also used by run()) must retain the exact Gateway and
+    # default thread behaviour while avoiding Python 3.12's five-accept queue.
+    with gateway.GatewayHTTPServer(('127.0.0.1',0),gateway.Gateway) as server:
+        assert server.request_queue_size>=128
+        assert server.RequestHandlerClass is gateway.Gateway
+        assert server.server_address[0]=='127.0.0.1'
+        assert server.daemon_threads is True

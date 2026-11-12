@@ -28,6 +28,15 @@ HOP = {"connection","keep-alive","proxy-authenticate","proxy-authorization",
 MAX_BODY = 80 * 1024 * 1024
 
 
+class GatewayHTTPServer(ThreadingHTTPServer):
+    # Python 3.12 defaults to just 5 pending accepts. A browser's HTTP/2
+    # font/API fan-out reaches this HTTP/1 backend in a burst; Tailscale then
+    # reports a dial-time reset before any handler/authentication can run.
+    # Match the Mac listener's existing SOMAXCONN (128), without replaying any
+    # request or changing the loopback/auth/Actor/paid-worker boundary.
+    request_queue_size = 128
+
+
 def load_users(path: str) -> dict[str, dict[str,str]]:
     p=Path(path)
     if not p.is_file() or p.stat().st_mode & 0o077:
@@ -189,7 +198,7 @@ def run():
         not re.fullmatch(r"[a-z0-9.-]+\.ts\.net:"+service_port,expected)):
         raise RuntimeError("UNAPPROVED_TAILSCALE_HOST")
     listen_port,target_port=SERVICES[service_port]
-    server=ThreadingHTTPServer(("127.0.0.1",listen_port),Gateway)
+    server=GatewayHTTPServer(("127.0.0.1",listen_port),Gateway)
     server.secret=key
     server.allowed_users=users
     server.expected_host=expected
