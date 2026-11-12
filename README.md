@@ -206,51 +206,20 @@
 
 마지막으로 각 분야를 맡아 개발한 팀원들을 소개합니다.
 
-<table>
-  <tr>
-    <td align="center" width="20%">
-      <img src="./assets/team/taemin_card.png" width="140" alt="이태민 캐릭터">
-    </td>
-    <td align="center" width="20%">
-      <img src="./assets/team/dahye_card.png" width="140" alt="김다혜 캐릭터">
-    </td>
-    <td align="center" width="20%">
-      <img src="./assets/team/hyeoksang_card.png" width="140" alt="권혁상 캐릭터">
-    </td>
-    <td align="center" width="20%">
-      <img src="./assets/team/jisu_card.png" width="140" alt="박지수 캐릭터">
-    </td>
-    <td align="center" width="20%">
-      <img src="./assets/team/hyeonggi_card.png" width="140" alt="이형기 캐릭터">
-    </td>
-  </tr>
-  <tr>
-    <td align="center"><strong>이태민</strong></td>
-    <td align="center"><strong>김다혜</strong></td>
-    <td align="center"><strong>권혁상</strong></td>
-    <td align="center"><strong>박지수</strong></td>
-    <td align="center"><strong>이형기</strong></td>
-  </tr>
-  <tr>
-    <td align="center"><sub>PM</sub></td>
-    <td align="center"><sub>Text AI</sub></td>
-    <td align="center"><sub>Frontend</sub></td>
-    <td align="center"><sub>Image AI</sub></td>
-    <td align="center"><sub>Backend</sub></td>
-  </tr>
-</table>
+| ![이태민](/assets/team/taemin_card.png) | ![김다혜](/assets/team/dahye_card.png) | ![권혁상](/assets/team/hyeoksang_card.png) | ![박지수](/assets/team/jisu_card.png) | ![이형기](/assets/team/hyeonggi_card.png) |
+| :---: | :---: | :---: | :---: | :---: |
+| **이태민** | **김다혜** | **권혁상** | **박지수** | **이형기** |
+| PM | Text AI | Frontend | Image AI | Backend |
 
 ### 담당 업무
 
 | 이름 | 담당 | 주요 작업 |
 | --- | --- | --- |
 | **이태민** | PM · 기획/평가 | 프로젝트 기획, 일정 관리, 협업 조율, 사용성 테스트 및 평가 |
-| **김다혜** | **Text AI** | 제품 분석, 광고 기획, 카피 생성, 화장품 광고 문구 검수 |
+| **김다혜** | Text AI | 제품 분석, 광고 기획, 카피 생성, 화장품 광고 문구 검수 |
 | **권혁상** | Frontend | React 화면 구현, 상태 관리, API 연동, 예외 처리 |
-| **박지수** | **Image AI** | 이미지 생성·편집, 제품 보존, 승인 문구 합성 |
+| **박지수** | Image AI | 이미지 생성·편집, 제품 보존, 승인 문구 합성 |
 | **이형기** | Backend / Serving | FastAPI 기반 연동, 모델 서빙 및 로깅 |
-
----
 
 ## 7. 서비스 데모 및 실행 안내
 
