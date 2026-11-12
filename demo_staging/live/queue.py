@@ -155,6 +155,25 @@ class LiveQueue:
                 result_sha=?,ended_at=CURRENT_TIMESTAMP WHERE id=?""",
                 (result_sha,task_id))
 
+    def fail_pre_dispatch(self,task_id,error_code):
+        """Permanently stop a deterministic pre-provider failure, never retry.
+
+        This state is separate from BILLING_UNKNOWN and never claimable.
+        Only call for an explicitly audited stage+error pair before a
+        provider is constructed; never infer from an arbitrary exception.
+        """
+        with self.db() as db:
+            db.execute("BEGIN IMMEDIATE")
+            row=db.execute("SELECT state,stage FROM queued_ops WHERE id=?",
+                (task_id,)).fetchone()
+            if (row is None or row["state"]!="RUNNING"
+                    or row["stage"]!="image_prompt"
+                    or error_code!="PROMPT_LIVE_SOURCE_PROVENANCE_INVALID"):
+                raise LiveGateError("PRE_DISPATCH_FAILURE_CLASSIFICATION_DENIED")
+            db.execute("""UPDATE queued_ops SET state='FAILED_PRE_DISPATCH',
+                error_code=?,ended_at=CURRENT_TIMESTAMP WHERE id=?""",
+                (error_code,task_id))
+
     def interrupt(self,task_id,error_code):
         # Even an apparently recoverable failure is not implicitly retried.
         with self.db() as db:

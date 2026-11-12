@@ -333,7 +333,27 @@ def quarantined_uncertain_jobs(queue:LiveQueue,flow:LivePipeline)->set[str]|None
                     WHERE state IN ('submitting','unknown','failed')""").fetchone()[0]
         q={(r["job_id"],r["actor"]) for r in unknown_q}
         c={(r["job_id"],r["actor"]) for r in unknown_cost}
-        if not q or q!=c or active_q or overlap_q or unsettled or uncertain_image:
+        # Older R6 categorized the deterministic, pre-provider Prompt
+        # provenance check as BILLING_UNKNOWN. Those exact rows have no
+        # matching paid attempt; quarantine them without misrepresenting
+        # them as provider dispatches or rewriting historical evidence.
+        local_preflight=set()
+        with queue.db() as db:
+            old_local=db.execute("""SELECT job_id,actor FROM queued_ops
+                WHERE mode='LIVE' AND state='BILLING_UNKNOWN'
+                AND stage='image_prompt'
+                AND error_code='PROMPT_LIVE_SOURCE_PROVENANCE_INVALID'""").fetchall()
+        with flow.cost.connect() as db:
+            for row in old_local:
+                exists=db.execute("""SELECT 1 FROM attempts
+                    WHERE actor=? AND job_id=? AND stage='image_prompt'
+                    LIMIT 1""",(row["actor"],row["job_id"])).fetchone()
+                if exists is not None:
+                    return None
+                local_preflight.add((row["job_id"],row["actor"]))
+        if (not q or q != (c | local_preflight)
+                or c & local_preflight or active_q or overlap_q
+                or unsettled or uncertain_image):
             return None
         return {job_id for job_id,_actor in q}
     except (sqlite3.Error,OSError,KeyError,TypeError):
@@ -420,8 +440,20 @@ def _run_locked(root:Path,flow:LivePipeline)->str:
         return "LIVE_STAGE_COMMITTED"
     except BaseException as exc:
         code=exc.code if isinstance(exc,LiveGateError) else "WORKER_ATTEMPT_UNCERTAIN"
+        # This exact error arises in _assert_live_prompt_sources BEFORE
+        # OfficialTextProvider construction and BEFORE _guarded dispatch.
+        # A deterministic preflight failure must not stop other teams.
+        if (item["stage"]=="image_prompt"
+                and code=="PROMPT_LIVE_SOURCE_PROVENANCE_INVALID"):
+            with flow.cost.connect() as db:
+                attempted=db.execute("""SELECT 1 FROM attempts
+                    WHERE actor=? AND job_id=? AND stage='image_prompt'
+                    LIMIT 1""",(actor,jid)).fetchone()
+            if attempted is None:
+                queue.fail_pre_dispatch(item["id"],code)
+                return "LIVE_STAGE_FAILED_PRE_DISPATCH"
         queue.interrupt(item["id"],code)
-        # No hidden retry, no provider traceback/secret in HTTP output.
+        # Never replay a potentially dispatched provider attempt.
         return "LIVE_STAGE_HELD_FOR_RECONCILIATION"
     finally:
         if hasattr(flow,"_worker_claim"):
