@@ -67,7 +67,7 @@ export type ProductAnalysis = {
 
 // ---------- 3. 기획 AI 사전 조사 ----------
 
-export type Insight = { text: string; source: SourceType }
+export type Insight = { text: string; source: SourceType; citations?: Citation[] }
 
 export type ResearchOutput = {
   product_summary: string
@@ -130,6 +130,7 @@ export type ComplianceIssue = {
   /** 대체 문구, 삭제 권장이면 null */
   suggestion: string | null
   basis: string | null
+  basis_url?: string | null
   detected_by: 'rule' | 'llm'
   auto_fixed: boolean
 }

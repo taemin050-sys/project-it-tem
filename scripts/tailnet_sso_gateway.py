@@ -15,8 +15,10 @@ import json
 import os
 import re
 import socket
+import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from uuid import uuid4
 
 from demo_staging.tailnet_assertion import build_assertion, key_from_file
 
@@ -24,6 +26,15 @@ LOGIN_RE = re.compile(r"^[A-Za-z0-9._+%-]+@[A-Za-z0-9.-]+$")
 HOP = {"connection","keep-alive","proxy-authenticate","proxy-authorization",
        "te","trailer","transfer-encoding","upgrade","proxy-connection"}
 MAX_BODY = 80 * 1024 * 1024
+
+
+class GatewayHTTPServer(ThreadingHTTPServer):
+    # Python 3.12 defaults to just 5 pending accepts. A browser's HTTP/2
+    # font/API fan-out reaches this HTTP/1 backend in a burst; Tailscale then
+    # reports a dial-time reset before any handler/authentication can run.
+    # Match the Mac listener's existing SOMAXCONN (128), without replaying any
+    # request or changing the loopback/auth/Actor/paid-worker boundary.
+    request_queue_size = 128
 
 
 def load_users(path: str) -> dict[str, dict[str,str]]:
@@ -68,6 +79,13 @@ class Gateway(BaseHTTPRequestHandler):
         self.end_headers()
         if self.command!="HEAD":self.wfile.write(body)
 
+    def transport_diagnostic(self, request_id, phase, error, started):
+        # Fixed fields only: no URL/query, identity, headers, or exception text.
+        print("IT_TEM_TAILNET_TRANSPORT "+json.dumps({
+            "request_id":request_id,"phase":phase,"error_class":type(error).__name__,
+            "elapsed_ms":round((time.monotonic()-started)*1000)},
+            separators=(",",":")),flush=True)
+
     def forward(self):
         # HTTP server MUST only be reached from Tailscale Serve on Mac.
         if self.client_address[0] not in ("127.0.0.1","::1"):
@@ -111,14 +129,39 @@ class Gateway(BaseHTTPRequestHandler):
         headers["X-Forwarded-Proto"]="https"
         headers["Content-Length"]=str(len(body))
         headers["Connection"]="close"
+        request_id=uuid4().hex
+        started=time.monotonic()
+        upstream=None
+        phase="upstream_connect"
         try:
             upstream=http.client.HTTPConnection(
                 "127.0.0.1",self.server.target_port,timeout=330)
+            phase="upstream_request"
             upstream.request(self.command,self.path,body=body,headers=headers)
+            phase="upstream_response_headers"
             result=upstream.getresponse()
+            phase="upstream_response_body"
             payload=result.read()
-            self.send_response(result.status)
-            for k,v in result.getheaders():
+            status=result.status
+            response_headers=result.getheaders()
+        except (OSError,TimeoutError,http.client.HTTPException) as error:
+            self.transport_diagnostic(request_id,phase,error,started)
+            # Upstream I/O is fully buffered before any client response starts.
+            # A disconnect while sending this single failure is a client abort.
+            try:
+                self.fail(502,"IT-TEM QA upstream unavailable")
+            except (OSError,TimeoutError) as downstream_error:
+                self.transport_diagnostic(request_id,"downstream_error_response",downstream_error,started)
+            return
+        finally:
+            if upstream is not None:
+                try:
+                    upstream.close()
+                except (OSError,TimeoutError,http.client.HTTPException) as error:
+                    self.transport_diagnostic(request_id,"upstream_close",error,started)
+        try:
+            self.send_response(status)
+            for k,v in response_headers:
                 if k.lower() not in HOP and k.lower() not in ("content-length","server","date"):
                     self.send_header(k,v)
             self.send_header("Content-Length",str(len(payload)))
@@ -126,9 +169,10 @@ class Gateway(BaseHTTPRequestHandler):
             self.send_header("X-IT-TEM-Auth-Path","tailscale-sso")
             self.end_headers()
             if self.command!="HEAD":self.wfile.write(payload)
-            upstream.close()
-        except (OSError,TimeoutError,http.client.HTTPException):
-            self.fail(502,"IT-TEM QA upstream unavailable")
+        except (OSError,TimeoutError) as error:
+            # Headers may already be on the wire. Never append a second 502
+            # response or misclassify a browser cancellation as upstream failure.
+            self.transport_diagnostic(request_id,"downstream_response",error,started)
 
     def log_message(self,format,*args):
         # No secret, cookie, email, or query parameters in gateway logs.
@@ -136,19 +180,31 @@ class Gateway(BaseHTTPRequestHandler):
               str(args[1]) if len(args)>1 else "",flush=True)
 
 
+# Isolated A/B gateways reuse 8443 verified security implementation.
+# Existing 8443 default remains untouched; separate instances get dedicated
+# signing keys, ports and user-to-actor maps.
+SERVICES = {
+    "8443": (18987, 18988),
+    "10443": (19097, 19096),
+    "10500": (19101, 19100),
+}
+
 def run():
     key=key_from_file(os.environ["IT_TEM_TAILNET_GATEWAY_KEY_FILE"])
     users=load_users(os.environ["IT_TEM_TAILNET_GATEWAY_USERS_FILE"])
     expected=os.environ["IT_TEM_TAILNET_EXPECTED_HOST"].lower()
-    if not re.fullmatch(r"[a-z0-9.-]+\.ts\.net:8443",expected):
+    service_port=expected.rsplit(":",1)[-1]
+    if (service_port not in SERVICES or
+        not re.fullmatch(r"[a-z0-9.-]+\.ts\.net:"+service_port,expected)):
         raise RuntimeError("UNAPPROVED_TAILSCALE_HOST")
-    server=ThreadingHTTPServer(("127.0.0.1",18987),Gateway)
+    listen_port,target_port=SERVICES[service_port]
+    server=GatewayHTTPServer(("127.0.0.1",listen_port),Gateway)
     server.secret=key
     server.allowed_users=users
     server.expected_host=expected
-    server.target_port=18988
-    print("IT_TEM_TAILNET_SSO_MAC_GATEWAY_18987_STARTED",len(users),"identities",
-          "UPSTREAM_127.0.0.1:18988",flush=True)
+    server.target_port=target_port
+    print("IT_TEM_TAILNET_SSO_MAC_GATEWAY_STARTED",listen_port,len(users),
+          "identities","UPSTREAM_PORT",target_port,flush=True)
     server.serve_forever(poll_interval=.25)
 
 

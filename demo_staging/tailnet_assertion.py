@@ -61,7 +61,8 @@ def build_assertion(key: bytes, actor: str, role: str, method: str,
 
 
 def verify_request(request: Request, key: bytes | None,
-                   allowed_roles: dict[str,str]) -> tuple[str,str] | None:
+                   allowed_roles: dict[str,str],
+                   expected_host: str | None = None) -> tuple[str,str] | None:
     headers = request.headers
     keys = [PREFIX + x for x in ("actor","role","timestamp","nonce","signature")]
     present = [x in headers for x in keys]
@@ -87,6 +88,8 @@ def verify_request(request: Request, key: bytes | None,
     host = headers.get("host", "")
     if not host or len(host)>255:
         raise TailnetAssertionError("TAILNET_ASSERTION_HOST_INVALID")
+    if expected_host is not None and host.lower() != expected_host.lower():
+        raise TailnetAssertionError("TAILNET_ASSERTION_HOST_MISMATCH")
     expected = signature(key,actor,role,request.method,target,host,ts,nonce)
     if not hmac.compare_digest(expected,digest):
         raise TailnetAssertionError("TAILNET_ASSERTION_BAD_SIGNATURE")

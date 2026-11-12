@@ -25,7 +25,7 @@ from fastapi.responses import FileResponse, JSONResponse, Response, StreamingRes
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
-from src.serving.main import create_app as create_b0_app
+from src.serving.app_factory import create_app as create_b0_app
 from src.serving.job_store import get_mock_artifact
 from .tailnet_assertion import TailnetAssertionError, verify_request, key_from_file
 
@@ -232,7 +232,13 @@ def make_demo_app(root: Path, invite_file: Path, frontend: Path,
     # a shared localhost cookie. Default keeps existing Live/QA unchanged.
     configured_cookie=os.environ.get("IT_TEM_DEMO_COOKIE_NAME")
     cookie_name=configured_cookie or (_COOKIE if secure_cookie else "ittem_demo_local")
-    if configured_cookie and not re.fullmatch(r"[A-Za-z][A-Za-z0-9_-]{6,48}",configured_cookie):
+    # HTTPS A/B share one Tailnet hostname but use different ports. Cookies
+    # ignore ports, so distinct __Host- names are mandatory for Actor isolation.
+    # Retain old nonsecure naming for historical loopback-only QA sessions.
+    if configured_cookie and not re.fullmatch(
+        r"(?:__Host-[A-Za-z][A-Za-z0-9_-]{2,40}|[A-Za-z][A-Za-z0-9_-]{6,48})",
+        configured_cookie,
+    ):
         raise ValueError("DEMO_COOKIE_AUDIENCE_INVALID")
     if secure_cookie and not cookie_name.startswith("__Host-"):
         raise ValueError("SECURE_COOKIE_REQUIRES_HOST_PREFIX")
@@ -244,6 +250,13 @@ def make_demo_app(root: Path, invite_file: Path, frontend: Path,
     app.state.demo_code_sha=code_sha
 
     tailnet_enabled=os.environ.get("IT_TEM_TAILNET_AUTH_ENABLED")=="YES"
+    tailnet_sso_only=os.environ.get("IT_TEM_TAILNET_SSO_ONLY")=="YES"
+    if tailnet_sso_only and not tailnet_enabled:
+        raise RuntimeError("TAILNET_SSO_ONLY_REQUIRES_SIGNED_AUTH")
+    tailnet_expected_host=os.environ.get("IT_TEM_TAILNET_EXPECTED_HOST") if tailnet_sso_only else None
+    if tailnet_sso_only and not (tailnet_expected_host and
+            re.fullmatch(r"[a-z0-9.-]+\.ts\.net:(?:10443|10500)",tailnet_expected_host)):
+        raise RuntimeError("TAILNET_SSO_ONLY_HOST_NOT_PINNED")
     if tailnet_enabled:
         key_path=os.environ.get("IT_TEM_TAILNET_AUTH_KEY_FILE","")
         users_path=os.environ.get("IT_TEM_TAILNET_ACTORS_FILE","")
@@ -260,9 +273,13 @@ def make_demo_app(root: Path, invite_file: Path, frontend: Path,
         tailnet_roles={}
 
     def request_identity(request:Request):
-        tailnet=verify_request(request,tailnet_key,tailnet_roles)
+        tailnet=verify_request(request,tailnet_key,tailnet_roles,tailnet_expected_host)
         if tailnet:
             return tailnet
+        # A/B SSO: never fall back to legacy invite cookies. An unsigned
+        # request remains unauthenticated even with a valid old QA cookie.
+        if tailnet_sso_only:
+            return None
         return ledger.identity(request.cookies.get(cookie_name))
 
     app.state.demo_request_identity=request_identity
@@ -340,14 +357,16 @@ def make_demo_app(root: Path, invite_file: Path, frontend: Path,
         actor=request_identity(request)
         if not actor:
             return JSONResponse({"authenticated":False},status_code=401)
-        is_tailnet=verify_request(request,tailnet_key,tailnet_roles) is not None
+        is_tailnet=verify_request(request,tailnet_key,tailnet_roles,tailnet_expected_host) is not None
         return {"authenticated":True,"evaluator_id":actor[0],"role":actor[1],
                 "auth_provider":"TAILSCALE_SERVE" if is_tailnet else "INVITE_COOKIE",
                 "mode":"MOCK","live_enabled":False}
 
     @app.post("/demo/api/session")
     def login(payload: InviteLogin,request: Request):
-        if verify_request(request,tailnet_key,tailnet_roles) is not None:
+        if tailnet_sso_only:
+            raise HTTPException(status_code=403,detail="TAILNET_SSO_REQUIRED")
+        if verify_request(request,tailnet_key,tailnet_roles,tailnet_expected_host) is not None:
             raise HTTPException(status_code=409,detail="Tailscale SSO already active")
         identity=ledger.login(payload.invite_code)
         if identity is None:
@@ -362,7 +381,7 @@ def make_demo_app(root: Path, invite_file: Path, frontend: Path,
 
     @app.delete("/demo/api/session")
     def logout(request: Request):
-        if verify_request(request,tailnet_key,tailnet_roles) is not None:
+        if verify_request(request,tailnet_key,tailnet_roles,tailnet_expected_host) is not None:
             raise HTTPException(409,"Tailscale session is managed by Tailscale")
         ledger.logout(request.cookies.get(cookie_name))
         response=JSONResponse({"authenticated":False})

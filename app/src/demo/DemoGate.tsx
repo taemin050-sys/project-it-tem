@@ -6,10 +6,12 @@ import DemoLiveConsole from './DemoLiveConsole'
 import { Link, useLocation } from 'react-router-dom'
 import {QA_OFFLINE_FIXTURE} from '../config'
 import { continueOrStartNew } from '../api/useJob'
+const SSO_ONLY = import.meta.env.VITE_IT_TEM_SSO_ONLY === 'YES'
 const TRACK_LABEL = import.meta.env.VITE_IT_TEM_TRACK_ID === 'ENHANCED' ? 'BP18 ENHANCED / PROVISIONAL' : import.meta.env.VITE_IT_TEM_TRACK_ID === 'BASELINE' ? 'BP18 BASELINE' : 'IT-TEM'
 
 type Identity = { authenticated: true; evaluator_id: string; role: 'evaluator' | 'admin';
   auth_provider?: 'TAILSCALE_SERVE'|'INVITE_COOKIE'; mode: string }
+type Capabilities = { live_enabled:boolean; source_sha?:string }
 
 export default function DemoGate() {
   const { pathname } = useLocation()
@@ -19,6 +21,7 @@ export default function DemoGate() {
   const [invite, setInvite] = useState('')
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
+  const [capabilityResult, setCapabilityResult] = useState<{actor:string;value:Capabilities|null}>()
   const setJobId = useProjectStore((s) => s.setJobId)
   const setIdentityScope=useProjectStore((s)=>s.setIdentityScope)
   useEffect(() => {
@@ -30,6 +33,16 @@ export default function DemoGate() {
       .finally(() => { if (active) setChecking(false) })
     return () => { active = false }
   }, [setIdentityScope])
+  useEffect(() => {
+    const actor=identity?.evaluator_id
+    if(!actor || QA_OFFLINE_FIXTURE)return
+    let active = true
+    void fetch('/demo/api/live/capabilities',{credentials:'same-origin',cache:'no-store'})
+      .then(async response=>response.ok?await response.json() as Capabilities:null)
+      .then(value=>{if(active)setCapabilityResult({actor,value})})
+      .catch(()=>{if(active)setCapabilityResult({actor,value:null})})
+    return ()=>{active=false}
+  },[identity?.evaluator_id,pathname])
   async function login() {
     setBusy(true); setError('')
     try {
@@ -50,7 +63,13 @@ export default function DemoGate() {
     try { await fetch('/demo/api/session', {method: 'DELETE', credentials: 'same-origin'}) }
     finally { setIdentityScope(null);setJobId(null); setIdentity(null) }
   }
-  if (checking) return <div role="status" style={{padding: 32}}>개인별 시연 권한을 확인하고 있습니다…</div>
+  if (checking) return <div role="status" style={{padding: 32}}>Tailscale 팀원 인증을 확인하고 있습니다…</div>
+  if (!identity && SSO_ONLY) return <main style={{maxWidth: 560, margin: '8vh auto', padding: 30}}>
+    <h1>IT-TEM 접근 권한 확인 필요</h1>
+    <p>등록된 팀원만 Tailscale SSO를 통해 자동 로그인할 수 있습니다.</p>
+    <p>Tailscale 연결 상태와 팀원 등록 여부를 관리자에게 확인해 주세요.</p>
+    {error && <p role="alert">{error}</p>}
+  </main>
   if (!identity) return <main style={{maxWidth: 560, margin: '8vh auto', padding: 30}}>
     <h1>{TRACK_LABEL} 원격 시연</h1>
     <p><strong>{QA_OFFLINE_FIXTURE ? 'IT-TEM QA 전용 · 실제 AI 아님' : 'IT-TEM 실제 AI Live 평가'}</strong> — 승인된 구성원에게만 제공됩니다.</p>
@@ -63,10 +82,17 @@ export default function DemoGate() {
     </form>
     {error && <p role="alert">{error}</p>}
   </main>
+  const sourceSHA=import.meta.env.VITE_IT_TEM_CODE_SHA
+  const capabilities=capabilityResult?.actor===identity.evaluator_id?capabilityResult.value:null
+  const pinned=typeof sourceSHA==='string' && /^[0-9a-f]{40}$/.test(sourceSHA)
+  const sourceMismatch=Boolean(!QA_OFFLINE_FIXTURE && pinned && capabilities &&
+    capabilities.source_sha!==sourceSHA)
+  const liveStatus=capabilities?.live_enabled?'실제 AI 생성 준비됨':
+    capabilities?'실제 AI 생성 준비 중':'AI 실행 상태 확인 중'
   return <>
     <aside style={{padding:'9px 14px',background:'#202b3b',color:'white',display:'flex',justifyContent:'space-between',alignItems:'center',flexWrap:'wrap',gap:10}}>
-      <span><strong>{TRACK_LABEL} · {QA_OFFLINE_FIXTURE ? 'IT-TEM QA OFFLINE_FIXTURE · 실제 AI 아님' : 'IT-TEM PRODUCT LIVE'}</strong>
-        {' · '}{QA_OFFLINE_FIXTURE ? '시험 데이터 / 유료 호출 없음' : '실제 AI 생성 · 1차 규칙 검수 및 사람 승인 필요 · MONITOR_ONLY'}{' · '}
+      <span><strong>{TRACK_LABEL} · {QA_OFFLINE_FIXTURE ? 'IT-TEM QA OFFLINE_FIXTURE · 실제 AI 아님' : liveStatus}</strong>
+        {' · '}{QA_OFFLINE_FIXTURE ? '시험 데이터 / 유료 호출 없음' : '팀원 전용 · 사용량 기록'}{' · '}
         <small>Build {import.meta.env.VITE_IT_TEM_CODE_SHA?.slice(0,8) || 'UNPINNED'}</small></span>
       <span>{identity.evaluator_id} · {identity.auth_provider==='TAILSCALE_SERVE'
         ? <span aria-label="Tailscale 신원 확인 완료">Tailscale 인증됨</span>
@@ -78,7 +104,12 @@ export default function DemoGate() {
       {!QA_OFFLINE_FIXTURE && <Link to="/team/evaluations">팀 공동 품질 평가</Link>}
       {identity.role==='admin' && <Link to="/internal/live-diagnostics">내부 진단</Link>}
     </nav>
-    {diagnosticPage && identity.role==='admin'
+    {sourceMismatch
+      ? <main role="alert" style={{maxWidth:640,margin:'3rem auto',padding:24}}>
+          <h1>앱 버전을 확인해야 합니다</h1>
+          <p>화면과 서버의 버전이 달라 광고 제작을 진행할 수 없습니다. 관리자에게 확인해 주세요.</p>
+        </main>
+      : diagnosticPage && identity.role==='admin'
       ? <DemoLiveConsole evaluatorId={identity.evaluator_id}/>
       : <><App />{import.meta.env.DEV && useProjectStore.getState().mock &&
         <DemoEvaluation identity={identity as Parameters<typeof DemoEvaluation>[0]['identity']} />}</>}

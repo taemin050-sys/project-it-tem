@@ -153,29 +153,35 @@ def test_receipt_manifest_wrong_digest_fails_closed(tmp_path,monkeypatch):
     with pytest.raises(ValueError,match="SHARED_RECEIPT_MANIFEST_MISMATCH"):
         projection.run(root,tmp_path/"wrong_receipt_sha")
 
+def _publish_from_fresh_process(root,output,barrier,results):
+    projection.ALLOWED_ROOTS=frozenset({root.resolve()})
+    publish=projection._publish_no_replace
+
+    def synchronized(pfd,stage_name,target_name):
+        barrier.wait(timeout=15)
+        return publish(pfd,stage_name,target_name)
+
+    projection._publish_no_replace=synchronized
+    try:
+        projection.run(root,output)
+        results.put("PUBLISHED")
+    except FileExistsError:
+        results.put("EXISTS")
+
+
 def test_existing_output_replaced_never_after_concurrent_publication(
     tmp_path,monkeypatch
 ):
     import multiprocessing
     root=make_fixture(tmp_path,monkeypatch)
     output=tmp_path/"racy_publication"
-    ctx=multiprocessing.get_context("fork")
+    # The exporter is invoked by independent Python processes. Avoid
+    # inheriting the test runner's SQLite state into a forked child.
+    ctx=multiprocessing.get_context("spawn")
     barrier=ctx.Barrier(2)
     queue=ctx.Queue()
-    def worker():
-        old=projection._publish_no_replace
-        def synchronized(pfd,stage_name,target_name):
-            barrier.wait(timeout=15)
-            return old(pfd,stage_name,target_name)
-        projection._publish_no_replace=synchronized
-        try:
-            projection.run(root,output)
-            queue.put("PUBLISHED")
-        except FileExistsError:
-            queue.put("EXISTS")
-        except Exception as exc:
-            queue.put(f"FAIL:{type(exc).__name__}:{exc}")
-    processes=[ctx.Process(target=worker) for _ in range(2)]
+    processes=[ctx.Process(target=_publish_from_fresh_process,
+                           args=(root,output,barrier,queue)) for _ in range(2)]
     for p in processes:p.start()
     for p in processes:p.join(25)
     assert all(p.exitcode==0 for p in processes)

@@ -1,0 +1,41 @@
+[Unit]
+Description=IT-TEM BP18 B Tailnet HTTPS candidate (release prestart policy guard)
+After=network-online.target
+Wants=network-online.target
+StartLimitIntervalSec=60
+StartLimitBurst=3
+
+[Service]
+Type=simple
+WorkingDirectory=/home/macstudio/ittem-bp18-product-completion-20261111/repo
+Environment=PYTHONDONTWRITEBYTECODE=1
+Environment=PYTHONPATH=/home/macstudio/ittem-bp18-product-completion-20261111/vendor/bp10_unicode_site:/home/macstudio/ittem-bp18-product-completion-20261111/repo
+Environment=IT_TEM_DEMO_ROOT=/home/macstudio/ittem-bp18-product-completion-20261111
+Environment=IT_TEM_DEMO_SECURE_COOKIE=YES
+Environment=IT_TEM_DEMO_COOKIE_NAME=__Host-ittem_bp18_b_session
+Environment=IT_TEM_DEMO_ENABLE_LIVE_CONFIG=NO
+Environment=IT_TEM_LIVE_ENABLED=NO
+Environment=IT_TEM_LIVE_EXECUTION_APPROVED=NO
+Environment=IT_TEM_LIVE_WEB_QUEUE_ENABLED=NO
+Environment=IT_TEM_PROVIDER_READINESS_CONFIRMED=NO
+Environment=IT_TEM_QA_FIXTURE_ENABLED=NO
+Environment=IT_TEM_TAILNET_AUTH_ENABLED=YES
+Environment=IT_TEM_TAILNET_SSO_ONLY=YES
+Environment=IT_TEM_TAILNET_AUTH_KEY_FILE=/home/macstudio/ittem-bp18-product-completion-20261111/config/bp18_tailnet_hmac.key
+Environment=IT_TEM_TAILNET_ACTORS_FILE=/home/macstudio/ittem-bp18-product-completion-20261111/config/bp18_tailnet_roles.json
+Environment=IT_TEM_TAILNET_EXPECTED_HOST=macstudio-macstudio.tail17dfff.ts.net:10500
+Environment=IT_TEM_BP18_VISUAL_V3_ENABLED=YES
+Environment=IT_TEM_BP18_F11_ENABLED=YES
+Environment=IT_TEM_BP18_REVIEW_POLICY_ID=bp18-f11-compliance-policy-v1
+Environment=IT_TEM_QA_ALLOWED_ACTORS=bp18_b_evaluator
+Environment=IT_TEM_LIVE_KOREAN_FONT=/usr/share/fonts/truetype/nanum/NanumGothic.ttf
+ExecStartPre=/usr/bin/python3 -I -S /home/macstudio/ittem-bp18-product-completion-20261111/control/bp18_release_prestart.py --mode web --port 18100
+ExecStart=/usr/bin/bash /home/macstudio/ittem-bp18-product-completion-20261111/control/bp18_web_exec.sh
+Restart=on-failure
+RestartSec=3s
+TimeoutStartSec=20
+TimeoutStopSec=10
+NoNewPrivileges=true
+
+[Install]
+WantedBy=default.target

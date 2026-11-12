@@ -13,13 +13,15 @@ type Props = {
   actions?: ReactNode
   /** 하단 작업 영역 위에 붙는 상태·오류 문구 */
   actionsNote?: ReactNode
+  /** 결과 파일을 읽는 화면은 작업 영역을 문서 흐름에 둔다 */
+  stickyActions?: boolean
   children: ReactNode
 }
 
 const pad = (n: number) => String(n).padStart(2, '0')
 
 // 모든 단계가 같은 제목 위계와 하단 이전/다음 버튼 위치를 쓰도록 하는 틀
-export default function StepPage({ title, description, wide, back, actions, actionsNote, children }: Props) {
+export default function StepPage({ title, description, wide, back, actions, actionsNote, stickyActions = true, children }: Props) {
   const index = stepIndex(useLocation().pathname)
   const width = wide ? 'step-width wide' : 'step-width'
 
@@ -37,7 +39,7 @@ export default function StepPage({ title, description, wide, back, actions, acti
         </div>}
         {children}
       </div>
-      <div className="step-actions">
+      <div className={`step-actions${stickyActions ? '' : ' in-flow'}`}>
         <div className={width}>
           {actionsNote && <div className="step-actions-note">{actionsNote}</div>}
           <div className="step-actions-row">

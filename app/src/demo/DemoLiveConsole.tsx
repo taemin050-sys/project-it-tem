@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import LiveEvaluationBoard from './LiveEvaluationBoard'
 import {AD_LAYOUT} from '../config'
 import {LEGACY_LAYOUT} from '../api/liveFlow'
+import {candidateArtifactPath} from '../api/liveMapping'
 
 type Stage = 'INPUT_STORED' | 'COPY_REVIEW_REQUIRED' | 'COPY_APPROVED' | 'COPY_REJECTED' |
              'PROMPT_READY' | 'IMAGE_REVIEW_REQUIRED' | 'IMAGE_APPROVED' | 'IMAGE_REJECTED' | 'COMPLETED'
@@ -57,7 +58,11 @@ export default function DemoLiveConsole({evaluatorId}:{evaluatorId:string}){
   const [rights,setRights]=useState(false)
   const [evidence,setEvidence]=useState(false)
   const [form,setForm]=useState({headline:'',subline:'',cta:'',caption:''})
-  const [candidateUrl,setCandidateUrl]=useState<string|null>(null)
+  const [loadedCandidateUrl,setLoadedCandidateUrl]=useState<string>()
+  const candidateUrl=snap?.state==='IMAGE_REVIEW_REQUIRED' && snap.mode==='LIVE'
+    ? candidateArtifactPath(snap) : undefined
+  const candidateReady=candidateUrl!==undefined && candidateUrl===loadedCandidateUrl &&
+    snap?.approval_current===true
   const lastId=useRef<string|null>(null)
   const lastCopyHash=useRef<string|null>(null)
   const update=useCallback(async(id:string)=>{
@@ -71,9 +76,6 @@ export default function DemoLiveConsole({evaluatorId}:{evaluatorId:string}){
       setForm({headline:x.copy.ad_copy.headline,subline:x.copy.ad_copy.subline,
         cta:x.copy.ad_copy.cta,caption:x.copy.caption})
       lastCopyHash.current=x.copy_sha || null
-    }
-    if(x.state==='IMAGE_REVIEW_REQUIRED'&&x.mode==='LIVE'){
-      setCandidateUrl(api+'/jobs/'+id+'/artifacts/candidate')
     }
     return x
   },[])
@@ -183,12 +185,12 @@ export default function DemoLiveConsole({evaluatorId}:{evaluatorId:string}){
     await update(snap.job_id)
   }
   async function rejectImage(){
-    if(!snap?.image_sha)throw Error('이미지 후보가 없습니다')
+    if(!candidateReady||!snap?.image_sha)throw Error('검토할 이미지를 먼저 불러오세요.')
     await request(api+'/jobs/'+snap.job_id+'/reject-image','POST',{image_sha:snap.image_sha})
     await update(snap.job_id)
   }
   async function approveImage(){
-    if(!snap?.image_sha)throw Error('이미지 후보가 없습니다')
+    if(!candidateReady||!snap?.image_sha)throw Error('검토할 이미지를 먼저 불러오세요.')
     await request(api+'/jobs/'+snap.job_id+'/approve-image','POST',{image_sha:snap.image_sha})
     await update(snap.job_id)
   }
@@ -289,10 +291,11 @@ export default function DemoLiveConsole({evaluatorId}:{evaluatorId:string}){
         onClick={()=>void action(()=>enqueue('queue-image'))}>실제 제품 이미지 편집 접수</button>}
       {candidateUrl&&snap.state==='IMAGE_REVIEW_REQUIRED'&&<section>
         <h3>3. 이미지 후보 검토</h3>
-        <img src={candidateUrl} alt="실제 이미지 생성 후보" style={{maxWidth:320,width:'100%'}}/>
+        <img key={candidateUrl} src={candidateUrl} alt="실제 이미지 생성 후보"
+          onLoad={()=>setLoadedCandidateUrl(candidateUrl)} style={{maxWidth:320,width:'100%'}}/>
         <p>실제 제품 보존·브랜드/로고 왜곡·가짜 라벨을 직접 확인하십시오.</p>
-        <button disabled={busy} onClick={()=>void action(approveImage)}>이미지 승인</button>
-        <button disabled={busy} onClick={()=>void action(rejectImage)}>이미지 거절</button>
+        <button disabled={busy||!candidateReady} onClick={()=>void action(approveImage)}>이미지 승인</button>
+        <button disabled={busy||!candidateReady} onClick={()=>void action(rejectImage)}>이미지 거절</button>
       </section>}
       {snap.state==='IMAGE_APPROVED'&&<button disabled={busy}
         onClick={()=>void action(compose)}>승인된 한글 카피 합성</button>}

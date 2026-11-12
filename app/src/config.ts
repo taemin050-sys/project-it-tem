@@ -45,3 +45,4 @@ export const AD_LAYOUT = {
 // Explicit build-time QA label only. Authentication and Fixture access are
 // independently controlled by the backend; this is not an auth bypass.
 export const QA_OFFLINE_FIXTURE = import.meta.env?.VITE_QA_OFFLINE_FIXTURE === 'YES'
+export const DUAL_QA = QA_OFFLINE_FIXTURE && import.meta.env?.VITE_BP18_DUAL_QA === 'YES'

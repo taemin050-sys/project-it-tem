@@ -3,9 +3,10 @@ import {queryClient} from './queryClient'
 import {useProjectStore} from '../store/projectStore'
 import {approveLiveCopy,rejectLiveCopy,queueLive,waitLiveTask,approveLiveImage,
     rejectLiveImage,composeLive,getLiveSnapshot,qaPromptImage,qaCompose,
-  reviseLiveCopy,restoreLiveCopy,regenerateLiveImage,qaRegenerateImage} from './liveJobs'
-import { AD_LAYOUT, QA_OFFLINE_FIXTURE } from '../config'
+  reviseLiveCopy,restoreLiveCopy,regenerateLiveImage,qaRegenerateImage,queueLiveCopyReview} from './liveJobs'
+import { AD_LAYOUT, DUAL_QA, QA_OFFLINE_FIXTURE } from '../config'
 import {guardCopyApproval,guardImageApproval,type LiveSnapshot} from './liveMapping'
+import {dualQueryKey,startDualJob,snapshotDualProvenance} from './dualJobs'
 // Legacy-only composition layout. Managed A Jobs NEVER receive this value.
 // The server records each Job's layout version/hash and composes from it.
 export const LEGACY_LAYOUT={text_regions:{
@@ -22,7 +23,7 @@ import {ApiError} from './client'
 const composePinned=(s:LiveSnapshot)=>{
   const operation=QA_OFFLINE_FIXTURE
     ? qaCompose(s.job_id)
-    : composeLive(s.job_id,s.template_profile?.startsWith('OWNER_IMAGE_SIZE_')
+    : composeLive(s.job_id,(s.template_profile?.startsWith('OWNER_IMAGE_SIZE_') || s.template_profile?.startsWith('BP18_PROVISIONAL_SIZE_'))
        ? undefined : s.template_profile==='A_CENTERED'?AD_LAYOUT:LEGACY_LAYOUT)
   return operation.catch(e=>{
     throw Error('광고 합성에 실패했습니다. 승인 이미지는 유지됩니다. 합성만 재시도하세요.'+
@@ -58,10 +59,18 @@ async function queuePromptAndImage(id:string){
   const image=await queueLive(id,'image')
   useProjectStore.getState().setLiveTask(image.task_id)
 }
-export async function approveCopyAndCreateImage(s:LiveSnapshot,ack:boolean,onApproved:()=>void=()=>{}){
-  guardCopyApproval(s)
+export async function approveCopyAndCreateImage(s:LiveSnapshot,ack:boolean,onApproved:()=>void=()=>{},ackTwoImages=false,ackResponsibility=false){
+  guardCopyApproval(s,ackResponsibility)
   await run(s.job_id,'ai/image',async()=>{
-    await approveLiveCopy(s,ack)
+    if(s.dual_requested){
+      if(s.dual_provenance==='LIVE_DUAL' && s.mode!=='LIVE')throw Error('두 시안 작업의 모델 실행 출처를 확인해야 합니다.')
+      if(s.dual_provenance!=='LIVE_DUAL' && (!DUAL_QA || s.mode!=='OFFLINE_FIXTURE'))throw Error('이 두 시안 작업은 지정된 QA 환경에서만 진행할 수 있습니다.')
+      const result=await startDualJob(s,ack,ackTwoImages,ackResponsibility)
+      queryClient.setQueryData(dualQueryKey(s.job_id,snapshotDualProvenance(s)),result)
+      onApproved()
+      return
+    }
+    await approveLiveCopy(s,ack,ackResponsibility)
     // Owner #26: navigate only after actual approval POST success.
     onApproved()
     await queuePromptAndImage(s.job_id)
@@ -96,6 +105,16 @@ export async function reviseCopyFromInstruction(s:LiveSnapshot,instruction:strin
 export async function restorePreviousLiveCopy(s:LiveSnapshot){
   if(!s.previous_copy_available)throw Error('복원 가능한 이전 버전이 없습니다.')
   await run(s.job_id,'ai/copy-review',async()=>{await restoreLiveCopy(s)})
+}
+export async function completeLiveCopyReview(s:LiveSnapshot){
+  await run(s.job_id,'ai/copy-review',async()=>{
+    const task=await queueLiveCopyReview(s)
+    useProjectStore.getState().setLiveTask(task.task_id)
+    const reviewed=await waitLiveTask(s.job_id,task.task_id,'COPY_REVIEW_REQUIRED')
+    if(reviewed.generation!==s.generation || reviewed.copy_sha!==s.copy_sha ||
+      reviewed.review_sha===s.review_sha || reviewed.llm_review_pending)
+      throw Error('현재 카피의 AI 검수 결과를 확인하지 못했습니다.')
+  })
 }
 export async function rejectCopy(s:LiveSnapshot){
   if(s.state!=='COPY_REVIEW_REQUIRED')throw Error('카피 거절 상태 오류')

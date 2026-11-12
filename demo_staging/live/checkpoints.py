@@ -1,9 +1,8 @@
 """Immutable Owner Text stage checkpoints, distinct from attempt receipts.
 
-One immutable result for each (job, stage), bound to actor, input, model and
-mode. A previously returned result is replayable without another Provider
-attempt. If an attempt reached billing but never checkpointed, the CostGuard
-denies retry; manual reconciliation is mandatory.
+Input stages are immutable per Job. Copy revisions and image prompts are
+immutable per request or approval context. A previously returned result
+is reusable without another Provider attempt.
 """
 from __future__ import annotations
 import json
@@ -12,8 +11,9 @@ from pathlib import Path
 from pydantic import BaseModel
 from .contracts import digest, LiveGateError
 
-_STAGES=frozenset({"vision","research","copy","image_prompt","copy_revision"})
+_STAGES=frozenset({"vision","research","copy","image_prompt","copy_revision","copy_review"})
 _MODES=frozenset({"LIVE","OFFLINE_FIXTURE"})
+_CONTEXT_STAGES=frozenset({"copy_revision","image_prompt","copy_review"})
 
 
 class LiveCheckpoints:
@@ -29,8 +29,8 @@ class LiveCheckpoints:
               payload_sha TEXT NOT NULL,payload_json TEXT NOT NULL,
               created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
               PRIMARY KEY(job_id,stage));
-            -- New Owner copy revisions may run repeatedly for one Job, each
-            -- bound to a distinct approved-for-review generation and request.
+            -- Copy revisions and prompts may run repeatedly for one Job,
+            -- each bound to a distinct request or approval context.
             -- Historical one-shot checkpoints are not migrated or modified.
             CREATE TABLE IF NOT EXISTS text_revision_checkpoints (
               job_id TEXT NOT NULL,actor TEXT NOT NULL,stage TEXT NOT NULL,
@@ -53,16 +53,25 @@ class LiveCheckpoints:
             any(ch not in "0123456789abcdef" for ch in context_sha)):
             raise LiveGateError("CHECKPOINT_CONTRACT_INVALID")
 
+    @staticmethod
+    def _record(db,job_id,stage,context_sha):
+        if stage not in _CONTEXT_STAGES:
+            return db.execute("SELECT * FROM text_checkpoints WHERE job_id=? AND stage=?",
+                              (job_id,stage)).fetchone()
+        row=db.execute("""SELECT * FROM text_revision_checkpoints
+            WHERE job_id=? AND stage=? AND context_sha=?""",
+            (job_id,stage,context_sha)).fetchone()
+        if row is None and stage=="image_prompt":
+            # Preserve and reuse historical prompt checkpoints for their exact approval.
+            row=db.execute("""SELECT * FROM text_checkpoints
+                WHERE job_id=? AND stage=? AND context_sha=?""",
+                (job_id,stage,context_sha)).fetchone()
+        return row
+
     def load(self,actor,job_id,stage,context_sha,mode,model:type[BaseModel]):
         self._check(stage,mode,context_sha)
         with self.db() as db:
-            if stage=="copy_revision":
-                row=db.execute("""SELECT * FROM text_revision_checkpoints
-                    WHERE job_id=? AND stage=? AND context_sha=?""",
-                    (job_id,stage,context_sha)).fetchone()
-            else:
-                row=db.execute("SELECT * FROM text_checkpoints WHERE job_id=? AND stage=?",
-                               (job_id,stage)).fetchone()
+            row=self._record(db,job_id,stage,context_sha)
         if row is None:
             return None
         if (row["actor"]!=actor or row["context_sha"]!=context_sha
@@ -88,15 +97,9 @@ class LiveCheckpoints:
             raise LiveGateError("CHECKPOINT_RESULT_INVALID") from None
         with self.db() as db:
             db.execute("BEGIN IMMEDIATE")
-            table=("text_revision_checkpoints" if stage=="copy_revision"
+            table=("text_revision_checkpoints" if stage in _CONTEXT_STAGES
                    else "text_checkpoints")
-            if stage=="copy_revision":
-                existing=db.execute("""SELECT * FROM text_revision_checkpoints
-                    WHERE job_id=? AND stage=? AND context_sha=?""",
-                    (job_id,stage,context_sha)).fetchone()
-            else:
-                existing=db.execute("SELECT * FROM text_checkpoints WHERE job_id=? AND stage=?",
-                                    (job_id,stage)).fetchone()
+            existing=self._record(db,job_id,stage,context_sha)
             if existing:
                 if (existing["actor"]!=actor or existing["context_sha"]!=context_sha
                     or existing["mode"]!=mode or existing["payload_sha"]!=sha

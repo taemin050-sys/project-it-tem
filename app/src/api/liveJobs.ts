@@ -1,4 +1,5 @@
 import { request } from './client'
+import { dualPath, type DualProvenance } from './dualArtifacts'
 import type { Job } from '../types/draft'
 import type { ProductInput,AdCopyOutput } from '../types/textSchema'
 import type { Ratio } from '../config'
@@ -6,6 +7,8 @@ import type {GenerationMode} from '../store/projectStore'
 import { asProductJob,guardCopyApproval,guardCopyReviewMutation,guardImageApproval,
   type LiveSnapshot,type LiveTask,type LivePerformance } from './liveMapping'
 import { getJob } from './jobs'
+import { checkedLiveCapabilities, requireLiveDualRatio } from './liveCapabilities'
+export type { LiveCapabilities } from './liveCapabilities'
 
 const prefix='/demo/api/live'
 const url=(id:string)=>prefix+'/jobs/'+encodeURIComponent(id)
@@ -37,6 +40,8 @@ export function getTextCostEstimate(photoCount:number,revisionTarget?:'copy'|'im
   if(revisionTarget)q.set('revision_target',revisionTarget)
   return request<TextCostEstimate>(prefix+'/text-cost-estimate?'+q.toString())
 }
+export const getLiveCapabilities = async () => checkedLiveCapabilities(await request<unknown>(prefix+'/capabilities'))
+
 const json=(v:unknown)=>({method:'POST',headers:{'Content-Type':'application/json'},
   body:JSON.stringify(v)})
 export const getLiveSnapshot=(id:string)=>request<LiveSnapshot>(url(id))
@@ -45,9 +50,13 @@ export async function getProductLiveJob(id:string):Promise<Job>{
   return asProductJob(snapshot,original)
 }
 // Owner #26: bind selected ratio at Live input, never submit it again on image queue.
-export function createLiveInput(b0:Job,product:ProductInput,imageSize:Ratio, generationMode:GenerationMode='composed'){
-  return request<LiveSnapshot>(url(b0.job_id)+'/input',
-    json({customer_request_id:'product-live-'+b0.job_id,product,image_size:imageSize, generation_mode:generationMode}))
+export async function createLiveInput(b0:Job,product:ProductInput,imageSize:Ratio, generationMode:GenerationMode='composed',dual: DualProvenance | false=false){
+  // Recheck the server at the API boundary; form state alone cannot authorize
+  // a restored/stale ratio or a stopped Worker to start a new paid workflow.
+  if(dual==='LIVE_DUAL')requireLiveDualRatio(await getLiveCapabilities(),imageSize)
+  const input=(dual ? dualPath(b0.job_id,dual) : url(b0.job_id))+'/input'
+  return request<LiveSnapshot>(input,
+    json({customer_request_id:'product-live-'+b0.job_id,product,image_size:imageSize, generation_mode:dual?'composed':generationMode}))
 }
 export const queueLive=(id:string,stage:'text'|'prompt'|'image')=>
   request<{task_id:string;state:string;new:boolean}>(url(id)+'/queue-'+stage,
@@ -58,6 +67,15 @@ export const getLiveTask=(id:string)=>request<LiveTask>(
   prefix+'/tasks/'+encodeURIComponent(id))
 export const editLiveCopy=(id:string,copy:AdCopyOutput)=>
   request<LiveSnapshot>(url(id)+'/copy',json({copy_output:copy}))
+export const revalidateLiveReviewPolicy=(s:LiveSnapshot)=>
+  request<LiveSnapshot>(url(s.job_id)+'/revalidate-policy',
+    json({expected_generation:s.generation,expected_review_sha:s.review_sha}))
+export function queueLiveCopyReview(s:LiveSnapshot){
+  guardCopyReviewMutation(s)
+  if (!s.llm_review_pending) throw Error('현재 카피에는 추가 AI 검수가 필요하지 않습니다.')
+  return request<{task_id:string;state:string;new:boolean}>(url(s.job_id)+'/review-copy',
+    json({expected_generation:s.generation,expected_review_sha:s.review_sha}))
+}
 /** User initiated only. QA gives an explicit Fixture snapshot.
  * LIVE accepts an asynchronous, one-shot, signed Text Owner worker task.
  * Never perform a paid model request directly from the browser.
@@ -77,12 +95,13 @@ export function restoreLiveCopy(s:LiveSnapshot){
   return request<LiveSnapshot>(root+encodeURIComponent(s.job_id)+'/restore-copy',
     json({expected_generation:s.generation,expected_review_sha:s.review_sha}))
 }
-export const approveLiveCopy=(s:LiveSnapshot,acknowledgeEvidence:boolean)=>{
-  guardCopyApproval(s)
-  return request<LiveSnapshot>(url(s.job_id)+'/approve-copy',
-    json({expected_generation:s.generation,expected_review_sha:s.review_sha,
-      acknowledge_evidence:acknowledgeEvidence}))
+export function copyApprovalPayload(s:LiveSnapshot,acknowledgeEvidence:boolean,acknowledgeResponsibility=false){
+  guardCopyApproval(s,acknowledgeResponsibility)
+  return {expected_generation:s.generation,expected_review_sha:s.review_sha,
+    acknowledge_evidence:acknowledgeEvidence,...(acknowledgeResponsibility===true?{acknowledge_responsibility:true}:{})}
 }
+export const approveLiveCopy=(s:LiveSnapshot,acknowledgeEvidence:boolean,acknowledgeResponsibility=false)=>
+  request<LiveSnapshot>(url(s.job_id)+'/approve-copy',json(copyApprovalPayload(s,acknowledgeEvidence,acknowledgeResponsibility)))
 export const rejectLiveCopy=(id:string)=>request<LiveSnapshot>(url(id)+'/reject-copy',{method:'POST'})
 export const approveLiveImage=(s:LiveSnapshot)=>{
   guardImageApproval(s)

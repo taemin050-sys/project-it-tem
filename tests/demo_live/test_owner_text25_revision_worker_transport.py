@@ -78,6 +78,8 @@ def test_live_copy_revision_queue_http_and_fake_worker_routing(tmp_path,monkeypa
         class FakeFlow:
             def __init__(self):
                 self.calls=[]
+                self.approved_actors=app.state.live_pipeline.approved_actors
+                self.state=app.state.live_pipeline.state
             def revision_context(self,actor,job_id,text,gen,sha,*,text_model):
                 assert actor=="alice" and job_id==jid
                 assert text==instruction and sha==expected["expected_review_sha"]
@@ -88,9 +90,9 @@ def test_live_copy_revision_queue_http_and_fake_worker_routing(tmp_path,monkeypa
                 self.calls.append((job_id,text))
                 return {"review_sha":"f"*64}
         fake=FakeFlow()
-        assert _run_locked(tmp_path/"runtime",fake)=="LIVE_STAGE_COMMITTED"
+        assert _run_locked(tmp_path/"runtime",fake,app.state.live_queue)=="LIVE_STAGE_COMMITTED"
         assert fake.calls==[(jid,instruction)]
-        assert _run_locked(tmp_path/"runtime",fake)=="NO_LIVE_TASK"
+        assert _run_locked(tmp_path/"runtime",fake,app.state.live_queue)=="NO_LIVE_TASK"
         assert app.state.live_queue.read(taskid)["state"]=="SUCCEEDED"
         assert app.state.live_queue.read(taskid)["result_sha"]=="f"*64
         # Synthetic worker did not update the actual Job (intentionally);

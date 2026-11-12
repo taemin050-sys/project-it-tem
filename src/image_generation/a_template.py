@@ -6,7 +6,10 @@ bounds reviewed on the actual candidate. The upper safe zone does not cover CTA.
 """
 from __future__ import annotations
 
-from .backend_adapter import BackendSafeZone
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .backend_adapter import BackendSafeZone
 from .composition import CompositionLayout, CompositionRect, CompositionTextRegion
 
 
@@ -20,6 +23,8 @@ def make_a_template(*, protected_regions: list[CompositionRect] | None = None,
     it is never applied automatically. Protection covers all three copy fields.
     Copy that cannot fit at the preset minimum size is rejected by the compositor.
     """
+    from .backend_adapter import BackendSafeZone
+
     safe_zone = BackendSafeZone(left=.06, top=.05, right=.94, bottom=.25)
     common = dict(align="center", color=color, background=background, padding=16)
     regions = {

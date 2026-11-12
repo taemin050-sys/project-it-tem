@@ -1,4 +1,4 @@
-export type Option<T extends string> = { value: T; label: string; desc?: string }
+export type Option<T extends string> = { value: T; label: string; desc?: string; disabled?: boolean }
 
 type Props<T extends string> = {
   legend: string
@@ -23,6 +23,7 @@ export default function OptionGroup<T extends string>({ legend, name, options, v
               name={name}
               value={o.value}
               checked={o.value === value}
+              disabled={o.disabled}
               onChange={() => onChange(o.value)}
             />
             <span className="option-check" aria-hidden="true" />

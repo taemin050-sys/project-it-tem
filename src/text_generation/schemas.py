@@ -217,11 +217,23 @@ class Citation(BaseModel):
     url: str
 
 
+class ResearchClaimReference(BaseModel):
+    section: Literal["market_insights", "similar_products", "display_summary"]
+    index: int = Field(ge=0)
+    text_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
+
+
+class ClaimCitation(Citation):
+    """Code-added attribution from a Provider annotation to exact claim text."""
+
+    claims: list[ResearchClaimReference] = Field(min_length=1)
+
+
 class ResearchResult(BaseModel):
     """코드에서 조립 (LLM 출력 아님) → 서빙에 넘기는 값"""
 
     research: ResearchOutput
-    citations: list[Citation] = Field(
+    citations: list[ClaimCitation | Citation] = Field(
         default_factory=list,
         description="OpenAI 응답의 실제 인용 정보(url_citation)에서 추출한 출처",
     )

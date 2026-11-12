@@ -6,13 +6,17 @@ execute this process after verifying model entitlements and provider receipts.
 from __future__ import annotations
 
 import os
+import json
+import sqlite3
 from pathlib import Path
 from contextlib import contextmanager
+from uuid import uuid5
 import fcntl
 
 from .pipeline import LivePipeline
-from .queue import LiveQueue
-from .contracts import LiveGateError
+from .queue import LIVE_DUAL_PROTOCOL,LIVE_DUAL_V2_PROTOCOL,LIVE_DUAL_PROTOCOLS, LiveQueue
+from . import dual_worker
+from .contracts import LiveGateError,digest
 from demo_staging.live_safety import LiveNotAuthorized
 from src.serving.job_store import JobStore
 
@@ -31,7 +35,8 @@ def policy_from_env(root:Path):
         raise LiveNotAuthorized("COST_POLICY_NOT_AUTHORIZED")
     actors=frozenset(x.strip() for x in
         os.environ.get("IT_TEM_LIVE_APPROVED_ACTORS","").split(",") if x.strip())
-    if not actors or "*" in actors:
+    if (not actors or
+            any(not actor.replace("_","").replace("-","").isalnum() for actor in actors)):
         raise LiveNotAuthorized("LIVE_ACTOR_ALLOWLIST_REQUIRED")
     return LivePipeline(root/"live",JobStore(root/"jobs"),live_enabled=True,
         pm_authorized=True,approved_actors=actors,monitoring_only=True)
@@ -88,26 +93,71 @@ def exclusive_live_worker(root:Path):
 
 def run_once(root:Path)->str:
     # Must run BEFORE queue claim: disabled worker must NOT consume a task.
-    flow=policy_from_env(root)
     with exclusive_live_worker(root):
-        return _run_locked(root,flow)
+        flow=policy_from_env(root)
+        queue=LiveQueue(root/"live"/"queue.sqlite")
+        if _reconcile_locked(flow,queue):
+            return "LIVE_STAGE_HELD_FOR_RECONCILIATION"
+        with dual_worker.live_dual_lease(root) as dual_profile:
+            return _run_locked(root,flow,queue,dual_profile=dual_profile)
 
 
-def _run_locked(root:Path,flow:LivePipeline)->str:
-    queue=LiveQueue(root/"live"/"queue.sqlite")
-    # Any previous RUNNING attempt has ambiguous provider billing; hold it.
-    queue.reconcile_restart()
-    item=queue.claim("LIVE")
+def _reconcile_locked(flow:LivePipeline,queue:LiveQueue)->bool:
+    # The two ledgers are separate. Preserve ambiguous dispatch intent before
+    # clearing RUNNING from the queue. A subsequent restart can finish either
+    # update without resubmitting any provider request.
+    dual=dual_worker.reconcile_live_dual(flow,queue)
+    provider=flow.cost.reconcile_crashed_dispatches()
+    queued=queue.reconcile_restart()
+    return bool(dual or provider or queued)
+
+
+def _run_locked(root:Path,flow:LivePipeline,queue:LiveQueue,*,dual_profile=None)->str:
+    if queue.dual_billing_unknown():
+        return dual_worker.HOLD
+    from .result_revision_worker import run_result_revision_once
+    revision = run_result_revision_once(flow)
+    if revision != "NO_RESULT_REVISION_TASK":
+        return revision
+    if dual_profile is not None:
+        try:
+            dual_worker.project_intents(flow,queue)
+        except (LiveGateError,OSError,sqlite3.Error):
+            return "LIVE_DUAL_QUEUE_PROJECTION_PENDING"
+    supported=(LIVE_DUAL_PROTOCOL,LIVE_DUAL_V2_PROTOCOL) if (
+        os.environ.get(dual_worker.MULTI_RATIO_FLAG)=="YES") else (LIVE_DUAL_PROTOCOL,)
+    item=queue.claim("LIVE",include_dual=dual_profile is not None,dual_protocols=supported)
     if not item:return "NO_LIVE_TASK"
     actor,jid=item["actor"],item["job_id"]
+    is_dual=item["mode"] in LIVE_DUAL_PROTOCOLS
+    if is_dual and item["mode"]==LIVE_DUAL_V2_PROTOCOL:
+        try:
+            ratio=json.loads(flow.state.get(actor,jid)["input_json"])["image_size"]
+            dual_profile=dual_worker.live_dual_profile(ratio)
+        except (LiveGateError,LiveNotAuthorized,ValueError,KeyError) as error:
+            return dual_worker.fail_live_dual(flow,queue,item,error)
+    if is_dual and item["stage"] in dual_worker.POST_APPROVAL_STAGES:
+        return dual_worker.execute_live_dual(flow,queue,item,dual_profile,live_image_adapter)
     try:
+        if actor not in flow.approved_actors:
+            raise LiveGateError("LIVE_QUEUE_ACTOR_NOT_AUTHORIZED")
+        if is_dual:
+            if dual_worker.live_dual_profile(dual_profile["image_size"])!=dual_profile:
+                raise LiveGateError("LIVE_DUAL_EXECUTION_PROFILE_CHANGED")
+            dual_worker.authorize_shared_text(flow,item)
+        elif flow.state.live_dual_membership(actor,jid):
+            raise LiveGateError("LIVE_DUAL_PROTOCOL_REQUIRED")
+        job=flow.state.get(actor,jid)
+        expected_mode="INPUT_ONLY" if item["stage"]=="analysis" else "LIVE"
+        if job["mode"]!=expected_mode:
+            raise LiveGateError("LIVE_QUEUE_PROVENANCE_MISMATCH")
         if item["stage"]=="analysis":
             result=flow.text(actor,jid,offline=False,
                 text_model=os.environ.get("IT_TEM_TEXT_MODEL","gpt-6-luna"),
-                vision_model=os.environ.get("IT_TEM_VISION_MODEL","gpt-6-luna"))
+                vision_model=os.environ.get("IT_TEM_VISION_MODEL","gpt-6-luna"),
+                expected_input_sha=item["context_sha"])
             result_sha=result["copy_sha"]
         elif item["stage"]=="copy_revision":
-            from .contracts import digest
             payload=queue.revision_payload(item["id"])
             text_model=os.environ.get("IT_TEM_TEXT_MODEL","gpt-6-luna")
             context=flow.revision_context(
@@ -120,16 +170,24 @@ def _run_locked(root:Path,flow:LivePipeline)->str:
                 actor,jid,payload["instruction"],payload["expected_generation"],
                 payload["expected_review_sha"],offline=False,text_model=text_model)
             result_sha=result["review_sha"]
+        elif item["stage"]=="copy_review":
+            payload=queue.review_payload(item["id"])
+            text_model=os.environ.get("IT_TEM_TEXT_MODEL","gpt-6-luna")
+            context=flow.copy_review_context(
+                actor,jid,payload["expected_generation"],payload["expected_review_sha"],
+                text_model=text_model)
+            if digest(context)!=item["context_sha"]:
+                raise LiveGateError("LLM_REVIEW_QUEUE_CONTEXT_STALE")
+            result=flow.review_current_copy(
+                actor,jid,payload["expected_generation"],payload["expected_review_sha"],
+                text_model=text_model)
+            result_sha=result["review_sha"]
         elif item["stage"]=="image_prompt":
             result=flow.prompt(actor,jid,offline=False,
-                text_model=os.environ.get("IT_TEM_TEXT_MODEL","gpt-6-luna"))
-            from .contracts import digest
-            import json
+                text_model=os.environ.get("IT_TEM_TEXT_MODEL","gpt-6-luna"),
+                expected_approval_sha=item["context_sha"])
             result_sha=digest(json.loads(result["prompt_json"]))
         elif item["stage"]=="image":
-            from uuid import uuid5
-            from .contracts import digest
-            job=flow.state.get(actor,jid)
             current=flow.state.current_image_attempt(actor,jid)
             retry=current is not None and current["attempt_version"]>1
             expected_context=(digest({"approval_sha":job["approval_sha"],
@@ -137,9 +195,11 @@ def _run_locked(root:Path,flow:LivePipeline)->str:
             if item["context_sha"]!=expected_context:
                 raise LiveGateError("IMAGE_ATTEMPT_QUEUE_CONTEXT_CHANGED")
             if retry and (current["state"]!="REQUESTED" or
-                          current["approval_sha"]!=job["approval_sha"]):
+                          current["actor"]!=actor or
+                          current["approval_sha"]!=job["approval_sha"] or
+                          current["prompt_sha"]!=digest(json.loads(job["prompt_json"]))):
                 raise LiveGateError("IMAGE_ATTEMPT_NOT_REQUESTED")
-            req=flow.image_input(actor,jid)
+            req=flow.image_input(actor,jid,expected_approval_sha=job["approval_sha"])
             adapter=live_image_adapter(root/"live"/"owner_image",req)
             fingerprint={"copy_sha":req.copy_hash,"revision":req.copy_revision,
                          "image_model":adapter.model}
@@ -151,39 +211,50 @@ def _run_locked(root:Path,flow:LivePipeline)->str:
                 project_id=uuid5(flow.project_id,"image-attempt/"+current["attempt_id"])
             result=flow._guarded(actor,jid,"image",fingerprint,
                 lambda:adapter.generate(req,project_id=project_id),image=True)
-            committed=flow.accept_image_result(actor,jid,result,offline=False)
+            committed=flow.accept_image_result(actor,jid,result,offline=False,
+                expected_approval_sha=job["approval_sha"])
             result_sha=committed["image_sha"]
         else:
             raise LiveGateError("INVALID_WORK_STAGE")
         queue.complete(item["id"],result_sha)
         return "LIVE_STAGE_COMMITTED"
     except BaseException as exc:
+        if is_dual:
+            if not isinstance(exc,Exception):
+                raise
+            return dual_worker.fail_live_dual(flow,queue,item,exc)
         code=exc.code if isinstance(exc,LiveGateError) else "WORKER_ATTEMPT_UNCERTAIN"
         queue.interrupt(item["id"],code)
         # No hidden retry, no provider traceback/secret in HTTP output.
         return "LIVE_STAGE_HELD_FOR_RECONCILIATION"
 
 
-def serve_loop(root:Path,interval:float=2.0):
+def serve_loop(root:Path,interval:float=2.0,*,stop_requested=None):
     """One task per cycle, no recursive attempt and no backend mock fallback."""
     import time
-    while True:
-        status=run_once(root)
-        if status=="LIVE_STAGE_HELD_FOR_RECONCILIATION":
-            # A charged or ambiguous failure is a hard safety stop, unrelated
-            # to monetary project threshold. Requires manual incident review.
-            return status
-        time.sleep(interval)
+    with exclusive_live_worker(root):
+        flow=policy_from_env(root)
+        queue=LiveQueue(root/"live"/"queue.sqlite")
+        if _reconcile_locked(flow,queue):
+            return "LIVE_STAGE_HELD_FOR_RECONCILIATION"
+        with dual_worker.live_dual_lease(root) as dual_profile:
+            while True:
+                if stop_requested is not None and stop_requested.is_set():
+                    return "LIVE_WORKER_STOPPED"
+                status=_run_locked(root,flow,queue,dual_profile=dual_profile)
+                if status=="LIVE_STAGE_HELD_FOR_RECONCILIATION":
+                    # A charged or ambiguous failure requires incident review.
+                    return status
+                if stop_requested is None:
+                    time.sleep(interval)
+                else:
+                    stop_requested.wait(interval)
 
 
 if __name__=="__main__":
     import sys
-    from .env_loader import load_from_fixed_path
-    try:
-        load_from_fixed_path(worker=True)
-    except Exception:
-        print("OPENAI_ENV_NOT_READY")
-        raise SystemExit(4)
+    # The B launcher must inject its worker-only credentials. There is no
+    # fallback to the historical demo's shared provider environment.
     base=os.environ.get("IT_TEM_DEMO_ROOT")
     if not base:raise SystemExit("IT_TEM_DEMO_ROOT_REQUIRED")
     try:

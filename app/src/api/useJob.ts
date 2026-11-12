@@ -7,8 +7,9 @@ import type { Job } from '../types/draft'
 import { ApiError, isUnreachable } from './client'
 import { getBlob, getJob, runStep } from './jobs'
 import { queryClient } from './queryClient'
-import {getProductLiveJob,createLiveInput,queueLive,getLiveSnapshot,getLiveTask,latestLiveTask,qaText} from './liveJobs'
-import {QA_OFFLINE_FIXTURE} from '../config'
+import {getProductLiveJob,createLiveInput,queueLive,getLiveSnapshot,getLiveTask,latestLiveTask,qaText,getLiveCapabilities} from './liveJobs'
+import {DUAL_QA,QA_OFFLINE_FIXTURE} from '../config'
+import type {DualProvenance} from './dualArtifacts'
 import type {ProductInput} from '../types/textSchema'
 
 const jobKey = (jobId: string | null) => ['job', jobId]
@@ -35,14 +36,22 @@ export function useJob() {
   })
 }
 
-// 서버 파일(이미지 Asset·산출물)을 blob으로 받는다. 경로가 바뀌지 않는 한 다시 받지 않는다
-export function useBlob(path: string | undefined) {
+// Artifact 읽기는 GET-only이며 실패해도 AI 생성/합성을 다시 실행하지 않는다.
+// UI에서 오류와 수동 조회 재시도를 처리할 수 있게 상태를 노출한다.
+export function useBlobQuery(path: string | undefined) {
   return useQuery({
     queryKey: ['blob', path],
     queryFn: () => getBlob(path!),
     enabled: path !== undefined,
     staleTime: Infinity,
-  }).data
+    retry: false,
+    refetchOnWindowFocus: false,
+  })
+}
+
+// 기존 Owner FE/미리보기 소비자는 이전 단순 Blob API를 그대로 사용한다.
+export function useBlob(path: string | undefined) {
+  return useBlobQuery(path).data
 }
 
 // blob URL로 그린다: 다른 출처 이미지나 인증이 필요한 경로도 같은 방식으로 받기 위해
@@ -123,7 +132,7 @@ export function productPayload() {
 // first(업로드·승인)를 보낸 뒤 사용자 승인이 필요한 곳까지 단계를 차례로 보낸다.
 // 사용자 클릭에서만 부른다: 화면 effect에서 부르면 유료 AI 호출이 중복될 수 있다. 실패해도 자동 재시도하지 않는다
 // step: first 요청 중 로딩 문구 (수정 요청처럼 AI가 다시 만드는 요청)
-export async function advance(first: () => Promise<Job>, step: Step | null = null) {
+export async function advance(first: () => Promise<Job>, step: Step | null = null, dualProvenance: DualProvenance | false = false) {
   const { setRun, setJobId, mock } = useProjectStore.getState()
   const flow = flowOf(mock)
   setRun({ busy: true, step, error: null, offline: false })
@@ -140,7 +149,7 @@ export async function advance(first: () => Promise<Job>, step: Step | null = nul
       const input:ProductInput={...product,brand_name:product.brand_name?.trim()||null,
         product_image_count:imageCount,reference_image_count:refCount}
       const selectedSize=useProjectStore.getState().ratio
-      const current=await createLiveInput(job,input,selectedSize, useProjectStore.getState().generationMode)
+      const current=await createLiveInput(job,input,selectedSize,useProjectStore.getState().generationMode,dualProvenance)
       if(current.state==='INPUT_STORED'){
         setRun({step:'ai/analyze'})
         if(QA_OFFLINE_FIXTURE){
@@ -194,8 +203,14 @@ export async function recoverLiveInput(){
     if(product_image_count===undefined||reference_image_count===undefined)
       throw Error('기존 사진 기록이 없습니다.')
     const selectedSize=useProjectStore.getState().ratio
-    const current=await createLiveInput(original,
-      {...productPayload(),product_image_count,reference_image_count},selectedSize, useProjectStore.getState().generationMode)
+    const existing=await getLiveSnapshot(jobId).catch(error=>{
+      if(error instanceof ApiError && error.status===404)return undefined
+      throw error
+    })
+    const capability=existing || QA_OFFLINE_FIXTURE ? undefined : await getLiveCapabilities()
+    const dualProvenance=DUAL_QA ? 'OFFLINE_FIXTURE' : (capability?.live_dual_configured || capability?.live_dual_enabled) ? 'LIVE_DUAL' : false
+    const current=existing ?? await createLiveInput(original,
+      {...productPayload(),product_image_count,reference_image_count},selectedSize,useProjectStore.getState().generationMode,dualProvenance)
     if(current.state==='INPUT_STORED'){
       const s=await getLiveSnapshot(jobId)
       if(s.state==='INPUT_STORED'){

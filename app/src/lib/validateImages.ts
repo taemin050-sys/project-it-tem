@@ -12,7 +12,7 @@ export function validateImages(files: File[], limits: Limits, label: string): st
   if (files.length < limits.minFiles) errors.push(`${label}을 ${limits.minFiles}장 이상 올려 주세요.`)
   if (files.length > limits.maxFiles) errors.push(`${label}은 최대 ${limits.maxFiles}장까지 올릴 수 있습니다.`)
   for (const f of files) {
-    if (!limits.acceptTypes.includes(f.type) && !(isMpoFile(f) && ['', 'image/mpo','image/jpeg','application/octet-stream'].includes(f.type))) errors.push(`${f.name}: JPG, PNG, WEBP 형식만 올릴 수 있습니다.`)
+    if (!limits.acceptTypes.includes(f.type) && !(isMpoFile(f) && ['', 'image/mpo','image/jpeg','application/octet-stream'].includes(f.type))) errors.push(`${f.name}: JPG, PNG, WEBP, MPO 형식만 올릴 수 있습니다.`)
   }
   return errors
 }

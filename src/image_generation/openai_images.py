@@ -243,6 +243,71 @@ class OpenAIImagesAdapter:
             raise OpenAIImagesError("PROVIDER_SUBMISSION_UNKNOWN", provider_request_id=request_id)
         return bytes(body)
 
+    def execute_text_edit(self, *, source_png: bytes, mask_png: bytes, prompt: str,
+                          model: str, quality: str, width: int, height: int,
+                          client_request_id: UUID, complexity: str | None = None) -> ProviderImageResponse:
+        """One explicitly masked edit, never a retry or a text overlay.
+
+        The service owns source/approval/ROI validation and durable reservation.
+        This opt-in method leaves all historical generate/edit request bytes alone.
+        """
+        self._validate_config()
+        from io import BytesIO
+        from PIL import Image
+        if (type(source_png) is not bytes or type(mask_png) is not bytes
+                or not 0 < len(source_png) <= self.config.max_input_image_bytes
+                or not 0 < len(mask_png) <= self.config.max_input_image_bytes
+                or len(source_png) + len(mask_png) > self.config.max_input_total_bytes
+                or type(prompt) is not str or not 1 <= len(prompt) <= 4000
+                or model not in ("gpt-image-2.6-sunburst", "gpt-image-2.5-sunburst-2026-09-08", "gpt-image-2-2026-04-21")
+                or quality not in ("low", "medium", "high")
+                or complexity not in (None, "low", "medium", "high")
+                or not isinstance(client_request_id, UUID)):
+            raise OpenAIImagesError("PROVIDER_INPUT_INVALID")
+        try:
+            with Image.open(BytesIO(source_png)) as source, Image.open(BytesIO(mask_png)) as mask:
+                if (source.format != "PNG" or mask.format != "PNG" or source.size != (width, height)
+                        or mask.size != source.size or "A" not in mask.getbands()
+                        or getattr(source, "n_frames", 1) != 1 or width * height > 3686400):
+                    raise ValueError
+                source.load(); mask.load()
+                if mask.getchannel("A").getextrema() != (0, 255):
+                    raise ValueError
+        except (OSError, ValueError, SyntaxError):
+            raise OpenAIImagesError("PROVIDER_INPUT_INVALID") from None
+        payload = {"model": model, "prompt": prompt, "n": "1", "size": f"{width}x{height}",
+                   "quality": quality, "output_format": "png"}
+        if complexity is not None:
+            payload["complexity"] = complexity
+        offline = isinstance(self._transport, httpx.MockTransport)
+        headers = {"Authorization": "Bearer " + ("offline-test" if offline else self.config.api_key),
+                   "X-Client-Request-Id": str(client_request_id), "Accept": "application/json",
+                   "Accept-Encoding": "identity"}
+        request_id = None
+        deadline = time.monotonic() + self.config.timeout_seconds
+        try:
+            transport = self._transport if offline else httpx.HTTPTransport(retries=0, trust_env=False)
+            with httpx.Client(base_url=_BASE_URL, transport=transport, trust_env=False,
+                              follow_redirects=False, headers=headers,
+                              timeout=httpx.Timeout(self.config.timeout_seconds,
+                                  connect=min(5.0, self.config.timeout_seconds))) as client:
+                with client.stream("POST", "images/edits", data=payload, files=[
+                        ("image[]", ("source.png", source_png, "image/png")),
+                        ("mask", ("text-region.png", mask_png, "image/png"))]) as response:
+                    request_id = _safe_request_id(response.headers.get("x-request-id"))
+                    if response.status_code >= 500 or response.status_code in (408, 409):
+                        raise OpenAIImagesError("PROVIDER_SUBMISSION_UNKNOWN", provider_request_id=request_id)
+                    raw = self._read_bounded(response, deadline, request_id)
+                    if not response.is_success:
+                        try: body = self._json_object(raw)
+                        except OpenAIImagesError: body = {}
+                        raise OpenAIImagesError(self._http_error(response.status_code, body), provider_request_id=request_id)
+                    return self._decode(self._json_object(raw), request_id)
+        except OpenAIImagesError:
+            raise
+        except Exception:
+            raise OpenAIImagesError("PROVIDER_SUBMISSION_UNKNOWN", provider_request_id=request_id) from None
+
     @staticmethod
     def _json_object(raw: bytes) -> dict:
         try:

@@ -28,6 +28,7 @@ from pydantic import ConfigDict, Field, JsonValue, model_validator
 from .ad_resize import FINAL_SIZE, resize_ad_png
 from .contracts import Contract, CopyRevision, content_hash
 from .errors import GatewayError
+from .typography import TypographyStyle, prepare_typography, draw_typography
 
 VERSION = "korean-composition-v1"
 Digest = Annotated[str, Field(pattern=r"^[0-9a-f]{64}$")]
@@ -55,18 +56,21 @@ class CompositionRect(Contract):
 class CompositionTextRegion(CompositionRect):
     max_lines: int | None = Field(default=None, ge=1, le=20)
     vertical_align: Literal["top", "center"] = "top"
-    min_font_size: int = Field(default=24, ge=18, le=128)
-    max_font_size: int = Field(default=64, ge=18, le=128)
+    min_font_size: int = Field(default=24, ge=18, le=320)
+    max_font_size: int = Field(default=64, ge=18, le=320)
     padding: int = Field(default=16, ge=0, le=64)
     align: Literal["left", "center", "right"] = "left"
     color: str = Field(default="#151515", pattern=r"^#[0-9a-fA-F]{6}$")
     background: str | None = Field(default="#FFFFFF", pattern=r"^#[0-9a-fA-F]{6}$")
+    typography: TypographyStyle | None = Field(default=None, exclude_if=lambda value: value is None)
 
     @model_validator(mode="after")
     def usable_text_region(self):
         if (min(self.left, self.top) < .05 or max(self.right, self.bottom) > .95
                 or self.min_font_size > self.max_font_size):
             raise ValueError("Text must respect 5% margins and font size bounds")
+        if self.typography is None and self.max_font_size > 128:
+            raise ValueError("Display sizes above 128 require versioned typography")
         l, t, r, b = self.pixels()
         if r - l <= 2 * self.padding or b - t <= 2 * self.padding:
             raise ValueError("Text region has no usable pixels")
@@ -256,7 +260,10 @@ def compose_ad_png(body: CompositionInput, *, font_path: str | Path,
     prepared = {}
     try:
         for name, text in rendered_copy.items():
-            prepared[name] = _fit(text, body.layout.text_regions[name], data, font_index, canvas_size)
+            region = body.layout.text_regions[name]
+            prepared[name] = (prepare_typography(text, region, data, font_index, canvas_size)
+                              if region.typography is not None else
+                              _fit(text, region, data, font_index, canvas_size))
     except (OSError, ValueError):
         raise _reject("COMPOSITION_FONT_UNAVAILABLE") from None
     placements = {}
@@ -264,8 +271,13 @@ def compose_ad_png(body: CompositionInput, *, font_path: str | Path,
         source.load()
         overlay = Image.new("RGBA", canvas_size)
         draw = ImageDraw.Draw(overlay)
-        for name, (font, lines, boxes, pitch, size) in prepared.items():
+        for name, prepared_text in prepared.items():
             region = body.layout.text_regions[name]
+            if region.typography is not None:
+                placements[name] = draw_typography(overlay, region, prepared_text, canvas_size)
+                placements[name]["text_sha256"] = sha256(ad[name].encode("utf-8")).hexdigest()
+                continue
+            font, lines, boxes, pitch, size = prepared_text
             l,t,r,b = region.pixels(canvas_size)
             if region.background:
                 draw.rectangle((l,t,r-1,b-1), fill=region.background)
@@ -299,8 +311,10 @@ def compose_ad_png(body: CompositionInput, *, font_path: str | Path,
         width,height = decoded.size
     caption_text = caption + ("\n\n" if caption and tags else "") + " ".join(tags)
     fingerprint = body.model_dump(exclude={"image_bytes"})
-    fingerprint.update(renderer=VERSION,font_sha256=font_hash,font_index=font_index)
-    receipt = {"renderer":VERSION,"pillow_version":pillow_version,
+    renderer = ("korean-composition-v3" if any(region.typography is not None
+                for region in body.layout.text_regions.values()) else VERSION)
+    fingerprint.update(renderer=renderer,font_sha256=font_hash,font_index=font_index)
+    receipt = {"renderer":renderer,"pillow_version":pillow_version,
                "font_sha256":font_hash,"font_index":font_index,
                "input_sha256":content_hash(fingerprint),"baseline_sha256":baseline.sha256,
                "resize_method":baseline.method,"placements":placements,

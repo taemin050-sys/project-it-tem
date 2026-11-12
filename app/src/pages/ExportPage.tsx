@@ -2,12 +2,13 @@ import { useQuery } from '@tanstack/react-query'
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { getBlob } from '../api/jobs'
-import { startNewAdLink, useBlobUrl, useJob, useLiveSnapshot } from '../api/useJob'
+import { startNewAdLink, useBlobQuery, useBlobUrl, useJob, useLiveSnapshot } from '../api/useJob'
 import {retryCompose} from '../api/liveFlow'
 import {shareLive,listPublishedLive} from '../api/liveJobs'
-import {isPublishedFinal} from '../api/liveMapping'
+import {isPublishedFinal,type LiveSnapshot} from '../api/liveMapping'
 import {queryClient} from '../api/queryClient'
 import JobBadges from '../components/JobBadges'
+import DualModePage, { DualModeLoading } from '../components/DualModePage'
 import RunStatus from '../components/RunStatus'
 import StepPage from '../components/StepPage'
 import { CANVAS } from '../config'
@@ -20,6 +21,16 @@ const approvedText = (job: Job) => job.copy_output?.caption ?? job.copy_candidat
 
 // 최종 결과: 서버가 합성한 광고 PNG(artifacts/final) + 게시글 본문·해시태그(artifacts/caption)
 export default function ExportPage() {
+  const mock = useProjectStore(s=>s.mock)
+  const jobId = useProjectStore(s=>s.jobId)
+  const snapshot = useLiveSnapshot()
+  if (snapshot.data?.dual_requested) return <DualModePage snapshot={snapshot.data} stage="export" />
+  if (!mock && jobId && !snapshot.data)
+    return <DualModeLoading failed={snapshot.isError} retry={() => void snapshot.refetch()} />
+  return <SingleExportPage live={snapshot.data} />
+}
+
+function SingleExportPage({live}: {live: LiveSnapshot | undefined}) {
   const run = useProjectStore((s) => s.run)
   const { data: job } = useJob()
   // 결과까지 끝난 작업을 기억해 둔다: 이후 홈·광고 만들기에서 확인 없이 새 광고로 시작한다 (새로고침 뒤에도 유지)
@@ -29,16 +40,15 @@ export default function ExportPage() {
   const [shared,setShared]=useState(false)
   const [sharing,setSharing]=useState(false)
   const [shareError,setShareError]=useState('')
-  const live=useLiveSnapshot()
   const publications=useQuery({
     queryKey:['live-shared-results'],
     queryFn:listPublishedLive,
     enabled:!mock && job?.status==='COMPLETED',
     staleTime:0,retry:false
   })
-  const alreadyShared=shared||isPublishedFinal(live.data,publications.data?.jobs??[])
+  const alreadyShared=shared||isPublishedFinal(live,publications.data?.jobs??[])
   // 이미지 승인까지 끝났는데 합성만 실패한 상태 (합성 중에는 busy라 숨긴다)
-  const composeFailed=!mock && live.data?.state==='IMAGE_APPROVED' && !run.busy
+  const composeFailed=!mock && live?.state==='IMAGE_APPROVED' && !run.busy
   async function publish(){
     if(!job || job.status!=='COMPLETED')return
     setSharing(true);setShareError('')
@@ -52,13 +62,20 @@ export default function ExportPage() {
   }
   const final = job?.artifacts?.final
   const captionPath = job?.artifacts?.caption?.download_url
+  const finalFile = useBlobQuery(final?.download_url)
   const finalUrl = useBlobUrl(final?.download_url)
-  const { data: caption } = useQuery({
+  const captionFile = useQuery({
     queryKey: ['text', captionPath],
-    queryFn: async () => (await getBlob(captionPath!)).text(),
+    queryFn: async () => {
+      const blob = await getBlob(captionPath!)
+      return { blob, text: await blob.text() }
+    },
     enabled: captionPath !== undefined,
     staleTime: Infinity,
+    retry: false,
+    refetchOnWindowFocus: false,
   })
+  const caption = captionFile.data?.text
   const [size, setSize] = useState<{ width: number; height: number }>()
   const [copied, setCopied] = useState<'idle' | 'done' | 'error'>('idle')
 
@@ -80,7 +97,8 @@ export default function ExportPage() {
   }
 
   function saveCaption() {
-    const url = URL.createObjectURL(new Blob([caption!], { type: 'text/plain;charset=utf-8' }))
+    if (!captionFile.data) return
+    const url = URL.createObjectURL(captionFile.data.blob)
     download(url, 'caption.txt')
     // 바로 해제하면 일부 브라우저에서 다운로드가 시작되기 전에 끊긴다
     setTimeout(() => URL.revokeObjectURL(url), 1000)
@@ -91,6 +109,7 @@ export default function ExportPage() {
       title="최종 결과"
       description="완성된 광고 이미지와 게시글 본문·해시태그를 확인하고 저장하세요."
       wide
+      stickyActions={false}
       back={{ to: '/create/draft', label: '이미지 검토' }}
       actions={
         <div className="button-row">
@@ -98,7 +117,7 @@ export default function ExportPage() {
             <Link className="button secondary" to="/" onClick={startNewAdLink}>홈으로</Link>
             <Link className="button secondary" to="/create/product" onClick={startNewAdLink}>새 광고 만들기</Link>
           </>}
-          {composeFailed && <button className="button secondary" onClick={() => void retryCompose(live.data!.job_id).catch(() => {})}>합성만 다시 시도</button>}
+          {composeFailed && <button className="button secondary" onClick={() => void retryCompose(live!.job_id).catch(() => {})}>합성만 다시 시도</button>}
           <button className="button" disabled={!ready} onClick={() => download(finalUrl!, `ad_${target.width}x${target.height}.${ext}`)}>
             광고 이미지 저장 ({ext.toUpperCase()})
           </button>
@@ -106,12 +125,31 @@ export default function ExportPage() {
       }
     >
       {job && <JobBadges job={job} />}
-      {!mock && ((live.data?.template_profile==='A_CENTERED') || Boolean(live.data?.template_profile?.startsWith('OWNER_IMAGE_SIZE_'))) && <div className="notice notice-warning" role="status">
+      {!mock && ((live?.template_profile==='A_CENTERED') || Boolean(live?.template_profile?.startsWith('OWNER_IMAGE_SIZE_')) || Boolean(live?.template_profile?.startsWith('BP18_PROVISIONAL_SIZE_'))) && <div className="notice notice-warning" role="status">
         <p className="notice-title">제품 보호·게시 적합성: 수동 검토 필요</p>
         <p>이미지 합성 완료는 제품·브랜드·라벨 보존 검증 PASS가 아닙니다.
           원본 사진과 법률 표시사항을 사람이 확인한 뒤 게시해 주세요.</p>
       </div>}
       <RunStatus />
+
+      {job?.status==='COMPLETED' && (finalFile.isError || captionFile.isError) && (
+        <div className="notice notice-danger" role="alert">
+          <p className="notice-title">완료된 광고 파일을 불러오지 못했습니다</p>
+          <p>완료한 광고와 승인 기록은 서버에 유지됩니다. 아래 버튼은 파일을 GET으로 다시 가져오기만 하며 이미지 생성이나 유료 AI 호출을 재시작하지 않습니다.</p>
+          <div className="button-row">
+            {finalFile.isError && <button type="button" className="button secondary small"
+              disabled={finalFile.isFetching}
+              onClick={() => void finalFile.refetch()}>
+              {finalFile.isFetching ? '이미지 다시 조회 중…' : '이미지 파일 다시 가져오기'}
+            </button>}
+            {captionFile.isError && <button type="button" className="button secondary small"
+              disabled={captionFile.isFetching}
+              onClick={() => void captionFile.refetch()}>
+              {captionFile.isFetching ? '본문 다시 조회 중…' : '본문 파일 다시 가져오기'}
+            </button>}
+          </div>
+        </div>
+      )}
 
       {composeFailed && (
         <div className="notice notice-warning" role="status">

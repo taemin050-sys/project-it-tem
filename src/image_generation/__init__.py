@@ -41,22 +41,33 @@ live serving E2E and human layout acceptance remain separate checks.
 The source project's historical English/experiment request databases are not
 migrated; use a separate persistent runtime directory for this MVP package.
 """
-from .a_template import make_a_template
-from .ad_resize import resize_ad_png
-from .backend_adapter import BackendGeneratedImage, BackendImageAdapter, BackendImageInput
-from .contracts import ExternalImageRequest, ImagePrompt
-from .composition import (ComposedAd, CompositionInput, CompositionLayout,
-                          CompositionRect, CompositionTextRegion, compose_ad_png)
-from .product_analysis import ProductAnalysis, ProductAnalysisResult
+# Resolve public conveniences only when requested. Deterministic local renderers
+# can import their modules without loading the Provider adapter dependency graph.
+from importlib import import_module
 
-__all__ = ["make_a_template", "BackendGeneratedImage", "BackendImageAdapter", "BackendImageInput",
-           "ExternalImageRequest", "ImagePrompt", "ProductAnalysis",
-           "ProductAnalysisResult", "resize_ad_png", "ComposedAd", "CompositionInput",
-           "CompositionLayout", "CompositionRect", "CompositionTextRegion", "compose_ad_png"]
+_EXPORTS = {
+    "make_a_template": "a_template", "resize_ad_png": "ad_resize",
+    "BackendGeneratedImage": "backend_adapter", "BackendImageAdapter": "backend_adapter",
+    "BackendImageInput": "backend_adapter", "ExternalImageRequest": "contracts",
+    "ImagePrompt": "contracts", "LayoutSelection": "contracts",
+    "ComposedAd": "composition", "CompositionInput": "composition",
+    "CompositionLayout": "composition", "CompositionRect": "composition",
+    "CompositionTextRegion": "composition", "compose_ad_png": "composition",
+    "ProductAnalysis": "product_analysis", "ProductAnalysisResult": "product_analysis",
+    "get_layout": "layout_profiles", "make_placement_layout": "layout_profiles",
+    "export_candidate": "candidate_export",
+}
+__all__ = list(_EXPORTS)
 
-from .contracts import LayoutSelection
-from .layout_profiles import get_layout, make_placement_layout
-__all__ += ["LayoutSelection", "get_layout", "make_placement_layout"]
 
-from .candidate_export import export_candidate
-__all__ += ["export_candidate"]
+def __getattr__(name):
+    module = _EXPORTS.get(name)
+    if module is None:
+        raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+    value = getattr(import_module(f".{module}", __name__), name)
+    globals()[name] = value
+    return value
+
+
+def __dir__():
+    return sorted(set(globals()) | set(__all__))

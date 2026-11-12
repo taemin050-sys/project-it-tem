@@ -1,16 +1,18 @@
-import { useEffect,useState, type FormEvent } from 'react'
+import { useEffect,useRef,useState, type FormEvent } from 'react'
+import { useQuery } from '@tanstack/react-query'
 import { useNavigate } from 'react-router-dom'
 import { isUnreachable } from '../api/client'
 import { createJob } from '../api/jobs'
-import {getTextCostEstimate,getTotalCostEstimate,
+import {getTextCostEstimate,getTotalCostEstimate,getLiveCapabilities,
   type TextCostEstimate,type CombinedCostEstimate} from '../api/liveJobs'
+import { requireLiveDualRatio, supportedLiveDualRatios } from '../api/liveCapabilities'
 import { advance,hasUnfinishedJob,productPayload,recoverLiveInput,resetJob } from '../api/useJob'
 import Field from '../components/Field'
 import MockFallback from '../components/MockFallback'
 import OptionGroup from '../components/OptionGroup'
 import PhotoDrop from '../components/PhotoDrop'
 import StepPage from '../components/StepPage'
-import { PRODUCT_PHOTOS, RATIOS, REFERENCE_PHOTOS, SHRINK, type Ratio } from '../config'
+import { DUAL_QA, QA_OFFLINE_FIXTURE, PRODUCT_PHOTOS, RATIOS, REFERENCE_PHOTOS, SHRINK, type Ratio } from '../config'
 import { shrinkImage } from '../lib/shrinkImage'
 import { validateProduct, type ProductErrors } from '../lib/validateProduct'
 import { useProjectStore } from '../store/projectStore'
@@ -46,30 +48,39 @@ export default function ProductPage() {
   const { images, references, product, ratio, generationMode, mock, run, jobId, setImages, setReferences, setRatio, setGenerationMode, setProduct: saveProduct } = useProjectStore()
   const [errors, setErrors] = useState<ProductErrors>({})
   const [uploading, setUploading] = useState(false)
+  const submitInFlight=useRef(false)
   const [uploadError, setUploadError] = useState<{ message: string; offline: boolean }>()
   const [textEstimate,setTextEstimate]=useState<{photoCount:number;estimate:TextCostEstimate}>()
   const [combinedEstimate,setCombinedEstimate]=useState<{key:string;estimate:CombinedCostEstimate}>()
+  const identityScope=useProjectStore(s=>s.identityScope)
+  const capability=useQuery({
+    queryKey:['product-live-capabilities',identityScope],queryFn:getLiveCapabilities,
+    enabled:!mock && !QA_OFFLINE_FIXTURE,retry:false,refetchInterval:15000,
+  })
+  const liveDual=!mock && (capability.data?.live_dual_configured===true || capability.data?.live_dual_enabled===true)
+  const dual=(DUAL_QA || liveDual) && !mock
+  const dualProvenance=dual ? liveDual ? 'LIVE_DUAL' as const : 'OFFLINE_FIXTURE' as const : false
   useEffect(()=>{
     let active=true
-    if(!mock && images.length>=2 && images.length<=5){
+    if(!mock && !dual && images.length>=2 && images.length<=5){
       void getTextCostEstimate(images.length).then(value=>{
         if(active)setTextEstimate({photoCount:images.length,estimate:value})
       }).catch(()=>{})
     }
     return ()=>{active=false}
-  },[images.length,mock])
+  },[dual,images.length,mock])
   const currentEstimate=(!mock && images.length===textEstimate?.photoCount)
     ? textEstimate.estimate:undefined
   const estimateKey=images.length+':'+ratio+':'+generationMode
   useEffect(()=>{
     let active=true
-    if(!mock && images.length>=2 && images.length<=5){
+    if(!mock && !dual && images.length>=2 && images.length<=5){
       void getTotalCostEstimate(images.length,ratio,generationMode).then(value=>{
         if(active)setCombinedEstimate({key:estimateKey,estimate:value})
       }).catch(()=>{if(active)setCombinedEstimate(undefined)})
     }
     return ()=>{active=false}
-  },[estimateKey,images.length,mock,ratio,generationMode])
+  },[dual,estimateKey,images.length,mock,ratio,generationMode])
   const currentCombined=!mock && combinedEstimate?.key===estimateKey
     ? combinedEstimate.estimate:undefined
 
@@ -84,6 +95,7 @@ export default function ProductPage() {
 
   async function onSubmit(e: FormEvent) {
     e.preventDefault()
+    if(submitInFlight.current)return
     const errs = validateProduct(images, references, product, LIMITS)
     setErrors(errs)
     const first = FOCUS_ORDER.find(([key]) => errs[key])
@@ -91,11 +103,19 @@ export default function ProductPage() {
       document.getElementById(first[1])?.focus()
       return
     }
-    // 진행 중인 작업이 있는데 새로 제출하면 그 작업은 이 화면에서 사라진다 (서버 Job은 남음)
-    if (hasUnfinishedJob() && !window.confirm('진행 중인 광고가 있습니다. 이 정보로 새로 만들면 진행 중인 광고는 이 화면에서 사라집니다. 이전 작업은 서버에 남습니다. 새로 만들까요?')) return
+    submitInFlight.current=true
     setUploading(true)
     setUploadError(undefined)
     try {
+      // Native form submission and restored state obey the visible ratio guard
+      // before any upload. The API boundary checks again before Live input.
+      if(liveDual){
+        requireLiveDualRatio(await getLiveCapabilities(),ratio)
+      }else if(!mock && !QA_OFFLINE_FIXTURE && !capability.data){
+        throw Error('서버의 생성 지원 정보를 확인한 후 시작할 수 있습니다.')
+      }
+      // 진행 중인 작업이 있는데 새로 제출하면 이 화면에서 사라진다 (서버 Job은 남음).
+      if (hasUnfinishedJob() && !window.confirm('진행 중인 광고가 있습니다. 이 정보로 새로 만들면 진행 중인 광고는 이 화면에서 사라집니다. 이전 작업은 서버에 남습니다. 새로 만들까요?')) return
       const [productFiles, referenceFiles] = await Promise.all([
         Promise.all(images.map((f) => shrinkImage(f, SHRINK))),
         Promise.all(references.map((f) => shrinkImage(f, SHRINK))),
@@ -109,17 +129,20 @@ export default function ProductPage() {
       // 업로드가 성공한 뒤에 비워야 실패해도 이전 작업으로 돌아갈 수 있다
       resetJob()
       navigate('/create/copy')
-      void advance(async () => job)
+      void advance(async () => job,null,dualProvenance)
     } catch (err) {
       setUploadError({ message: err instanceof Error ? err.message : '사진을 올리지 못했습니다.', offline: isUnreachable(err) })
     } finally {
+      submitInFlight.current=false
       setUploading(false)
     }
   }
 
   const busy = uploading || run.busy
-  // All three ratios are accepted by the Owner #23 size-only contract.
-  const ratioBlocked = false
+  const supportedRatios=supportedLiveDualRatios(capability.data)
+  const ratioBlocked = liveDual && !supportedRatios.includes(ratio)
+  const capabilityPending = !mock && !QA_OFFLINE_FIXTURE && !capability.data
+  const liveDualPaused=liveDual && capability.data?.live_dual_enabled!==true
 
   return (
     <StepPage
@@ -128,13 +151,21 @@ export default function ProductPage() {
       back={{ to: '/', label: '처음으로' }}
       actions={
         <button className="button" type="submit" form="product-form"
-          disabled={busy || ratioBlocked} aria-busy={uploading}>
+          disabled={busy || ratioBlocked || capabilityPending || liveDualPaused} aria-busy={uploading}>
           {uploading ? '사진을 올리는 중…' : '다음: 기획·카피 만들기'}
         </button>
       }
       actionsNote={
         <>
-          {!mock && <p className="field-hint" role="status">
+          {capabilityPending && <p role="status" className="field-hint">
+            {capability.isError ? '실행 상태를 확인하지 못했습니다. 잠시 후 다시 확인해 주세요.' : '실행 가능한 생성 방식을 확인하고 있습니다…'}
+          </p>}
+          {liveDualPaused && <p role="status" className="field-hint">두 시안 실행 준비를 확인하고 있습니다. 준비가 완료되면 시작할 수 있습니다.</p>}
+          {ratioBlocked && <p role="alert" className="field-error">
+            {ratio==='9:16' ? '9:16의 서버 지원과 두 시안의 이미지 CTA 정책을 확인하고 있습니다. 준비 후 선택할 수 있습니다.'
+              : '선택한 비율의 서버 실행 준비를 확인하고 있습니다. 현재 지원되는 비율을 선택해 주세요.'}
+          </p>}
+          {!mock && !dual && <p className="field-hint" role="status">
             {currentEstimate
               ? <>텍스트 AI 예상 비용: <strong>{currentEstimate.display}</strong>
                   {' '}({images.length}장 기준)</>
@@ -174,7 +205,7 @@ export default function ProductPage() {
           id="photos"
           title="제품 사진"
           limits={PRODUCT_PHOTOS}
-          hint={`같은 제품을 정면·후면·측면 등 여러 각도에서 찍은 사진 ${PRODUCT_PHOTOS.minFiles}~${PRODUCT_PHOTOS.maxFiles}장. JPG·PNG·WEBP, 큰 사진은 자동으로 줄여서 올립니다.`}
+          hint={`같은 제품을 정면·후면·측면 등 여러 각도에서 찍은 사진 ${PRODUCT_PHOTOS.minFiles}~${PRODUCT_PHOTOS.maxFiles}장. JPG·PNG·WEBP·MPO를 지원합니다. 일반 사진은 자동으로 줄이고, MPO는 서버에서 첫 사진과 촬영 방향을 확인해 변환합니다.`}
           files={images}
           error={errors.images}
           onChange={(files) => { setImages(files); setError('images') }}
@@ -184,7 +215,7 @@ export default function ProductPage() {
           id="references"
           title="배경 참고 사진"
           limits={REFERENCE_PHOTOS}
-          hint={`원하는 배경·구도가 담긴 사진 최대 ${REFERENCE_PHOTOS.maxFiles}장. 없으면 비워 두세요.`}
+          hint={`원하는 배경·구도가 담긴 JPG·PNG·WEBP·MPO 사진 최대 ${REFERENCE_PHOTOS.maxFiles}장. 없으면 비워 두세요.`}
           files={references}
           error={errors.references}
           onChange={(files) => { setReferences(files); setError('references') }}
@@ -301,26 +332,40 @@ export default function ProductPage() {
         </section>
 
         <section className="panel" aria-label="이미지 생성 방식">
-          <OptionGroup legend="이미지 생성 방식 · 이미지 1장" name="generation-mode"
-            value={generationMode} onChange={setGenerationMode}
-            disabled={Boolean(jobId) && hasUnfinishedJob()}
-            options={[
-              {value:'composed' as const,label:'합성형',desc:'AI로 제품·배경을 생성하고 서버가 승인 문구를 한글 폰트로 합성'},
-              {value:'freeform' as const,label:'자유형',desc:'AI가 승인 문구와 제품을 이미지에 직접 그림 · 정확도 수동 검수 필요'},
-            ]} />
-          <p className="field-hint">생성 방식은 서버 Job에 고정됩니다. 자유형의 한글·제품 형태·라벨 정확도는 보장되지 않습니다.</p>
+          {dual ? <>
+            <h2 className="panel-title">이미지 생성 방식 · 두 시안</h2>
+            <p>승인된 카피와 아래 비율로 합성형과 자유형을 함께 준비합니다.</p>
+            <ul className="plain-list">
+              <li><strong>합성형</strong> · 제품 이미지에 승인 문구를 서버에서 합성합니다.</li>
+              <li><strong>자유형</strong> · 모델이 문구까지 이미지에 그리는 방식입니다. 한글과 라벨은 직접 검토합니다.</li>
+            </ul>
+            <p className="field-hint">{liveDual ? '한 요청의 이미지 모델 호출은 기본 2건입니다. 공통 텍스트 작업과 시안별 사용량을 따로 기록하며 실제 청구액은 확인 전까지 UNPRICED로 표시합니다.' : 'QA용 브랜드명은 ‘라움’입니다. 두 방식 모두 시험 데이터로 준비합니다.'}</p>
+          </> : <>
+            <OptionGroup legend="이미지 생성 방식 · 이미지 1장" name="generation-mode"
+              value={generationMode} onChange={setGenerationMode}
+              disabled={Boolean(jobId) && hasUnfinishedJob()}
+              options={[
+                {value:'composed' as const,label:'합성형',desc:'AI로 제품·배경을 생성하고 서버가 승인 문구를 한글 폰트로 합성'},
+                {value:'freeform' as const,label:'자유형',desc:'AI가 승인 문구와 제품을 이미지에 직접 그림 · 정확도 수동 검수 필요'},
+              ]} />
+            <p className="field-hint">생성 방식은 서버 Job에 고정됩니다. 자유형의 한글·제품 형태·라벨 정확도는 보장되지 않습니다.</p>
+          </>}
         </section>
         <section className="panel" aria-label="이미지 비율">
           <OptionGroup
             legend="이미지 비율"
             name="ratio"
             value={ratio}
-            options={(Object.keys(RATIOS) as Ratio[]).map((r) => ({ value: r, label: RATIOS[r].label, desc: `${RATIOS[r].desc} · ${RATIOS[r].width}×${RATIOS[r].height}` }))}
-            onChange={setRatio}
+            disabled={busy}
+            options={(Object.keys(RATIOS) as Ratio[]).map((r) => ({value:r,label:RATIOS[r].label,
+              disabled:liveDual && !supportedRatios.includes(r),
+              desc:`${RATIOS[r].desc} · ${RATIOS[r].width}×${RATIOS[r].height}${liveDual && !supportedRatios.includes(r) ? ' · 서버 준비 대기' : liveDual && r==='9:16' ? ' · 두 시안 모두 이미지 내 CTA' : ''}`}))}
+            onChange={value=>{if(!liveDual || supportedRatios.includes(value))setRatio(value)}}
           />
           {!mock && <p className="field-hint" role="status">
             선택한 최종 크기는 Server Job에 저장되어 Image Owner의 생성·합성 프로필로 전달됩니다.
-            3:4·4:5·9:16의 실제 모델 품질은 아직 검증되지 않았습니다.
+            {liveDual ? ' 서버가 지원을 확인한 비율로 두 시안을 생성하며, 광고 품질은 결과별로 검수합니다.'
+              : ' 실제 광고 품질은 결과별로 검수합니다.'}
           </p>}
         </section>
 
