@@ -7,7 +7,7 @@ The Composed/Freeform **approved final PNG** is the editable source. Pure Freefo
 
 React Konva 19.3.2 and Konva 10.9.1, both MIT, pinned in package-lock.json. Official source https://github.com/konvajs/react-konva and https://github.com/konvajs/konva. Free drawing/eraser, retained paths and native PNG export adapt the official example https://konvajs.org/docs/react/Free_Drawing.html. Notices ship in app/public/licenses. React Konva 19.3 matches our React 19.3; no commercial SDK subscription, new VM or new provider credential.
 
-Compared with react-sketch-canvas (SVG-oriented general drawing) and Fabric (broader object/document editor), Konva fits a bounded React canvas mask with touch, compositing/eraser and precise native coordinates. Only our existing form, approval and artifact workflow is added. No whole design editor or third-party storage is introduced. The editor is a lazy chunk.
+Compared with react-sketch-canvas (SVG-oriented general drawing) and Fabric (broader object/document editor), Konva fits a bounded React canvas mask with touch, compositing/eraser and precise native coordinates. Only our existing form, approval and artifact workflow is added. No whole design editor or third-party storage is introduced. The editor is included in the main bundle for the current signed beta transport; see the runtime note below.
 
 ## Lifecycle and trust
 
@@ -36,3 +36,5 @@ Product NOT_RELEASE_READY. CODE/FIXTURE/REAL/HUMAN/RELEASE remain separate.
 Actual Signed browser preflight on the first deployment exposed a transient dynamic module GET failure, which could blank the whole final-results tree. A per-mode error boundary now contains optional editor loading failures while preserving the existing approved PNG/Caption/Receipt actions. Its retry button reloads the page (GET-only); it never regenerates images or repeats a paid request. First deployment made no Provider calls and preserved all 11 existing DBs and 246 business artifacts; the source-bound Worker handshake file was refreshed normally. Final activation and actual provider evidence follow in the C-B submission.
 
 Editor query refresh is disabled on window focus. An unsuccessful background GET retains the existing workspace, selected mask and prompt, with an explicit GET-only refresh button. Server CAS still rejects stale approvals; retaining the editing view does not grant stale writes.
+
+Signed transport trade-off: automatic module subresource requests repeatedly returned 502 while direct signed fetches of the exact same bytes returned 200. The editor is now bundled with the main app rather than waiting for a second module GET. This increases initial JS by about 340 KB uncompressed (about 105 KB gzip) and avoids that additional failure point. Existing read-only gateway failures remain an operational note; this does not claim to fix all 502s. Error containment and workspace preservation remain. No paid retry or security bypass is involved.

@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query'
-import { Component, lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { Component, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { Link } from 'react-router-dom'
 import { dualArtifactPath, matchesDualImageSize, type DualArtifactKind } from '../api/dualArtifacts'
 import { canResumeDualJob, decideDualVariant, dualQueryKey, getDualJob, resumeDualJob, selectDualVariant,
@@ -22,7 +22,9 @@ import StepPage from './StepPage'
 
 type Stage = 'draft' | 'export'
 const MODES = ['composed', 'freeform'] as const
-const FinalInpaintingPanel = lazy(() => import('./FinalInpaintingPanel'))
+// Keep the editor in the initial bundle: the current signed tunnel can fail
+// optional module GETs during font/image fan-out. No paid operation is retried.
+import FinalInpaintingPanel from './FinalInpaintingPanel'
 class InpaintingBoundary extends Component<{children: ReactNode}, {failed: boolean}> {
   state = {failed: false}
   static getDerivedStateFromError() {return {failed: true}}
@@ -213,9 +215,9 @@ function VariantCard({group, mode, stage, variant, canMutate, approvedCopy, onRe
         onClick={() => void change(() => selectDualVariant(group, mode, variant.final_sha!))}>
         {selected ? '선택한 시안' : '이 시안 선택'}
       </button>
-      {live && variant.variant_job_id && <InpaintingBoundary><Suspense fallback={<p>부분 수정 도구 준비 중…</p>}>
+      {live && variant.variant_job_id && <InpaintingBoundary>
         <FinalInpaintingPanel key={variant.variant_job_id} jobId={variant.variant_job_id} mode={mode} canMutate={canMutate} />
-      </Suspense></InpaintingBoundary>}
+      </InpaintingBoundary>}
       <details className="dual-provenance">
         <summary>파일 무결성과 검수 기록</summary>
         <dl>
