@@ -1,0 +1,41 @@
+digraph system_architecture {
+	bgcolor="#FFFFFF" fontcolor="#172B4D" fontname=NanumSquare fontsize=15 label="서비스 시스템 구성" labeljust=l labelloc=t nodesep=0.46 pad=0.30 rankdir=LR ranksep=0.8 splines=spline
+	node [color="#D2DCE7" fillcolor="#FFFFFF" fontcolor="#24344D" fontname=NanumSquare fontsize=13 margin="0.20,0.18" penwidth=1.3 shape=box style="rounded,filled"]
+	edge [arrowsize=0.7 color="#526579" fontcolor="#526579" fontname=NanumSquare fontsize=10.5 penwidth=1.35]
+	subgraph cluster_client {
+		color="#DAE5F1" fillcolor="#F4F8FC" fontcolor="#37516D" fontname=NanumSquare fontsize=13 label="사용자 / 웹" margin=16 style="rounded,filled"
+		user [label="사용자" fillcolor="#EAF1F8" shape=ellipse]
+		fe [label="React 19 · TypeScript
+제품 정보 / 카피 검토
+이미지 검토 / 결과" fillcolor="#FFFFFF"]
+		user -> fe
+	}
+	subgraph cluster_server {
+		color="#DAE1EA" fillcolor="#F5F7FB" fontcolor="#37516D" fontname=NanumSquare fontsize=13 label="API / 서빙" margin=16 style="rounded,filled"
+		api [label="FastAPI
+서비스 API 연동·응답" color="#B8CCF1" fillcolor="#E8F0FF"]
+	}
+	subgraph cluster_modules {
+		color="#D7E7DE" fillcolor="#F5F8F6" fontcolor="#3F6452" fontname=NanumSquare fontsize=13 label="AI 처리 모듈" margin=16 style="rounded,filled"
+		txt [label="텍스트 AI · 김다혜
+제품 분석 · 기획/조사
+카피 생성 · 표현 검수"]
+		img [label="이미지 AI · 박지수
+원본 사진 기반 이미지 편집
+승인 문구 PNG 합성"]
+	}
+	subgraph cluster_external {
+		color="#F0E1C7" fillcolor="#FFFBF5" fontcolor="#7B6135" fontname=NanumSquare fontsize=13 label="외부 AI / 검색" margin=16 style="rounded,filled"
+		llm [label="OpenAI API
+VLM · LLM" fillcolor="#FFF8E9"]
+		search [label="웹 검색
+기획 조사 출처" fillcolor="#FFF8E9"]
+		editing [label="이미지 편집 API" fillcolor="#FFF8E9"]
+	}
+	fe -> api [label="요청 / 응답" dir=both minlen=2]
+	api -> txt [label="기획 · 카피 / 검수" dir=both]
+	api -> img [label="카피 승인 후 이미지" dir=both]
+	txt -> llm [color="#C4965B" style=dashed]
+	txt -> search [color="#C4965B" style=dashed]
+	img -> editing [color="#C4965B" style=dashed]
+}
