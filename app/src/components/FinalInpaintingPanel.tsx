@@ -30,7 +30,7 @@ const STATUS: Record<string,string> = {QUEUED:'수정 대기',RUNNING:'선택 �
 export default function FinalInpaintingPanel({jobId,mode,canMutate}: {jobId:string;mode:'composed'|'freeform';canMutate:boolean}) {
   const [open,setOpen]=useState(false)
   const base=revisionPath(jobId,'final-inpainting')
-  const query=useQuery({queryKey:['final-inpainting',jobId],enabled:open,retry:false,
+  const query=useQuery({queryKey:['final-inpainting',jobId],enabled:open,retry:false,refetchOnWindowFocus:false,staleTime:10_000,
     queryFn:()=>request<Snapshot>(base),refetchInterval:q=>q.state.data?.corrections.some(r=>['QUEUED','RUNNING'].includes(r.state))?2500:false})
   return <details className="stack inpaint-panel" open={open} data-testid={`inpaint-${mode}`}
     onToggle={e=>setOpen(e.currentTarget.open)}>
@@ -38,10 +38,11 @@ export default function FinalInpaintingPanel({jobId,mode,canMutate}: {jobId:stri
     {open && <div className="stack">
       <p>완성된 {mode==='composed'?'합성형':'자유형'} 광고에서 바꿀 부분을 칠하고 요청을 적으세요. 선택 영역 밖은 원본 픽셀을 유지합니다.</p>
       <p className="field-hint">이미지 AI 1회 호출 · 기존 승인본 유지 · 수정본은 별도 검수 후 저장. 문구 자체를 바꾸려면 카피 수정·검수 기능을 이용하세요.</p>
-      {query.isPending?<p role="status">최종 광고 불러오는 중…</p>:query.isError?<div role="alert">
+      {query.isPending?<p role="status">최종 광고 불러오는 중…</p>:query.isError&&!query.data?<div role="alert">
         <p>편집 상태를 불러오지 못했습니다.</p><button onClick={()=>void query.refetch()}>다시 확인</button></div>:
         query.data?.available?<Workspace key={query.data.source_image_sha} snapshot={query.data} canMutate={canMutate} refresh={()=>query.refetch()} />:
           <p>현재 이 최종 광고의 부분 수정을 사용할 수 없습니다.</p>}
+      {query.isError&&query.data&&<div role="alert"><p>최신 상태를 확인하지 못했습니다. 선택 영역과 입력 내용은 유지됩니다.</p><button onClick={()=>void query.refetch()}>상태 다시 확인</button></div>}
     </div>}
   </details>
 }
