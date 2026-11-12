@@ -125,6 +125,23 @@ export const sameImageCandidate=(seen:LiveSnapshot,current:LiveSnapshot)=>
   seen.image_sha===current.image_sha && seen.generation===current.generation &&
   seen.copy_sha===current.copy_sha && seen.review_sha===current.review_sha &&
   current.approval_current
+/** Read-only Draft-page preview. Never combine a stale Job cache with a newer
+ * approved image/copy revision, and never claim Freeform text is overlaid.
+ * The same authenticated Live snapshot is the server-side composition source.
+ */
+export function approvedComposedCopy(job:Job|undefined,s:LiveSnapshot|undefined){
+  const binding=job?.live_revision_binding
+  if(!job || !s || s.mode!=='LIVE' || s.generation_mode!=='composed' ||
+     !['IMAGE_REVIEW_REQUIRED','IMAGE_APPROVED','IMAGE_REJECTED','COMPLETED'].includes(s.state) ||
+     !s.approval_current || !s.image_sha || !s.copy_sha || !s.review_sha ||
+     !s.copy?.ad_copy || !job.image_candidate || !job.copy_output ||
+     job.job_id!==s.job_id || !binding ||
+     binding.generation!==s.generation ||
+     binding.copy_sha!==s.copy_sha || binding.review_sha!==s.review_sha)
+    return null
+  return s.copy.ad_copy
+}
+
 export function guardImageApproval(s:LiveSnapshot){
   if(s.state!=='IMAGE_REVIEW_REQUIRED'||!s.image_sha||!s.approval_current)
     throw Error('IMAGE_SHA_OR_COPY_APPROVAL_MISMATCH')

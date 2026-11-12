@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import {asProductJob,guardCopyApproval,guardCopyReviewMutation,guardCopyRevision,sameCopyReview,sameImageCandidate,guardImageApproval,isPublishedFinal,isCopyReviewHydrated,isNoChangeRevision,type LiveSnapshot} from '../src/api/liveMapping.ts'
+import {asProductJob,guardCopyApproval,guardCopyReviewMutation,guardCopyRevision,sameCopyReview,sameImageCandidate,guardImageApproval,isPublishedFinal,isCopyReviewHydrated,isNoChangeRevision,approvedComposedCopy,type LiveSnapshot} from '../src/api/liveMapping.ts'
 import type {Job} from '../src/types/draft.ts'
 const raw:Job={job_id:'a'.repeat(32),status:'INPUTS_VALIDATED',assets:[{
   asset_id:'A',role:'product',original_filename:'a.png',content_type:'image/png',
@@ -147,4 +147,33 @@ test('Owner no-change revision frees only UI fence; changed copy/review/generati
   assert.equal(isNoChangeRevision(original,{...noChange,revision_feedback:{
     note:'',changed_fields:[],source:'owner'}}),false)
   assert.equal(isNoChangeRevision(original,{...noChange,state:'COPY_APPROVED'}),false)
+})
+
+
+test('Draft Composed copy preview uses current approved LIVE image and matched copy version',()=>{
+  const copy={
+    plan:{concept:'',target_audience:'',tone:'',key_message:'',differentiation:'',cta_strategy:''},
+    ad_copy:{headline:'차분한 수분 루틴',subline:'오늘을 위한 촉촉한 케어',cta:'자세히 보기'},
+    caption:'게시글 본문',hashtags:[]
+  } as unknown as NonNullable<LiveSnapshot['copy']>
+  const live:LiveSnapshot={...example,state:'IMAGE_REVIEW_REQUIRED',mode:'LIVE',
+    generation_mode:'composed',generation:2,copy_sha:'c'.repeat(64),
+    review_sha:'r'.repeat(64),image_sha:'i'.repeat(64),
+    approval_current:true,copy}
+  const displayed=asProductJob(live,raw)
+  assert.deepEqual(approvedComposedCopy(displayed,live),copy.ad_copy)
+  assert.deepEqual(approvedComposedCopy(displayed,{...live,state:'IMAGE_APPROVED'}),copy.ad_copy)
+  assert.deepEqual(approvedComposedCopy(displayed,{...live,state:'COMPLETED'}),copy.ad_copy)
+  assert.equal(approvedComposedCopy(displayed,{...live,generation_mode:'freeform'}),null)
+  assert.equal(approvedComposedCopy(displayed,{...live,mode:'OFFLINE_FIXTURE'}),null)
+  assert.equal(approvedComposedCopy(displayed,{...live,copy_sha:'old'}),null)
+  assert.equal(approvedComposedCopy(displayed,{...live,review_sha:'old'}),null)
+  assert.equal(approvedComposedCopy(displayed,{...live,generation:3}),null)
+  assert.equal(approvedComposedCopy(displayed,{...live,image_sha:null}),null)
+  assert.equal(approvedComposedCopy(displayed,{...live,approval_current:false}),null)
+  assert.equal(approvedComposedCopy(displayed,{...live,state:'COPY_APPROVED'}),null)
+  assert.equal(approvedComposedCopy(displayed,{...live,job_id:'someone-else'}),null)
+  assert.equal(approvedComposedCopy(displayed,{...live,copy:undefined}),null)
+  assert.equal(approvedComposedCopy(undefined,live),null)
+  assert.equal(approvedComposedCopy(displayed,undefined),null)
 })

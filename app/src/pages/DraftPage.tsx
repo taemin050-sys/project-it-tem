@@ -4,7 +4,7 @@ import { restorePrevious, review, reviseJob } from '../api/jobs'
 import { advance, resetJob, useBlob, useBlobUrl, useJob, useLiveSnapshot, useLiveProgress } from '../api/useJob'
 import {approveImageAndCompose,rejectImage,resumeImageFromApproved,retryCompose,regenerateRejectedImage} from '../api/liveFlow'
 import {getLiveSnapshot} from '../api/liveJobs'
-import {sameImageCandidate} from '../api/liveMapping'
+import {approvedComposedCopy,sameImageCandidate} from '../api/liveMapping'
 import JobBadges from '../components/JobBadges'
 import RunStatus from '../components/RunStatus'
 import StepPage from '../components/StepPage'
@@ -55,6 +55,9 @@ export default function DraftPage() {
   const composeFailed = !mock && live?.state==='IMAGE_APPROVED' && !run.busy
   const products = job?.assets?.filter((a) => a.role === 'product') ?? []
   const generating = task?.state === 'RUNNING' || task?.state === 'QUEUED'
+  // Text is visible only for the matching Owner-approved Composed image.
+  // Do not change the image candidate, copy, approval or paid API flow.
+  const composedCopy=approvedComposedCopy(job,live)
 
   function sendRevision() {
     if (!jobId || !instruction.trim()) return
@@ -168,9 +171,32 @@ export default function DraftPage() {
                   onLoad={(e) => setLoaded({ url: imageUrl, width: e.currentTarget.naturalWidth, height: e.currentTarget.naturalHeight })} />
               : <p className="muted" role="status">이미지를 불러오는 중…</p>}
             {imageUrl && (
-              <figcaption className="button-row">
-                <button type="button" className="button secondary small" onClick={saveImage}>이미지만 저장</button>
-                {size && <span className="muted">{size.width}×{size.height}px · 카피 합성 전</span>}
+              <figcaption className="draft-stage-caption">
+                <div className="button-row draft-image-controls">
+                  <button type="button" className="button secondary small" onClick={saveImage}>이미지만 저장</button>
+                  {size && <span className="muted">{size.width}×{size.height}px · 카피 합성 전</span>}
+                </div>
+                {composedCopy && (
+                  <section className="draft-composed-copy" aria-labelledby="draft-composed-copy-title">
+                    <p className="eyebrow">COMPOSED / FINAL AD COPY</p>
+                    <h2 id="draft-composed-copy-title" className="draft-composed-title">최종 시안에 합성될 카피</h2>
+                    <p className="draft-composed-intro">현재 이미지는 합성 전 시안입니다. 이미지 승인 후 아래 문구가 최종 광고에 배치됩니다.</p>
+                    <dl className="draft-composed-list">
+                      <div className="draft-composed-row">
+                        <dt>헤드카피</dt>
+                        <dd className="draft-composed-headline">{composedCopy.headline}</dd>
+                      </div>
+                      <div className="draft-composed-row">
+                        <dt>리드카피</dt>
+                        <dd className="draft-composed-lead">{composedCopy.subline}</dd>
+                      </div>
+                      <div className="draft-composed-row">
+                        <dt>CTA</dt>
+                        <dd><span className="draft-composed-cta">{composedCopy.cta}</span></dd>
+                      </div>
+                    </dl>
+                  </section>
+                )}
               </figcaption>
             )}
           </figure>
