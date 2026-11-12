@@ -396,8 +396,29 @@ class LivePipeline:
                       "research_sha":digest(r),"model":text_model}
             verified_cp=self.checkpoints.load(actor,job_id,"copy",digest(copy_ctx),
                                               "LIVE",AdCopyOutput)
-            if verified_cp is None or verified_cp.model_dump(mode="json")!=cp:
+            if verified_cp is None:
                 raise LiveGateError("PROMPT_LIVE_SOURCE_COPY_UNVERIFIED")
+            # The LIVE Owner's current copy may have been revised after the
+            # first immutable copy checkpoint. Validate that exact content
+            # against an immutable LIVE copy-revision checkpoint rather than
+            # incorrectly rejecting every legitimate AI copy edit.
+            if verified_cp.model_dump(mode="json")!=cp:
+                from src.text_generation.schemas import CopyRevisionOutput
+                with self.checkpoints.db() as db:
+                    sources=db.execute("""SELECT context_sha FROM text_revision_checkpoints
+                        WHERE job_id=? AND actor=? AND stage='copy_revision'
+                          AND mode='LIVE' ORDER BY created_at DESC
+                        LIMIT 100""",(job_id,actor)).fetchall()
+                attested=False
+                for source in sources:
+                    revised=self.checkpoints.load(actor,job_id,"copy_revision",
+                        source["context_sha"],"LIVE",CopyRevisionOutput)
+                    if (revised is not None and
+                        revised.revised.model_dump(mode="json")==cp):
+                        attested=True
+                        break
+                if not attested:
+                    raise LiveGateError("PROMPT_LIVE_SOURCE_COPY_UNVERIFIED")
         except LiveGateError as exc:
             raise LiveGateError("PROMPT_LIVE_SOURCE_PROVENANCE_INVALID") from None
 
